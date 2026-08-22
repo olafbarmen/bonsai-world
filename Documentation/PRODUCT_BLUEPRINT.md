@@ -1,0 +1,860 @@
+# Bonsai World — Product Blueprint
+
+**Status:** Single source of truth for the **current product** architecture, feature set, and Bonsai-specific UI patterns  
+**Authority:** Subordinate only to the Constitution; must align with the Falo Design System  
+
+This document describes what Bonsai World is planned to be and **how its Workspace UI works**. Immutable philosophy lives in [BONSAI_CONSTITUTION.md](BONSAI_CONSTITUTION.md). Shared Falo visual language lives in the Design System and Component Library.
+
+Anything not yet built is marked **Planned**. Do not treat Planned items as shipped.
+
+Direction themes may appear in a non-governing Roadmap. Shipped history may appear in a non-governing Changelog. Neither replaces this Blueprint.
+
+---
+
+## 1. Product vision
+
+Bonsai World should be the calm, everyday place to organize a bonsai collection and support ongoing care.
+
+It helps the grower know what they have, where it lives, what needs attention, and what has been done — without turning care into administrative overhead.
+
+**Trees are the core.** Development begins as a **native macOS** application. Architecture supports future **Windows**, **iPhone**, and **Android** clients that share the same domain, services, storage contracts, and UI mental model without major refactoring.
+
+### 1.1 The Software Grows with the Artist
+
+**Status:** Approved core product principle (Constitution §17; Falo Design System — beside Progressive Disclosure).
+
+Bonsai World is **one product**, **one library**, and **one data model**. Users never change products—they grow into them.
+
+| Pillar | Meaning |
+|--------|---------|
+| **One Library** | The grower owns a single Bonsai World Library. |
+| **One Database / data model** | No lite schema, no expert schema, no edition fork. |
+| **One Product** | No separate Novice / Expert apps or SKUs as different products. |
+| **Three User Experience Levels** | **Novice**, **Experienced**, **Expert** — see §6. |
+| **Increasing capability without increasing complexity** | More tools appear as confidence grows; the Novice path stays calm. |
+| **Reveal with mastery** | Navigation, guidance, and tools deepen with the artist—not with a second product. |
+
+**Experience Levels affect:** presentation, navigation density, guidance, empty-state teaching, Quick Actions, and which tools or module surfaces are available.
+
+**Experience Levels never:** change the underlying data model; create incompatible workflows; orphan or convert data when the grower advances; fork storage providers.
+
+**Relationship to Progressive Disclosure:** Progressive Disclosure (Falo) is how screens reveal depth in the moment. *The Software Grows with the Artist* is how the **whole World** deepens over the grower’s practice. Both are required; neither replaces the other.
+
+**Future features:** Every new capability must define behaviour for **Novice**, **Experienced**, and **Expert** (or explicitly declare level-invariant) before implementation — see §4.2 and §6.
+
+---
+
+## 2. High-level architecture
+
+**Current shipping target:** native macOS application.  
+**Architectural target:** platform-independent core with platform-specific UI and adapters.
+
+```text
+UI (platform-specific)
+  → Features / Shared presentation
+    → Services (domain operations; platform-independent when practical)
+      → Domain (models & business rules; platform-independent)
+        → Storage (provider abstraction; platform adapters underneath)
+Platform layer — OS APIs, pickers, bookmarks, notifications, etc.
+```
+
+### Layers
+
+| Layer | Owns | Must not |
+|-------|------|----------|
+| **Domain** | Tree, Location, Collection shape; naming; identity invariants | OS frameworks; file paths; window chrome |
+| **Services** | Domain operations and workflows | Call AppKit/UIKit directly — use Platform adapters |
+| **Storage** | Persistence of the user-owned library via `StorageProvider` | Own physical “Locations” (benches); leak paths to Features |
+| **Platform** | OS dialogs, bookmarks, notifications, decode helpers | Become a second home for business rules |
+| **UI** | Presentation (native per platform) | Own persistence rules or duplicate domain truth |
+
+**Composition today (macOS):** App → Features → Shared → Core / Storage. Shared does not own domain data.
+
+### Top-level folders (planned)
+
+| Area | Role |
+|------|------|
+| `App/` | Shell and entry |
+| `Core/Domain/`, `Core/Models/`, `Core/Services/`, `Core/Managers/` | Domain and operations |
+| `Storage/` | Phase 1 local persistence |
+| `Core/Cloud/` | Cloud providers (Phases 2–4) |
+| `ReferenceData/` | Master data models and services |
+| `Features/` | One folder per **independent feature module** |
+| `Shared/` | Reusable presentation |
+| `Shared/PreviewData/` | Interim in-memory catalog (not long-term persistence) |
+| `Resources/` | Assets |
+| `Platform/` (planned) | OS adapters |
+
+---
+
+## 3. Storage philosophy
+
+The grower owns the **Bonsai World Library**. The app must not lock users into one storage provider.
+
+### Rules
+
+1. All library file/blob access goes through a **`StorageProvider`** abstraction.  
+2. Models store **identifiers or relative keys only** — never absolute paths or provider-specific locations.  
+3. **No View, Model, or Feature** may access file paths directly.  
+4. Adding iCloud, OneDrive, or Bonsai Cloud means **adding a provider**, not rewriting Tree/Image models.  
+5. **User Experience Levels / Workspace Profiles never select or fork** storage providers.
+
+### Phases
+
+| Phase | Goal |
+|-------|------|
+| **1 — Local** | Fully functional macOS app on local library (`StorageService` + `LocalStorageProvider`) |
+| **2 — iCloud** | Optional iCloud-backed provider |
+| **3 — Windows providers** | e.g. OneDrive / local Windows paths via providers |
+| **4 — Bonsai Cloud** | Dedicated cloud provider |
+
+Library location is chosen by the user (**Settings → Library Management** when shipped). Physical **Locations** (benches, shelves) are a feature module — never conflated with file storage.
+
+**Library administration** (Import, Export, Backup, Restore, Validate, Diagnostics) is **not** part of daily bonsai work. It lives under **Settings → Library Management** (§8.1) — never as primary Workspace navigation or competing Global Quick Actions for routine care.
+
+Detailed phase notes may live under `Documentation/Architecture/`; **this section is the governing storage strategy**.
+
+---
+
+## 4. Standard module architecture
+
+Bonsai World is built from **independent feature modules**. Every module follows the **same architecture and user experience** (Constitution + §6 + §7 UI framework). Modules do not invent private shells, action homes, or edit philosophies.
+
+### 4.1 Shared rules for every module
+
+- Lives under `Features/<Module>/`; talks to Services / Domain — not to storage paths or OS APIs.  
+- Appears in Workspace (or Tools) per navigation order and **User Experience Level** / Workspace Profile (§6).  
+- Uses Sidebar → Content List → Detail → Quick Actions (stack on narrow devices).  
+- **Quick Actions** is the only action home; unfinished actions stay hidden.  
+- Detail opens in **View Mode**; **Edit Mode** uses draft Save / Cancel / Reset Changes.  
+- Consumes **Reference Data** from Settings; never edits master data inline.  
+- Grows by extending workflows inside the same architecture — not by forking the module.  
+- Defines how it behaves for **Novice**, **Experienced**, and **Expert** (§1.1, §6).
+
+### 4.2 Standard module template (mandatory)
+
+Every current and **future** module must be defined in this Blueprint using **all** of the following fields. Do not add a module without completing this template.
+
+| Field | Meaning |
+|-------|---------|
+| **Purpose** | Why the module exists |
+| **Primary Objects** | Domain objects the module owns |
+| **Primary Workflow** | How users naturally work inside the module |
+| **Navigation** | Where it appears in Workspace |
+| **Quick Actions** | Actions that belong in the Quick Actions panel (global / context / edit) |
+| **Detail View** | How View Mode and Edit Mode work |
+| **Reference Data** | Which Reference Data the module depends on |
+| **Relationships** | How it relates to other modules |
+| **Experience Levels** | How the module behaves for **Novice**, **Experienced**, and **Expert** (presentation, navigation, guidance, tools). Required for every future feature and module. Use “level-invariant” only when truly unchanged across levels. |
+| **Future Expansion** | How it can grow without changing its architecture |
+
+**Settings**, **Projects**, and Expert-depth modules (Exhibition, Research, Analytics, Breeding, …) follow the same template when specified; they are listed briefly in §5 and §8 until fully templated.
+
+### 4.3 Cross-cutting domain rules
+
+```text
+World → Location → Tree (exactly one Location)
+Collection → Tree (0…n; many-to-many; does not set Location)
+```
+
+| Term | Meaning | Owner module |
+|------|---------|--------------|
+| **Location** | Where a tree physically lives | Locations |
+| **Collection** | Focused working set of trees (see §4.4) | Collections |
+| **Tree** | Individual bonsai | Trees |
+
+**Immutable botanical identity:** After a Tree is created, Genus, Species, Cultivar, and derived Botanical Name are immutable in operational UI and services. Create may set identity once.
+
+**Tree Lifetime:** A Tree is a living record with permanent history. See **§4.5**. Deletion is exceptional; lifecycle status covers normal end-of-ownership and end-of-life outcomes.
+
+**Reference Data (global):** Edited only in Settings (Reference Data / Botanical Library). Hierarchical botanical data stays Genus → Species → Cultivar. Empty pickers guide users to Settings.
+
+### 4.4 Collection philosophy
+
+**Status:** Approved product model.
+
+#### Definition
+
+A **Collection** is a **focused working set of Trees** that share a common purpose, characteristic, task, or relationship.
+
+Collections help the bonsai artist **focus on a specific part of the collection** without changing the underlying Tree library. Trees remain the heart of Bonsai World; Collections are organizational lenses that orbit them. A Collection **never** determines Location.
+
+#### Collection types
+
+The product supports two **internal** Collection types:
+
+| Type | Membership |
+|------|------------|
+| **Manual Collection** | User adds and removes trees explicitly. |
+| **Smart Collection** | Membership is **automatically populated** from rules (see below). |
+
+These are **implementation types**. The user interface presents both simply as **Collections** — one module, one list, one Detail pattern.
+
+When creating a new Collection, the user chooses **Manual** or **Smart**. After creation, both types behave like any other Collection in browse, Detail, and navigation workflows.
+
+#### Collection navigation
+
+**Status:** Approved product model. **List sections and system Smart placeholders shipped;** filter evaluation for Smart membership remains planned.
+
+Collections remain a **three-pane module**:
+
+| Pane | Role |
+|------|------|
+| **Sidebar** | Workspace navigation (Garden → Collections) and Quick Actions |
+| **Collection List** | All Collections for the library, organized into **sections** (see below) |
+| **Collection Detail** | Selected Collection — members and metadata |
+
+**Do not** introduce an additional navigation column (or sidebar tier) for Collection Types, Manual vs Smart, or similar type browsers. Type is an **internal** distinction; the grower stays in one Collections module with one list and one Detail.
+
+##### Collection List sections
+
+The Collection List organizes rows into calm, labeled sections within the same content column. Example structure:
+
+```text
+SMART COLLECTIONS
+  Favorite Trees
+  Today's Work
+  Needs Water
+  Needs Repotting
+  Needs Photos
+
+MY COLLECTIONS
+  Exhibition 2027
+  Maples
+  Shohin
+```
+
+| Section | Contents |
+|---------|----------|
+| **Smart Collections** | System and user Smart Collections. Hide the section when empty. |
+| **My Collections** | Manual Collections created by the grower. |
+
+Until additional Smart Collections exist beyond system placeholders, **Smart Collections** still lists the built-in placeholders. Section chrome must not imply a second module or a fourth pane.
+
+Selecting a row in either section opens the **same** Collection Detail pattern. Membership, Edit Collection, and Add Existing Tree workflows do not change by section.
+
+#### Smart Collections
+
+**Smart Collections are Collections.** The product does **not** use the term **Saved Views**.
+
+A Smart Collection is automatically populated based on **rules** defined at create or edit time. Examples (planned):
+
+- Today's Work
+- Needs Attention
+- Needs Water / Water Today
+- Needs Repotting
+- Favorite Trees
+- Yamadori
+- Trees in Greenhouse
+- No Main Photo
+
+Rule evaluation and refresh are domain/service concerns; the grower sees a normal Collection with members that update as the library and care context change. In the UI, Smart Collections appear in the **Smart Collections** list section (§4.4 Collection navigation) — not in a separate navigation column. Attention-oriented Smart Collections also surface on **Dashboard** (§5.1).
+
+#### Membership ownership
+
+**Collections own Tree membership.** `Collection.treeIDs` (or equivalent ordered membership on the Collection record) is the **single source of truth**.
+
+- **Tree objects must never maintain a list of Collection IDs.**
+- **Tree Overview** and **Tree Workspace** **may display** which Collections include this tree (resolved at read time from Collections).
+- Add/remove membership from **Tree Overview**, **Tree Workspace**, or **Collection Detail** — all are entry points to the **same** Collection-owned operation.
+
+#### Favorites
+
+**Favorite is a Tree property** (for example `isFavorite` on Tree).
+
+The application **may automatically expose** a Smart Collection named **Favorite Trees** whose rules reflect trees marked favorite. That Collection is a **working view** over the favorite flag — not a manually synced duplicate list.
+
+#### Custom ordering
+
+| Type | Ordering |
+|------|----------|
+| **Manual Collection** | Optional **user-defined tree order** — for exhibition planning, project work, and storytelling. Default sort when custom order is not set. |
+| **Smart Collection** | **Rule-based ordering** defined in the Smart Collection configuration. |
+
+#### Collections vs Tasks
+
+**Tasks** own actionable work and completion state. A Smart Collection such as **Water Today** is a **focused working set** for browsing and planning — not a substitute for the Tasks module. Tasks and Smart Collections may overlap in subject matter but serve different workflows (see §5.9).
+
+#### Dashboard relationship
+
+Collections are **working views**. Dashboard surfaces Collections that **require attention** (for example Water Today, Repotting Due, Exhibition 2028, Favorite Trees) — not a flat inventory of every Collection. Dashboard remains read-only orientation; deep links open the owning Collection or **Tree Overview** / **Tree Workspace** (see §5.1, §5.2).
+
+#### Default Collection selection
+
+**Status:** Approved product policy. **Shipped** (session selection; last-opened remembered in-app).
+
+The Collections module shall **never open with an empty Detail pane when Collections exist**.
+
+When the grower enters Collections (or returns without a valid selection), Bonsai World shall **automatically select** a Collection:
+
+1. **First available Smart Collection** (list order under Smart Collections).
+2. **Otherwise** — the **last opened** Collection (when it still exists).
+3. **Otherwise** — the first **My Collections** (Manual) row.
+
+The empty **“Select a Collection”** Detail state shall appear **only** when the library contains **no** Collections. It must not appear merely because nothing has been clicked yet.
+
+**Purpose:** Collections feel like an **active workspace** — Detail always shows a working set when any Collection exists — without adding a fourth navigation pane.
+
+**Relationship to Smart Collections:** System Smart placeholders establish permanent navigation. Attention surfacing remains on **Dashboard** (§5.1). Filter-based Smart membership is planned separately.
+
+### 4.5 Tree Lifetime
+
+**Status:** Approved product policy. **Not implemented** in application code yet.
+
+#### Principle
+
+A **Tree** represents a **living object with a permanent history**.
+
+The grower’s library is a steward of that history — botanical identity, photographs, measurements, journal, work, and Collection membership over time. Normal workflows must **preserve** the Tree and its complete history.
+
+#### No deletion in normal use
+
+**Trees must never be deleted during normal use.**
+
+Deletion is **only** permitted for:
+
+| Case | Intent |
+|------|--------|
+| **Accidental registration** | A Tree was created by mistake and has no meaningful history to keep. |
+| **Duplicate records** | Two records represent the same physical tree; one may be removed after an explicit correction workflow. |
+
+All other situations — sale, gift, death, loss, retirement from display, transfer of ownership — **shall preserve the Tree** and its complete history. Those outcomes are expressed as **lifecycle status**, not deletion.
+
+#### Lifecycle status
+
+Trees shall support a **lifecycle status** that replaces deletion in normal workflows. Planned supporting states include:
+
+| Status | Meaning (product language) |
+|--------|----------------------------|
+| **Active** | Living tree in the grower’s care (default). |
+| **Sold** | Ownership ended by sale; history retained. |
+| **Gifted** | Ownership ended by gift; history retained. |
+| **Dead** | Tree died; history retained. |
+| **Lost** | Tree lost or whereabouts unknown; history retained. |
+
+Additional statuses may be approved later without changing the rule that **status ≠ deletion**.
+
+Changing lifecycle status is an intentional workflow (View → Edit or a dedicated action when shipped). It must never silently remove history, images, or related records.
+
+Relationship to existing fields (when implemented): lifecycle status is the **product** model for “what happened to this tree.” Existing acquisition / disposal / classification fields may support or be aligned with this status; they must not invent a parallel “delete to dispose” path.
+
+#### Presentation rules
+
+**Collections**, **Tasks**, **Dashboard**, and future **Smart Collections** shall **respect Tree lifecycle status** when presenting Trees:
+
+- Default care and attention surfaces emphasize **Active** trees (and other statuses only when the grower asks or when a view is explicitly about non-active trees).
+- Non-active trees remain findable (search, filters, dedicated views) so history is never orphaned.
+- Smart Collection rules may filter by lifecycle status (for example “Active only” or “Sold this year”).
+- Removing a Tree from a Collection never deletes the Tree (§4.4); changing lifecycle status never deletes the Tree (§4.5).
+
+#### Delete action (product)
+
+| Action | Policy |
+|--------|--------|
+| **Delete Tree** | Hidden until a correct accidental/duplicate correction workflow ships. Never the path for Sold / Gifted / Dead / Lost. |
+| **Change lifecycle status** | Normal path for end-of-ownership and end-of-life outcomes *(Planned)*. |
+
+---
+
+## 5. Module definitions
+
+Status labels: **Partial** = usable but incomplete; **Planned** = not shipped; **Prepared** = subsystem exists, module surface incomplete.
+
+---
+
+### 5.1 Dashboard
+
+| Field | Definition |
+|-------|------------|
+| **Purpose** | Orient the grower — what needs attention and where to go next — without becoming an editing surface. |
+| **Primary Objects** | None owned. Aggregates read-only signals from other modules (counts, reminders, recent activity — as decided). |
+| **Primary Workflow** | Open Dashboard → scan overview → navigate into Trees, Collections, Tasks, Calendar, or other modules to act. |
+| **Navigation** | Workspace position **1**. Essential+. |
+| **Quick Actions** | **Global (planned):** Continue Working, View Today’s Tasks (when real). No create/edit of domain records here. |
+| **Detail View** | No domain Detail. Cards/sections are read-only orientation; deep links open the owning module’s Detail. |
+| **Reference Data** | None owned. May display labels resolved from other modules’ Reference Data. |
+| **Relationships** | Read-only consumer of Trees, Locations, **Collections** (working views — see §4.4), Gallery, Journal, Calendar, Tasks (and Propagation when visible). Never owns their records. **Collections on Dashboard:** surface Collections that **require attention** (for example Water Today, Repotting Due, Exhibition 2028, Favorite Trees) — not a simple list of all Collections. Library-wide counts (total trees, species breakdown) are **inventory overview**, distinct from named Collections. **Tree Lifetime (§4.5):** default attention and care signals respect lifecycle status (emphasize Active; do not treat Sold / Gifted / Dead / Lost as “missing” trees to recreate). |
+| **Future Expansion** | Add widgets and attention-oriented Collection cards without inventing edit workflows; keep calm overview. Profile may hide advanced widgets later. Auto-hide Collection cards when empty. |
+
+**Status:** Partial — Dashboard Version 2 layout. Daily workspace hierarchy (Today's Care → Alerts → Upcoming → Collection / Inventory → supporting cards). Primary cards dominate; secondary cards are quieter lists. Detail column hidden on Dashboard. Placeholder data only — no live feeds, no card navigation, no drag & drop yet. Layout placements prepared for hide / favorite / resize / auto-hide-when-empty. Collection philosophy (§4.4) and Tree Lifetime (§4.5) approved; attention-oriented Collection surfacing and lifecycle-aware feeds not yet wired.
+
+---
+
+### 5.2 Trees
+
+| Field | Definition |
+|-------|------------|
+| **Purpose** | Own the individual bonsai record — identity, place, care fields, images, personal flags, and **lifecycle status**. **Heart of Bonsai World.** A Tree is a living object with permanent history (§4.5). The grower meets each Tree through **Tree Overview** (browse) and **Tree Workspace** (deep work) — two depths of the **same** Tree, never two products. |
+| **Primary Objects** | **Tree** (botanical IDs, `locationID`, **`isFavorite`**, **lifecycle status** *(Planned)*, classification/growing/history fields, image IDs, notes). Tree does **not** store Collection membership IDs — see §4.4. **Tree Overview** and **Tree Workspace** are presentation surfaces — not separate domain entities. |
+| **Primary Workflow** | Browse Garden → Trees list → **one-click** selects **Tree Overview** (View) → light Edit when needed; **double-click** (or **Open Tree Workspace**) opens the Tree’s personal **Tree Workspace** window; create via New Tree; add primary image; toggle favorite; membership via Collections; change **lifecycle status** for Sold / Gifted / Dead / Lost *(Planned)* instead of deleting. |
+| **Navigation** | Version 2: **Garden → Trees**. Essential+ (all Experience Levels). |
+| **Quick Actions** | **Global:** New Tree; Search. **Library Import / Export** under **Settings → Library Management** (§8.1). **Context (tree selected, Overview View):** Edit Tree; Add Image; **Open Tree Workspace**; View Gallery / Duplicate *(hide until shipped)*; **Delete** *(hide until accidental/duplicate correction — §4.5)*. **Edit Mode (Overview):** Save; Cancel; Reset Changes. Lifecycle status change may ship as Edit field or dedicated context action — never as Delete. Workspace window has its own context Quick Actions for deep chapters when shipped. |
+| **Detail View** | See **§5.2.1 Tree Overview** and **§5.2.2 Tree Workspace**. View Mode default; Edit intentional. Botanical identity locked after create. Human hierarchy first (presence, photo, place) — not UUID-led or taxonomy-first. Observation before administration. |
+| **Reference Data** | Botanical Library (Genus → Species → Cultivar); Style; Size Class; Tree Status; Light; Soil; Pot; Acquisition Source; consumes **Locations** as place pickers. Lifecycle status vocabulary may live as Reference Data or a fixed domain enum when implemented — one source of truth. |
+| **Relationships** | Exactly one **Location**; member of zero or more **Collections** (membership owned by Collections); images via Gallery/Images; future Journal / Tasks / Calendar / Projects / Workshop Work link by Tree ID. Related modules **respect lifecycle status** when listing Trees (§4.5). Orbiting modules open *into* the Tree story; they do not compete as alternate homes for the bonsai. |
+| **Experience Levels** | See **§5.2.5**. Same Tree and Library at every level; Novice / Experienced / Expert only change presentation density, chapter visibility, guidance, and tools (§1.1, §6). |
+| **Future Expansion** | See **§5.2.6**. |
+
+**Status:** Architecture **approved** (Tree Overview + Tree Workspace). Implementation **Partial** — list + embedded detail (form-card layout), View/Edit, Quick Actions, TreeService, library persistence; Overview redesign and Tree Workspace window **not yet implemented**. Collection membership aligned with §4.4. **Tree Lifetime (§4.5)** approved — lifecycle status and delete restriction not yet implemented in code.
+
+#### 5.2.1 Tree Overview
+
+**Definition:** The embedded surface inside **Garden → Trees** (list above, overview below). Optimized for **browsing and comparing many trees**.
+
+| Aspect | Rule |
+|--------|------|
+| **Job** | Recognize the tree, see place and health, spot attention, make light corrections, open deep work when needed. |
+| **Selection** | **One-click** (or list selection) shows Overview for that Tree. Fast navigation across the collection. |
+| **Editing** | **Lightweight** — View default; Edit via Quick Actions for nickname, place, growing summaries, notes, collections, pot dimensions, health/status, add photo, add measurement. Not a warehouse of every craft chapter. |
+| **Presence first** | Hero photo + identity + place + quiet health / lifecycle chips before administrative field grids. Classification, ownership, pot dimensions, and full measurement history are **secondary** (collapsed / preview) — not equal peer cards. |
+| **Not** | A second application; a place to dump Journal, full Timeline, Design, or Assistant as always-on panels. |
+
+#### 5.2.2 Tree Workspace
+
+**Definition:** The **complete working environment for one bonsai**. Flagship craft surface of Bonsai World.
+
+| Aspect | Rule |
+|--------|------|
+| **Job** | Enter the life of one Tree — observe, remember, plan, register work, journal, design. |
+| **Open** | **Double-click** a Tree in the list, or Quick Action **Open Tree Workspace**. |
+| **Window** | Opens in its **own macOS window**. **Not** a larger copy of Overview. |
+| **Feel** | The bonsai’s personal workspace. The database supports the tree; it does not dominate the screen. |
+| **Chapters** (permanent IA; ship incrementally) | **Now** · **Timeline** · **Gallery** · **Measure** · **Work** · **Journal** · **Collections** · **Design** · **Documents** · **Ownership** · **Assistant** — revealed by Experience Level (§5.2.5). |
+| **Hero** | Dominant photo plane; identity beside or below — not admin stickers on the image. |
+
+#### 5.2.3 Navigation between Overview and Workspace
+
+| Action | Result |
+|--------|--------|
+| One-click / list selection | **Tree Overview** in the Garden → Trees split view |
+| Double-click tree row | Open or focus **Tree Workspace** for that Tree |
+| Quick Action **Open Tree Workspace** | Same |
+| From Workspace: **Show in Library** / **Reveal in List** | Focus main window; select the Tree; show **Tree Overview** |
+| Close Workspace window | Main library unchanged; list selection preserved |
+| From Collections member list | Same one-click / double-click rules |
+| Show on Map | Jump to Locations (orbiting module) — does not replace Workspace |
+
+**Do not** open Workspace on every single-click (destroys browse rhythm).  
+**Do not** implement Workspace as Overview with more cards.
+
+#### 5.2.4 Window behavior and synchronization
+
+| Rule | Meaning |
+|------|---------|
+| **Multi-window** | Multiple Tree Workspaces may be open at once (one or more Trees). Native multi-window on macOS first; mental model portable to other platforms. |
+| **One Library** | Every Overview and every Workspace window operates on the **same** active Bonsai World Library. No per-window library fork. |
+| **One Tree record** | Edits in Overview or Workspace write the **same** Tree (and related IDs). Botanical locks and lifecycle rules apply everywhere. |
+| **Synchronization** | All open surfaces stay **synchronized** with library truth — when a Tree is saved in one window, other open Overview/Workspace views for that Tree reflect the update without inventing a second store. |
+| **No second product** | Workspace is not a separate app, edition, or schema. |
+
+#### 5.2.5 Experience Levels (Trees)
+
+| Capability | Novice | Experienced | Expert |
+|------------|--------|-------------|--------|
+| Tree Overview (browse) | Presence + place + health; light Edit | + Situation density; disclosures | Full disclosures available |
+| Open Tree Workspace | Yes | Yes | Yes |
+| Workspace **Now** | Plain attention language | + task / work cues | + richer workshop links |
+| Gallery | Add / view primary | Full film + metadata | Compare / richer timelines *(when shipped)* |
+| Timeline / History | Simple history list | Filtered timeline | Full spine |
+| Measure | Optional latest height | Full sessions | Trends / denser history |
+| Work | Soft cues in Overview/Now | Register Work + history | Advanced work types |
+| Journal | Optional short notes | Full tree-scoped journal | Rich + media refs |
+| Design / Documents | Hidden | Teaser or optional Documents | Full Design + Documents |
+| Ownership | One-line acquired if useful | Full acquisition | Acquisition + disposal / economy prep |
+| Assistant | Hidden | Opt-in | Opt-in, richer |
+| Classification / soil science | Behind botanical name | Available in disclosures | Dense |
+| Delete Tree | Hidden | Hidden | Hidden until correction workflow (§4.5) |
+
+#### 5.2.6 Future expansion (Trees)
+
+Ship order is delivery planning; architecture stays fixed:
+
+1. Calm **Tree Overview** (presence-first; end equal card warehouse).  
+2. **Tree Workspace** v1 window (Presence + Now + Gallery + Measure).  
+3. **Timeline** spine (photos, measurements, work, journal, lifecycle).  
+4. **Work** + **Journal** chapters in Workspace.  
+5. **Design** + **Documents** (Expert depth).  
+6. **Assistant** scoped to this Tree (and optional Collection).  
+7. Search/filter (including lifecycle), move-tree workflow, ephemeral list filters — without forking Overview/Workspace.
+
+---
+
+### 5.3 Locations
+
+| Field | Definition |
+|-------|------------|
+| **Purpose** | Define **physical places** where trees live (benches, shelves, zones). |
+| **Primary Objects** | **Location** (name, notes, metadata as decided). |
+| **Primary Workflow** | Browse places → open Detail → see trees at that place → Edit location facts when needed → create New Location. |
+| **Navigation** | Workspace position **3**. Essential+. |
+| **Quick Actions** | **Global / context (planned when shipped):** New Location; Edit Location; *(hide unfinished)*. **Edit Mode:** Save; Cancel; Reset Changes. |
+| **Detail View** | View by default; Edit intentional. Shows related Trees at this location and overlapping Collections (organizational only). Does not edit Trees inline — opens **Tree Overview** or **Tree Workspace** (§5.2). |
+| **Reference Data** | May use shared lists if defined for location types; place records themselves are owned here (not reinvented inside Trees). |
+| **Relationships** | Many Trees reference one Location. Distinct from file **Storage**. Collections do not set Location. |
+| **Future Expansion** | Maps, capacity, climate notes — without merging into Storage or Collections. |
+
+**Status:** Partial (master/detail reference module).
+
+---
+
+### 5.4 Collections
+
+| Field | Definition |
+|-------|------------|
+| **Purpose** | Provide **focused working sets** of trees so the grower can concentrate on a purpose, characteristic, task, or relationship — without altering the underlying Tree library. Full philosophy: **§4.4**. |
+| **Primary Objects** | **Collection** — name, description, optional icon/color, **type** (Manual or Smart), **`treeIDs`** (Manual membership; authoritative), **smart rules and sort** (Smart; membership computed). Manual Collections may store **custom member order**. |
+| **Primary Workflow** | Enter Collections → **auto-select** first Smart Collection, else last opened, else first Manual (§4.4) so Detail is never empty when Collections exist → scan member trees → **one-click** opens **Tree Overview**, **double-click** opens **Tree Workspace** (§5.2); **New Collection** → Manual create; adjust Manual membership from Tree or Collection Detail; Smart membership rules planned. |
+| **Navigation** | **Three-pane module:** Sidebar → **sectioned Collection List** (Smart Collections / My Collections) → Collection Detail. **No** extra column for Collection Types. Workspace: Version 1 position **4**; Version 2 **Garden → Collections**. Essential+. Full model: **§4.4 Collection navigation**. |
+| **Quick Actions** | **Context:** New Collection *(shipped — Manual only until Smart ships)*. Add Existing Tree *(shipped)*. Edit Collection *(shipped — metadata: name, description, icon, color)*. Membership changes must not duplicate as a second New Tree. **Edit Mode:** Auto Save; **Finish** leaves Edit Mode (same pattern as Tree Overview). Smart rules editing — hide until Smart Collections ship. |
+| **Detail View** | Always shows a selected Collection when any exist (§4.4 default selection). “Select a Collection” only when the library has **zero** Collections. View members; Edit for metadata, Manual membership, Smart rules, and optional custom order when implemented. Member **one-click** → **Tree Overview**; **double-click** → **Tree Workspace** (§5.2). UI does **not** expose “Manual Collection” / “Smart Collection” as separate module names — only **Collections**, grouped in list sections. |
+| **Reference Data** | None required for core membership; Smart rules may reference botanical, Location, care, and Tree fields. Optional labels later via Settings lists. |
+| **Relationships** | Many-to-many with Trees — **Collections own membership** (§4.4). **Never** determines Location. **Favorite Trees** may be a system Smart Collection over Tree `isFavorite`. Dashboard surfaces **attention-oriented** Collections (§5.1). Tasks module owns completion; Smart Collections such as Water Today are browse/plan lenses, not task records. Member presentation **respects Tree lifecycle status** (§4.5) — default views emphasize Active trees unless the Collection or filter asks otherwise. |
+| **Future Expansion** | List sections (**Smart Collections** / **Your Collections**); persist last-selected Collection; system Smart Collections; additional Smart rule types (including lifecycle status); Dashboard pinning; Bonsai Assistant may scope conversation to a Collection — without mutating membership silently. |
+
+**Status:** Partial (three-pane list/detail with Smart / My sections, system Smart placeholders, Manual membership, Edit Collection metadata, default selection). Smart filter evaluation, Tree `isFavorite`, and custom order — **Planned** per §4.4.
+
+---
+
+### 5.5 Gallery
+
+| Field | Definition |
+|-------|------------|
+| **Purpose** | Visual memory of trees and work — browse and organize images over time. |
+| **Primary Objects** | **Image** / gallery presentations (assets referenced by Tree `primaryImageID` / `imageIDs`). Canonical Tree identity stays in Trees. |
+| **Primary Workflow** | Browse visuals → open an image or tree-linked set → return to Tree; import happens primarily from Tree context (Add Image) or Gallery import when shipped. |
+| **Navigation** | Workspace position **5**. Essential+. |
+| **Quick Actions** | **Global (when shipped):** Import Photos. Context: open Tree, set primary *(hide until real)*. No duplicate Add Image on Tree Overview chrome. |
+| **Detail View** | View-first image/set detail; edit metadata or membership in Edit Mode when defined. Does not rewrite botanical identity. |
+| **Reference Data** | Optional tags/categories from Settings lists later. |
+| **Relationships** | Serves **Trees** (and future Projects/Journal). Images subsystem prepared under library storage rules. |
+| **Future Expansion** | Timelines, multi-select, export — same Gallery module, deeper workflows. |
+
+**Status:** Prepared (Images subsystem); Gallery module surface Planned.
+
+---
+
+### 5.6 Propagation
+
+| Field | Definition |
+|-------|------------|
+| **Purpose** | Develop new material (seeds, cuttings, air layers, grafts) that may become Trees. |
+| **Primary Objects** | Propagation records per method (Seeds, Cuttings, Air Layering, Grafting — as specified when built). |
+| **Primary Workflow** | Track material → care steps → graduate into a **Tree** when ready (explicit workflow). |
+| **Navigation** | Workspace position **6**. **Advanced+ only** (hidden in Essential). |
+| **Quick Actions** | Method-specific New / Edit / Graduate to Tree *(when shipped)*. Edit Mode: Save; Cancel; Reset Changes. |
+| **Detail View** | View material status; Edit care fields. Graduation creates/links a Tree without bypassing botanical create rules. |
+| **Reference Data** | Botanical Library and care lists as needed; does not fork taxonomy. |
+| **Relationships** | Feeds **Trees**; may note source Location; does not replace Locations or Tree identity. |
+| **Future Expansion** | New methods as sub-workflows inside Propagation — not separate apps or schemas. |
+
+**Status:** Planned. Domain must remain representable while hidden.
+
+---
+
+### 5.7 Journal
+
+| Field | Definition |
+|-------|------------|
+| **Purpose** | Chronological observations and notes about trees and care. |
+| **Primary Objects** | **Journal entry** (date, text, linked Tree IDs, optional media refs). |
+| **Primary Workflow** | Browse timeline → open entry → Edit; create New Entry from Quick Actions or from a Tree. |
+| **Navigation** | Workspace position **7**. Essential+. |
+| **Quick Actions** | New Entry; Edit Entry *(when shipped)*. Edit Mode: Save; Cancel; Reset Changes. |
+| **Detail View** | View entry; Edit body and links. Not a task checklist (Tasks owns completion). |
+| **Reference Data** | Optional work types / tags from Settings. |
+| **Relationships** | Links to **Trees** (and optionally Gallery). Complements Tasks/Calendar without owning scheduling. |
+| **Future Expansion** | Filters by tree/season; rich media — same entry architecture. |
+
+**Status:** Planned.
+
+---
+
+### 5.8 Calendar
+
+| Field | Definition |
+|-------|------------|
+| **Purpose** | Time-based care windows and scheduled work. |
+| **Primary Objects** | **Calendar events / care windows** (dates, linked Trees or Tasks as decided). |
+| **Primary Workflow** | Browse by date → open event → Edit; add event for seasonal care. |
+| **Navigation** | Workspace position **8**. Essential+. |
+| **Quick Actions** | Add Event; Edit Event *(when shipped)*. Edit Mode: Save; Cancel; Reset Changes. |
+| **Detail View** | View schedule item; Edit timing and links. Does not redefine Task completion state. |
+| **Reference Data** | Optional care categories from Settings. |
+| **Relationships** | Coordinates with **Tasks** and **Trees**; may surface on Dashboard. |
+| **Future Expansion** | Recurrence, season templates — without absorbing Tasks or Journal. |
+
+**Status:** Planned.
+
+---
+
+### 5.9 Tasks
+
+| Field | Definition |
+|-------|------------|
+| **Purpose** | Actionable care work items and completion. |
+| **Primary Objects** | **Task** (title, status, due date, linked Tree IDs). |
+| **Primary Workflow** | Browse open work → open Task → complete or Edit; create New Task. |
+| **Navigation** | Workspace position **9**. Essential+. |
+| **Quick Actions** | New Task; Edit Task; Complete *(when shipped)*. Edit Mode: Save; Cancel; Reset Changes. |
+| **Detail View** | View task; Edit fields; completion is first-class. Not long-form Journal narrative. |
+| **Reference Data** | Work Types and similar lists from Settings. |
+| **Relationships** | Links to **Trees**; may appear on Calendar/Dashboard; Projects (when specified) may group tasks without owning day-to-day task truth alone. Default care Tasks **respect Tree lifecycle status** (§4.5) — do not schedule routine care for Sold / Gifted / Dead / Lost unless the grower explicitly scopes to those trees. |
+| **Future Expansion** | Templates, batch complete — same Task object and Quick Actions home. |
+
+**Status:** Planned.
+
+---
+
+## 6. User Experience Levels & Workspace Profiles
+
+**Status:** Approved. **Not implemented** in Settings UI yet.  
+**Principle:** §1.1 *The Software Grows with the Artist* · Constitution §17 · Falo Progressive Disclosure + Growing with the Artist.
+
+### 6.1 User Experience Levels (grower-facing)
+
+| Level | Intent |
+|-------|--------|
+| **Novice** | Maintain and enjoy living trees with a calm daily loop. Few modules; essential fields; clear guidance. |
+| **Experienced** | Develop material and craft with richer organization, care, and workshop depth. |
+| **Expert** | Professional depth — design systems, inventory, economy, research, and advanced tools — without leaving the same library. |
+
+**Default:** Novice (safe by default).
+
+**What levels change**
+
+- Presentation density (which Detail sections and Dashboard cards appear)  
+- Navigation (which modules and sub-routes are visible)  
+- Guidance (empty states, teaching copy, progressive hints)  
+- Available tools (Quick Actions, editors, advanced workflows)
+
+**What levels never change**
+
+- The underlying data model or library format  
+- Domain ownership (Trees remain Trees; Collections own membership; etc.)  
+- Compatibility of workflows — advancing must not break Novice-created data  
+- Storage provider selection
+
+### 6.2 Workspace Profiles (implementation mapping)
+
+Workspace Profiles are the **settings mechanism** that realize Experience Levels. Grower-facing language prefers **Novice / Experienced / Expert**. Profile names below remain valid for documentation continuity until Settings UI ships.
+
+| Experience Level | Profile (legacy name) | Module visibility (baseline) |
+|------------------|----------------------|------------------------------|
+| **Novice** | Essential | Dashboard, Garden (Trees, Collections, Gallery), Locations, Workshop (Tasks, Calendar as shipped), Settings |
+| **Experienced** | Advanced | Novice + Nursery / Propagation; richer Garden and Workshop surfaces |
+| **Expert** | Complete | Experienced + Design, Inventory, Knowledge (as module), Economy, Exhibition, Research, Analytics, Breeding, further tools |
+
+Exact leaf-route visibility is refined as Version 2 modules ship; the table is the **visibility intent**, not a second product matrix.
+
+**Rules**
+
+1. Visibility and disclosure only — one data model.  
+2. Free switching between levels; no data loss.  
+3. Independent of licensing.  
+4. Settings always reachable.  
+5. Reserve **Settings → Workspace → Experience Level** (or Workspace Profile) — do not implement until scheduled.  
+6. **Every future feature** must document Novice / Experienced / Expert behaviour in the Blueprint (module template §4.2) before coding.
+
+**Projects** (planned): care-oriented; Novice/Experienced until its full module template is written. **Settings** (Tools): preferences, Reference Data, Experience Level, **Library Management** (§8.1) — always available; template when expanded.
+
+---
+
+## 7. UI framework (Bonsai World)
+
+Specializes the Falo Design System. **All modules in §5 must reuse these patterns.** Do not invent parallel UI. Experience Levels (§1.1, §6) specialize *how much* of each pattern is revealed — never a second shell.
+
+Cross-platform: shared **mental model**; native chrome may differ (split vs stack).
+
+### 7.1 Workspace areas
+
+```text
+Sidebar → Content List → Detail View → Quick Actions → Inspector (future)
+```
+
+| Area | Responsibility |
+|------|----------------|
+| **Sidebar** | Where can I go? Filtered by **User Experience Level** / Workspace Profile (§6). No duplicate Create/Edit/Save. |
+| **Content List** | What am I working with? Selection drives Detail. May use **sections** within the same column (Collections: Smart Collections / My Collections — §4.4). Never a fourth pane for type browsing. |
+| **Detail View** | What is this? View Mode by default; Edit on demand. For Trees, the embedded Detail is **Tree Overview** (§5.2.1). |
+| **Quick Actions** | What can I do now? Sole action home. |
+| **Inspector (future)** | Optional supporting context — never a second Edit home. |
+| **Tree Workspace windows** | Flagship **multi-window** surfaces for one Tree each (§5.2.2–§5.2.4). Complement the shell above; they do not replace Sidebar navigation or invent a second Library. |
+
+Trees use **two depths**: Overview inside the split view; Workspace in its own window. Both follow View/Edit and Quick Actions; both share library synchronization (§5.2.4).
+
+### 7.2 Quick Actions
+
+1. Every action in **one** place.  
+2. Global remain visible when shipped.  
+3. Context follows selection.  
+4. Unfinished actions **hidden**.  
+5. Edit Mode context = **Save**, **Cancel**, **Reset Changes** only.
+
+### 7.3 View Mode / Edit Mode
+
+| Mode | Behavior |
+|------|----------|
+| **View (default)** | Read-only; Edit via Quick Actions |
+| **Edit** | Draft until Save or Cancel; Reset restores last commit |
+
+**Always read-only in operational detail:** botanical identity after create; system IDs as primary UI; derived botanical labels as free-text source; Reference Data definitions.
+
+### 7.4 Navigation order
+
+Matches §5 positions: Dashboard → Trees → Locations → Collections → Gallery → Propagation → Journal → Calendar → Tasks. Tools (Settings) outside this sequence.
+
+### 7.5 Consistency patterns
+
+Lists, Detail, Editors, Sheets, Dialogs/confirmations, Empty states — as previously defined: human scanning, View-then-Edit, one next step via Quick Actions, empty Reference Data → Settings.
+
+### 7.6 Native First
+
+Prefer platform-native controls. Custom controls need a clear usability benefit.
+
+---
+
+## 8. Other modules (template required before build)
+
+| Module | Role | Note |
+|--------|------|------|
+| **Settings** | Preferences, Reference Data / Botanical Library, Experience Level, **Library Management** (§8.1) | Tools group; always visible |
+| **Projects** | Structured care efforts | Planned; write full §4.2 template (including Experience Levels) before implementation |
+| **Exhibition / Research / Analytics / Breeding** | Expert-depth | Planned; each needs the standard template |
+
+### 8.1 Library Management
+
+**Status:** Approved product structure. **Not implemented** in Settings UI yet.
+
+Library administration is **not** part of the daily bonsai workflow. Growers care for trees in Workspace modules; they administer the **Bonsai World Library** file package in Settings.
+
+```text
+Settings
+└── Library Management
+    ├── Import
+    ├── Export
+    ├── Backup
+    ├── Restore
+    ├── Validate Library
+    └── Library Diagnostics
+```
+
+| Function | Purpose |
+|----------|---------|
+| **Import** | Bring trees / catalog data into the active library (e.g. Excel, future interchange formats). |
+| **Export** | Leave with a portable copy of library data. |
+| **Backup** | Create a recoverable snapshot of the library package. |
+| **Restore** | Replace or recover the library from a backup. |
+| **Validate Library** | Check package integrity and structural consistency. |
+| **Library Diagnostics** | Support / troubleshooting information (paths, provider, health) — never a daily care surface. |
+
+#### Design principles
+
+1. **Main navigation stays on daily bonsai work** — Dashboard, Garden, Locations, Workshop, and related modules. No Import / Export / Backup leaf in Workspace.  
+2. **Administrative tools belong in Settings** — discoverable under Tools → Settings → Library Management.  
+3. **Progressive Disclosure** — a single Library Management pane lists the functions; deep options appear when a function is chosen.  
+4. **Experience Levels** — Library Management remains available at **all** levels (library ownership is universal). Novice sees clear Import / Export / Backup / Restore. Validate and Diagnostics may be quieter or secondary until Experienced/Expert — never hidden so far they are undiscoverable.  
+5. **Unobtrusive but findable** — not Global Quick Actions for routine sessions; optional rare entry from First Launch / empty-library guidance may deep-link here.
+
+#### Relationship to other Settings panes
+
+| Settings area | Owns |
+|---------------|------|
+| **User Profile / Regional / Appearance / Notifications** | Person and preferences |
+| **Workspace / Experience Level** | How much of the World is revealed (§6) |
+| **Reference Data / Botanical Library** | Master vocabulary inside the library |
+| **Library Management** | The library **package** as a whole (in/out, integrity, recovery) |
+
+Library Management does **not** replace Reference Data editing or Tree create workflows. **New Tree** remains a Garden / Global Quick Action. **Add Image** remains Tree / Gallery context — distinct from full-library Import.
+
+#### Impact on future Import / Export
+
+1. Implement Import and Export **only** under Settings → Library Management (complete §4.2-style Settings pane notes before coding).  
+2. Do **not** add Library Import as a permanent Global Quick Action or Workspace module.  
+3. First-launch / empty-library copy may link to Import here without promoting admin into daily chrome.  
+4. Import must follow naming and domain rules (preserve imported names; Collections only when data supports them; no invented values) — same library schema; no edition fork.  
+5. Export / Backup / Restore operate on the **StorageProvider** library package (§3); they never invent a second database product.
+
+---
+
+## 9. Current product status
+
+**Partial.** Shell: `NavigationSplitView`, Falo sidebar (Workspace · Quick Actions · Tools), title **Bonsai World**. Locations, Collections, and Trees (list → embedded detail, View/Edit, Quick Actions) on TreeService / library persistence. Reference Data and Botanical Library in Settings (session). Image import for primary image prepared. Storage Phase 1 foundation present; Experience Level / Workspace Profile UI not complete. Sidebar order in code may still lag §7.4 / §10 — **§10 / §5 navigation is the product truth**. **The Software Grows with the Artist** (§1.1) and **User Experience Levels** (§6) approved; Settings control not yet implemented. **Library Management** under Settings (§8.1) approved — Import / Export / Backup / Restore / Validate / Diagnostics not yet implemented. **Collection philosophy (§4.4)** — three-pane navigation, sectioned list, system Smart placeholders, default selection — and **Tree Lifetime (§4.5)** approved; Smart filter evaluation not yet implemented. **Tree Overview + Tree Workspace** (§5.2) **approved** as permanent Trees architecture — Overview redesign and Workspace window **not yet implemented** (current UI remains list + form-style embedded detail).
+
+When the product changes, update **this Blueprint**. When philosophy changes, update the **Constitution**. When shared Falo patterns change, update the **Design System** or **Component Library**. When a **new module** is proposed, complete the **§4.2 template** here before coding.
+
+---
+
+## 10. Architecture Version 2
+
+**Status:** Active navigation architecture (permanent application structure).  
+**Relationship to Version 1:** Version 1 (§5 / §7.4) remains historical product context. Version 2 **supersedes** Version 1 navigation order and module ownership. Do not overwrite Version 1 sections above.
+
+### 10.1 Navigation philosophy
+
+Bonsai Hub (Bonsai World) is organized around how bonsai enthusiasts naturally think and work.
+
+- The application must be understandable without reading a manual.
+- Every module has **one clear responsibility**.
+- **One concept = one name** — avoid duplicated concepts and synonym drift.
+- Future modules must fit naturally into this structure.
+- Architecture stays modular: leaf routes can ship incrementally without reshaping the sidebar.
+
+Main navigation order (permanent):
+
+1. **Dashboard**
+2. **Garden**
+3. **Locations**
+4. **Workshop**
+5. **Nursery**
+6. **Care**
+7. **Design**
+8. **Inventory**
+9. **Knowledge**
+10. **Economy**
+11. **Settings** (Tools group)
+
+### 10.2 Module responsibilities
+
+| Module | Responsibility | Contains / prepares |
+|--------|----------------|---------------------|
+| **Dashboard** | Daily overview | Today's Tasks, Notifications, Calendar, Recent Activity, Quick Statistics; **attention-oriented Collections** (§4.4) |
+| **Garden** | Everything belonging to the bonsai collection | Trees (**Tree Overview** + **Tree Workspace** — §5.2), **Collections** (Manual and Smart working sets — §4.4), Gallery |
+| **Locations** | Where trees physically grow | Gardens (physical properties), Locations, Map; future environment (Sun, Shade, Wind, Rain, Humidity, Air Flow, Winter Protection) — no calculations yet |
+| **Workshop** | All practical bonsai work | Work, Calendar, Tasks; future work types (Wiring, Pruning, Repotting, Root Pruning, Watering, Fertilizing, Deadwood, Winter Preparation, Winter Wash) — no new work logic yet |
+| **Nursery** | Development of new bonsai material | Seeds, Cuttings, Air Layers, Grafting, Yamadori, Development (Propagation moved here) |
+| **Care** | Daily care and recommendations | Today, Watering, Fertilizing, Placement, Tree Health, Seasonal Care, Winter Care — recommendations from Growing Intelligence later |
+| **Design** | Creative planning and artistic development | Vision, Style, Front Selection, Virtual Design, Branch Plan, Trunk Development, Ramification, Apex, Deadwood, Timeline — no design tools yet |
+| **Inventory** | Physical inventory (single source of truth for resources) | Pots, Soil, Soil Components, Soil Mixes, Fertilizers, Wire, Tools, Chemicals, Consumables — no stock management yet |
+| **Knowledge** | Learning and education | Quick Guides, Bonsai Handbook, Species Library, Soil Guides, Fertilizer Guides, Video Tutorials, Courses, FAQ, External Links — no content yet |
+| **Economy** | Financial overview | Purchases, Sales, Expenses, Income, Tree Value, Pot Value, Inventory Value, Reports — no calculations yet |
+| **Settings** | Preferences and system | User Profile, Regional Settings, Reference Data, Appearance, Notifications, Experience Level / Workspace, **Library Management** (Import, Export, Backup, Restore, Validate Library, Library Diagnostics — §8.1) |
+
+### 10.3 Design principles
+
+1. **One responsibility per module** — if a feature fits two modules, choose the grower’s mental model, not the technical convenience.
+2. **Consistent naming** — the same concept keeps the same name in navigation, domain language, and documentation.
+3. **Migration without deletion** — existing behaviour moves under Version 2 ownership; data models are not removed for navigation refactors.
+4. **Placeholders are structural** — empty routes establish permanent homes; they do not imply shipped behaviour. Visibility still respects Experience Levels (§6) when Settings ships.
+5. **Incremental delivery** — implement one route at a time inside this shell; do not invent parallel navigation trees.
+6. **Falo shell unchanged** — Workspace · Quick Actions · Tools; visual language follows the Falo Design System.
+7. **The Software Grows with the Artist** — one product and data model; Novice / Experienced / Expert reveal depth without forking the World (§1.1, §6).
+8. **Library administration in Settings** — Import / Export / Backup / Restore / Validate / Diagnostics under **Library Management** (§8.1); never primary Workspace navigation.
+9. **Trees: two depths** — **Tree Overview** for browse; **Tree Workspace** for deep craft in its own window; one Library, synchronized (§5.2).
+
+### 10.4 Migration notes (Version 1 → Version 2)
+
+| Version 1 | Version 2 home |
+|-----------|----------------|
+| Dashboard | Dashboard |
+| Trees | Garden → Trees |
+| Collections | Garden → Collections |
+| Gallery | Garden → Gallery |
+| Locations | Locations → Locations / Map (Gardens prepared) |
+| Work | Workshop → Work |
+| Calendar | Workshop → Calendar |
+| Tasks | Workshop → Tasks |
+| Propagation | Nursery (Seeds … Development) |
+| Journal | Reserved working domain; not a Version 2 top-level module |
+| Settings | Settings (unchanged ownership) |
+
+Code mapping: `AppModule` (top-level) + `AppRoute` (leaf selection). `AppSection` is a compatibility alias for `AppRoute`.

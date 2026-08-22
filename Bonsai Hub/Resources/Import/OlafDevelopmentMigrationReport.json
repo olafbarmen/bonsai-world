@@ -1,0 +1,98 @@
+{
+  "sourceWorkbook": "Bonsai Hub/Resources/Import/Bonsai Database Olaf Barmen 3.xlsx",
+  "importedCount": 97,
+  "skippedCount": 0,
+  "skipped": [],
+  "fieldsSuccessfullyMapped": [
+    "ID → bonsaiName",
+    "Slekt → genusID / botanicalName",
+    "Art → speciesID / botanicalName",
+    "Kultivar → cultivarID / botanicalName",
+    "Stilart → styleID",
+    "Størrelseklasse → sizeClassID",
+    "Anskaffelsesdato → acquisitionDate",
+    "Anskaffelsesverdi → purchasePrice",
+    "Hvor anskaffet → acquisitionMethodID",
+    "Navn → acquisitionSourceName",
+    "Dato avhendet → disposalDate",
+    "Årsak → disposalMethodID",
+    "Ev salgsverdi → disposalPrice",
+    "Høyde i cm → heightMillimetres",
+    "Fysisk plassering → locationID",
+    "Potte → potTypeID",
+    "Treets status → treeStatusID",
+    "Notater → notes"
+  ],
+  "fieldsNotYetSupported": [
+    "CARE App",
+    "Antatt Spireår",
+    "Verdi",
+    "Estimert alder",
+    "Anbefalt forhold 1",
+    "Anbefalt forhold 2",
+    "Anbefalt forhold3",
+    "Siste arbeid",
+    "Siste arbeid dato",
+    "Neste arbeid",
+    "Neste arbeid dato",
+    "Nr"
+  ],
+  "duplicateBonsaiNames": [],
+  "invalidRecords": [],
+  "generatedBonsaiNames": [],
+  "locationFallbackWhenEmpty": [
+    "ACE-PAL--2026-014",
+    "ACE-PAL--2026-015",
+    "RHO-AZA--2026-001",
+    "TAX-HYB-HIL-2025-001",
+    "TAX-HYB-HIL-2025-002",
+    "TAX-BAC-FAS-2025-003",
+    "TAX-BAC--2025-007",
+    "TAX-BAC--2025-009",
+    "TAX-BAC--2025-010",
+    "TAX---2026-011"
+  ],
+  "unmappedReferenceValues": {
+    "Treets status": [
+      [
+        "Bonsaiemne",
+        7
+      ],
+      [
+        "Bonsai Raffinering",
+        5
+      ]
+    ],
+    "Potte": [
+      [
+        "Balje",
+        11
+      ],
+      [
+        "Luftpotte",
+        5
+      ],
+      [
+        "Luftkasse",
+        1
+      ],
+      [
+        "Passtpott",
+        1
+      ],
+      [
+        "Plantekasse tre",
+        1
+      ]
+    ]
+  },
+  "validation": {
+    "ok": true,
+    "errors": [],
+    "treeCount": 97,
+    "uniqueBonsaiNames": 97
+  },
+  "outputCatalog": "Bonsai Hub/Resources/Import/OlafDevelopmentTrees.json",
+  "libraryCatalogWritten": true,
+  "libraryCatalogPath": "/Users/olafbarmen/Library/Containers/no.olafbarmen.Bonsai-Hub/Data/Library/Application Support/Bonsai World Library/Database/Trees.json"
+}

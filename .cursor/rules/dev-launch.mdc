@@ -1,0 +1,19 @@
+---
+description: Always launch Bonsai World via Scripts; never pick DerivedData alphabetically
+alwaysApply: true
+---
+
+# Development launch — Bonsai World
+
+When building or launching the macOS app from the agent or terminal:
+
+1. **Do not** search `~/Library/Developer/Xcode/DerivedData/Bonsai_Hub-*` with globs, `ls | head -1`, or “first folder alphabetically”.
+2. **Do** use the project scripts:
+   - `Scripts/build_and_launch.sh` — compile then launch the exact build product
+   - `Scripts/launch_debug_app.sh` — launch the active product (already built)
+   - `Scripts/resolve_debug_app.sh` — print the resolved `.app` path only
+3. Resolution must come from `xcodebuild -showBuildSettings` for the same project, scheme, configuration, and optional `-derivedDataPath` as the build.
+4. Prefer quitting existing “Bonsai Hub” instances before reopen (the launch script does this).
+5. Optional cleanup: `Scripts/purge_stale_bonsai_derived_data.sh --yes` removes non-active `Bonsai_Hub-*` DerivedData folders.
+
+See `Scripts/README.md`.
