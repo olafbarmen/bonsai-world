@@ -13,31 +13,42 @@ struct CollectionMembershipSheet: View {
     @Environment(\.dismiss) private var dismiss
 
     @Binding var memberIDs: Set<UUID>
+    @State private var isNewCollectionPresented = false
 
     var body: some View {
         NavigationStack {
-            List(treeService.manualCollections) { collection in
-                Button {
-                    toggle(collection.id)
-                } label: {
-                    HStack(alignment: .top, spacing: FaloSpacing.medium) {
-                        CollectionListRow(
-                            name: collection.name,
-                            description: collection.description,
-                            treeCount: collection.treeIDs.count,
-                            systemImage: collection.icon ?? "square.stack.3d.up"
-                        )
+            List {
+                ForEach(treeService.manualCollections) { collection in
+                    Button {
+                        toggle(collection.id)
+                    } label: {
+                        HStack(alignment: .top, spacing: FaloSpacing.medium) {
+                            CollectionListRow(
+                                name: collection.name,
+                                description: collection.description,
+                                treeCount: collection.treeIDs.count,
+                                systemImage: collection.icon ?? "square.stack.3d.up"
+                            )
 
-                        if memberIDs.contains(collection.id) {
-                            Image(systemName: "checkmark")
-                                .font(.body.weight(.semibold))
-                                .foregroundStyle(.tint)
-                                .accessibilityLabel("Member")
+                            if memberIDs.contains(collection.id) {
+                                Image(systemName: "checkmark")
+                                    .font(.body.weight(.semibold))
+                                    .foregroundStyle(.tint)
+                                    .accessibilityLabel("Member")
+                            }
                         }
+                        .contentShape(Rectangle())
                     }
-                    .contentShape(Rectangle())
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
+
+                Section {
+                    Button {
+                        isNewCollectionPresented = true
+                    } label: {
+                        Label("+ New Collection…", systemImage: "plus")
+                    }
+                }
             }
             .faloScrollSurface()
             .navigationTitle("Add to Collection")
@@ -48,6 +59,12 @@ struct CollectionMembershipSheet: View {
                     }
                     .keyboardShortcut(.defaultAction)
                 }
+            }
+            .sheet(isPresented: $isNewCollectionPresented) {
+                CollectionEditorView(onCreated: { collectionID in
+                    memberIDs.insert(collectionID)
+                    isNewCollectionPresented = false
+                })
             }
         }
         .frame(minWidth: 420, minHeight: 480)
@@ -74,5 +91,6 @@ struct CollectionMembershipSheet: View {
             )
         )
     )
+    .environment(AppState())
     .environment(treeService)
 }

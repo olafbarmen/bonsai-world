@@ -82,6 +82,8 @@ struct LocationReferenceEditorSheet: View {
                         .font(FaloTypography.caption)
                 }
 
+                environmentSection
+
                 mapSection
 
                 if let validationMessage {
@@ -129,6 +131,87 @@ struct LocationReferenceEditorSheet: View {
     private var gardenSiblingLocations: [LocationReference] {
         guard let gardenID = draft.gardenID else { return [] }
         return manager.locations(inGarden: gardenID)
+    }
+
+    @ViewBuilder
+    private var environmentSection: some View {
+        Section {
+            EnvironmentOptionPicker(
+                label: "Setting",
+                selection: $draft.environment.setting,
+                optionTitle: \.title
+            )
+
+            VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+                Text("Sun Exposure")
+                    .font(FaloTypography.caption)
+                    .foregroundStyle(.secondary)
+                Toggle("Morning Sun", isOn: $draft.environment.morningSun)
+                Toggle("Midday Sun", isOn: $draft.environment.middaySun)
+                Toggle("Afternoon Sun", isOn: $draft.environment.afternoonSun)
+                Toggle("Evening Sun", isOn: $draft.environment.eveningSun)
+            }
+            .padding(.vertical, FaloSpacing.xSmall)
+
+            EnvironmentOptionPicker(
+                label: "Shade Level",
+                selection: $draft.environment.shadeLevel,
+                optionTitle: \.title
+            )
+            EnvironmentOptionPicker(
+                label: "Wind Exposure",
+                selection: $draft.environment.windExposure,
+                optionTitle: \.title
+            )
+            EnvironmentOptionPicker(
+                label: "Rain Exposure",
+                selection: $draft.environment.rainExposure,
+                optionTitle: \.title
+            )
+            EnvironmentOptionPicker(
+                label: "Humidity",
+                selection: $draft.environment.humidity,
+                optionTitle: \.title
+            )
+            EnvironmentOptionPicker(
+                label: "Air Flow",
+                selection: $draft.environment.airFlow,
+                optionTitle: \.title
+            )
+            VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+                Text("Watering Methods")
+                    .font(FaloTypography.caption)
+                    .foregroundStyle(.secondary)
+                ForEach(LocationWateringMethod.allCases) { method in
+                    Toggle(method.title, isOn: wateringMethodBinding(for: method))
+                }
+            }
+            .padding(.vertical, FaloSpacing.xSmall)
+
+            EnvironmentOptionPicker(
+                label: "Winter Protection",
+                selection: $draft.environment.winterProtection,
+                optionTitle: \.title
+            )
+        } header: {
+            Text("Environment")
+        } footer: {
+            Text("Describes what this specific place is like — sun, wind, rain, and winter exposure. Watering Methods can combine (e.g. drip + sprinkler) — this records what equipment exists here, not which one is running right now. Drives the weather risk warnings on Location Detail today, and is the foundation for future watering / maintenance automation.")
+                .font(FaloTypography.caption)
+        }
+    }
+
+    private func wateringMethodBinding(for method: LocationWateringMethod) -> Binding<Bool> {
+        Binding(
+            get: { draft.environment.wateringMethods.contains(method) },
+            set: { isOn in
+                if isOn {
+                    draft.environment.wateringMethods.insert(method)
+                } else {
+                    draft.environment.wateringMethods.remove(method)
+                }
+            }
+        )
     }
 
     @ViewBuilder
@@ -222,5 +305,23 @@ struct LocationReferenceEditorSheet: View {
         case .duplicateName:
             "A Location with this name already exists."
         }
+    }
+}
+
+/// Menu picker for an optional `LocationEnvironmentProfile` enum field, with an explicit "Not Set" option.
+private struct EnvironmentOptionPicker<Option>: View
+where Option: CaseIterable & Hashable & Identifiable, Option.AllCases: RandomAccessCollection {
+    let label: String
+    @Binding var selection: Option?
+    let optionTitle: (Option) -> String
+
+    var body: some View {
+        Picker(label, selection: $selection) {
+            Text("Not Set").tag(Optional<Option>.none)
+            ForEach(Option.allCases) { option in
+                Text(optionTitle(option)).tag(Optional(option))
+            }
+        }
+        .pickerStyle(.menu)
     }
 }

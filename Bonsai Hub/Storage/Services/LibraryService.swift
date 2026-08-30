@@ -4,9 +4,10 @@
 //
 //  Manages the single Bonsai World Library package.
 //  All disk work goes through StorageService → StorageProvider.
+//  Folder selection goes through DirectoryPicking — this file never references
+//  a concrete OS picker (Constitution §11 — platform layer stays isolated).
 //
 
-import AppKit
 import Foundation
 import Observation
 
@@ -15,6 +16,7 @@ import Observation
 @MainActor
 final class LibraryService {
     private let storage: StorageService
+    private let directoryPicker: DirectoryPicking
 
     /// The open library for this session, if one is ready.
     private(set) var currentLibrary: Library?
@@ -22,8 +24,9 @@ final class LibraryService {
     /// When `false`, the First Launch Wizard should be shown.
     private(set) var isLibraryReady = false
 
-    init(storage: StorageService) {
+    init(storage: StorageService, directoryPicker: DirectoryPicking = MacDirectoryPicker()) {
         self.storage = storage
+        self.directoryPicker = directoryPicker
     }
 
     // MARK: - Startup
@@ -211,23 +214,10 @@ final class LibraryService {
     }
 
     private func pickDirectory(title: String, message: String, prompt: String) async throws -> URL {
-        try await withCheckedThrowingContinuation { continuation in
-            let panel = NSOpenPanel()
-            panel.title = title
-            panel.message = message
-            panel.prompt = prompt
-            panel.canChooseFiles = false
-            panel.canChooseDirectories = true
-            panel.allowsMultipleSelection = false
-            panel.canCreateDirectories = true
-
-            panel.begin { response in
-                if response == .OK, let url = panel.url {
-                    continuation.resume(returning: url)
-                } else {
-                    continuation.resume(throwing: LibraryError.folderPickerCancelled)
-                }
-            }
+        do {
+            return try await directoryPicker.pickDirectory(title: title, message: message, prompt: prompt)
+        } catch is DirectoryPickingCancelled {
+            throw LibraryError.folderPickerCancelled
         }
     }
 }

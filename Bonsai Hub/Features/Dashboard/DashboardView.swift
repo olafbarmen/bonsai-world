@@ -53,14 +53,14 @@ private struct DashboardAdaptiveContent: View {
         }
     }
 
-    /// Even indices → left column (Care, Alerts, Collection, Repotting, …).
+    /// Even indices → left column (Tasks, …).
     private var leftColumnCards: [DashboardCardPlacement] {
         layout.visibleCards.enumerated().compactMap { index, card in
             index.isMultiple(of: 2) ? card : nil
         }
     }
 
-    /// Odd indices → right column (Weather, Upcoming, Inventory, Trees, …).
+    /// Odd indices → right column (Weather, …).
     private var rightColumnCards: [DashboardCardPlacement] {
         layout.visibleCards.enumerated().compactMap { index, card in
             index.isMultiple(of: 2) ? nil : card
@@ -81,6 +81,8 @@ private struct DashboardAdaptiveContent: View {
     @ViewBuilder
     private func cardView(for placement: DashboardCardPlacement) -> some View {
         switch placement.id {
+        case .tasks:
+            TasksDashboardCard(prominence: placement.prominence)
         case .todaysCare:
             TodaysCareDashboardCard(prominence: placement.prominence)
         case .alerts:
@@ -99,13 +101,39 @@ private struct DashboardAdaptiveContent: View {
             WeatherDashboardCard()
         case .quickStatistics:
             QuickStatisticsDashboardCard(prominence: placement.prominence)
+        case .library:
+            LibraryDashboardCard(prominence: placement.prominence)
+        case .recentWork:
+            RecentWorkDashboardCard(prominence: placement.prominence)
         }
     }
 }
 
 #Preview {
-    NavigationStack {
+    let preview = PreviewData()
+    let referenceStore = ReferencePreviewData()
+    let profile = UserProfileStore()
+    let treeService = TreeService.preview(previewData: preview)
+    let referenceData = ReferenceDataService(previewData: referenceStore)
+    let workService = WorkService(referenceData: referenceData)
+    let botanical = BotanicalService(store: referenceStore)
+    let taskService = TaskService(
+        referenceData: referenceData,
+        workService: workService,
+        treeService: treeService,
+        botanicalService: botanical
+    )
+    return NavigationStack {
         DashboardView()
     }
+    .environment(treeService)
+    .environment(referenceData)
+    .environment(AppSettings())
+    .environment(profile)
+    .environment(WeatherService(profile: profile))
+    .environment(taskService)
+    .environment(workService)
+    .environment(AppState())
+    .environment(ImageService(storage: .shared, previewData: ImagePreviewData()))
     .frame(width: 1100, height: 920)
 }

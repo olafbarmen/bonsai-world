@@ -29,10 +29,11 @@ enum WorkingDomainID: String, CaseIterable, Identifiable, Hashable, Sendable {
     case nursery
     /// Rule-based knowledge and recommendation engine (not AI).
     case growingIntelligence
+    /// Digital assets — images, documents, notes, video, audio.
+    case media
 
     // MARK: Reserved for later (architecture only — no module restructuring)
 
-    case gallery
     case journal
     case learning
     case marketplace
@@ -41,12 +42,12 @@ enum WorkingDomainID: String, CaseIterable, Identifiable, Hashable, Sendable {
 
     /// Domains that are actively named in the product architecture today.
     static var introduced: [WorkingDomainID] {
-        [.workshop, .habitat, .nursery, .growingIntelligence]
+        [.workshop, .habitat, .nursery, .growingIntelligence, .media]
     }
 
     /// Domains reserved so future introduction does not require restructuring.
     static var reserved: [WorkingDomainID] {
-        [.gallery, .journal, .learning, .marketplace]
+        [.journal, .learning, .marketplace]
     }
 }
 

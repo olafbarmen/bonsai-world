@@ -1,0 +1,26 @@
+---
+description: Propose a short plan and wait for approval before writing or editing code
+alwaysApply: true
+---
+
+# Confirm before coding
+
+Before making any code changes (new files, edits, refactors, deletions), first give
+the user a short status message covering:
+
+- What you understand the request to be
+- The concrete approach and which files you intend to touch
+- Any open questions, trade-offs, or assumptions
+
+Then **stop and wait for the user's explicit approval** before writing or editing
+any code. Do not implement in the same turn you propose the plan.
+
+Keep the status short — a few sentences or a short bullet list, not a full design
+document.
+
+**Skip this step only when:**
+- The user has already approved this exact change earlier in the conversation, or
+- The user explicitly asks you to skip confirmation for that request (e.g. "just do it").
+
+This applies to actual code/file changes. Pure questions, analysis, or read-only
+investigation do not need a plan-and-wait step first.

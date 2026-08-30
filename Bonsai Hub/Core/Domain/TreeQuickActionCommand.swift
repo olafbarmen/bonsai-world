@@ -12,10 +12,11 @@ import Foundation
 enum TreeQuickActionCommand: String, Hashable, Sendable {
     case editTree
     case addImage
-    case viewGallery
+    case viewImages
     case showOnMap
     case duplicateTree
     case deleteTree
+    case returnToCare
     case cancel
     case addMeasurement
 }

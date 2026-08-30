@@ -40,6 +40,10 @@ final class ImagePreviewData {
         ids.compactMap { assets[$0] }
     }
 
+    func allAssets() -> [ImageAsset] {
+        Array(assets.values)
+    }
+
     func displayName(for id: UUID) -> String {
         guard let asset = assets[id] else {
             return ImageAsset.defaultPhotoName()

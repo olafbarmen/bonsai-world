@@ -6,6 +6,7 @@
 //  All file I/O goes through StorageService — never the file system directly.
 //
 
+import AppKit
 import Foundation
 import Observation
 
@@ -15,10 +16,21 @@ import Observation
 final class ImageService {
     private let storage: StorageService
     private let previewData: ImagePreviewData
+    private let presentationStore: ImagePresentationStore
+    /// Bumps when a crop recipe is saved or reset so display views reload.
+    private(set) var presentationRevision: Int = 0
+    private var thumbnailCache: [String: NSImage] = [:]
 
     init(storage: StorageService, previewData: ImagePreviewData) {
         self.storage = storage
         self.previewData = previewData
+        self.presentationStore = ImagePresentationStore(storage: storage)
+    }
+
+    /// Re-load catalogs after the library package becomes ready.
+    func attachStorage(_ storage: StorageService) {
+        previewData.attachStorage(storage)
+        presentationStore.attachStorage(storage)
     }
 
     // MARK: - Metadata
@@ -53,7 +65,17 @@ final class ImageService {
         StorageAssetID(imageID)
     }
 
-    /// Loads original image bytes via StorageService (for display).
+    /// All image assets in the library catalog (unordered).
+    func allAssets() -> [ImageAsset] {
+        previewData.allAssets()
+    }
+
+    /// Count of catalogued images — use in Gallery to establish observation when wired.
+    var libraryImageCount: Int {
+        previewData.allAssets().count
+    }
+
+    /// Loads original image bytes via StorageService (for Crop and decode).
     func loadOriginalData(for id: UUID) async throws -> Data {
         guard let asset = previewData.asset(id: id) else {
             throw StorageError.assetNotFound(StorageAssetID(id))
@@ -63,6 +85,36 @@ final class ImageService {
             id: StorageAssetID(id),
             fileExtension: fileExtension
         )
+    }
+
+    /// Original pixels with the saved display crop for `context`. Original file is never modified.
+    /// Pass `maxPixelSize` for list/grid thumbs so decode stays off the main thread and small.
+    func loadDisplayNSImage(
+        for id: UUID,
+        context: ImagePresentationContext = .galleryCard,
+        maxPixelSize: Int? = nil
+    ) async throws -> NSImage {
+        let cacheKey = "\(id.uuidString)-\(context.rawValue)-\(maxPixelSize ?? 0)-\(presentationRevision)"
+        if let maxPixelSize, let cached = thumbnailCache[cacheKey] {
+            return cached
+        }
+
+        let data = try await loadOriginalData(for: id)
+        let crop = presentationMetadata(for: id, context: context).cropNormalizedRect.cgRect
+        let decoded = await Task.detached(priority: .userInitiated) {
+            ImagePresentationCropping.displayImage(
+                from: data,
+                normalizedCrop: crop,
+                maxPixelSize: maxPixelSize
+            )
+        }.value
+        guard let decoded else {
+            throw StorageError.assetNotFound(StorageAssetID(id))
+        }
+        if maxPixelSize != nil {
+            thumbnailCache[cacheKey] = decoded
+        }
+        return decoded
     }
 
     /// Display name for filmstrip (Photo Name, never file name).
@@ -91,6 +143,54 @@ final class ImageService {
         previewData.updatePhotoMetadata(id: id, photoName: photoName, captureDate: captureDate)
     }
 
+    // MARK: - Presentation (non-destructive crop)
+
+    /// Exact crop for `context`, or the legacy single crop, or a full-frame default.
+    func presentationMetadata(
+        for id: UUID,
+        context: ImagePresentationContext
+    ) -> ImagePresentationMetadata {
+        presentationStore.metadata(for: id, context: context)
+            ?? presentationStore.metadata(for: id, context: nil)
+            ?? .defaultFullFrame(for: id)
+    }
+
+    /// Recipe saved for this context only — `nil` when the surface has never been cropped.
+    func exactPresentationMetadata(
+        for id: UUID,
+        context: ImagePresentationContext
+    ) -> ImagePresentationMetadata? {
+        presentationStore.metadata(for: id, context: context)
+    }
+
+    /// Legacy single crop (no context), if one exists.
+    func legacyPresentationMetadata(for id: UUID) -> ImagePresentationMetadata? {
+        presentationStore.metadata(for: id, context: nil)
+    }
+
+    /// Persists presentation metadata only — never modifies Original bytes.
+    func savePresentationMetadata(_ metadata: ImagePresentationMetadata) {
+        savePresentationMetadata([metadata])
+    }
+
+    func savePresentationMetadata(_ items: [ImagePresentationMetadata]) {
+        let stamped = items.map { item -> ImagePresentationMetadata in
+            var saved = item
+            saved.modifiedDate = .now
+            return saved
+        }
+        presentationStore.save(stamped)
+        thumbnailCache.removeAll()
+        presentationRevision += 1
+    }
+
+    /// Removes saved crop — reverts to full-frame presentation.
+    func resetPresentationMetadata(for id: UUID) {
+        presentationStore.remove(for: id)
+        thumbnailCache.removeAll()
+        presentationRevision += 1
+    }
+
     /// Removes catalog entry and deletes original bytes from the library.
     func deletePhoto(id: UUID) async throws {
         let asset = previewData.asset(id: id)
@@ -102,6 +202,9 @@ final class ImageService {
         }
         try await storage.deleteImage(id: StorageAssetID(id), fileExtension: fileExtension)
         previewData.remove(id: id)
+        presentationStore.remove(for: id)
+        thumbnailCache.removeAll()
+        presentationRevision += 1
     }
 
     private static func fileExtension(fromRelativePath relativePath: String, fileName: String) -> String {

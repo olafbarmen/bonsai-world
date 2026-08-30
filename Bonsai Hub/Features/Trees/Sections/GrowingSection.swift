@@ -2,7 +2,7 @@
 //  GrowingSection.swift
 //  Bonsai World
 //
-//  Tree Detail — Growing card (Style, Pot, Soil Mix, Location + Light).
+//  Tree Detail — Growing card (situation + health in grower order).
 //  Preferred Location workflow: Garden → Location → Select on Map.
 //  Trees never store coordinates — Location owns the map position.
 //
@@ -12,20 +12,23 @@ import SwiftUI
 struct GrowingSection: View {
     @Binding var styleID: UUID?
     @Binding var locationID: UUID?
-    @Binding var soilMixID: UUID?
-    @Binding var potTypeID: UUID?
+    @Binding var healthStatus: TreeHealthStatus
+    @Binding var treeStatusID: UUID?
+    @Binding var sizeClassID: UUID?
     @Binding var lightConditionID: UUID?
+    @Binding var soilMixID: UUID?
 
     let styles: [DetailPickerOption]
     /// Active Locations from Reference Data (alternative picker).
     let locations: [DetailPickerOption]
+    let treeStatuses: [DetailPickerOption]
+    let sizeClasses: [DetailPickerOption]
+    let lightConditions: [DetailPickerOption]
     let soilMixes: [DetailPickerOption]
     /// Resolved Soil Mix for composition disclosure (includes inactive).
     let selectedSoilMix: SoilMix?
     /// Component display names keyed by Soil Component id.
     let soilComponentNames: [UUID: String]
-    let potTypes: [DetailPickerOption]
-    let lightConditions: [DetailPickerOption]
 
     var isEditing: Bool
 
@@ -82,36 +85,48 @@ struct GrowingSection: View {
                     placeholder: "Select Style",
                     options: styles
                 )
-                DetailOptionPickerRow(
-                    label: "Pot",
-                    selection: $potTypeID,
-                    placeholder: "Select Pot",
-                    options: potTypes
-                )
-                soilMixBlock
                 locationPlacementBlock
+                healthPicker
+                DetailOptionPickerRow(
+                    label: "Growing Status",
+                    selection: $treeStatusID,
+                    placeholder: "Select Growing Status",
+                    options: treeStatuses
+                )
+                DetailOptionPickerRow(
+                    label: "Size Class",
+                    selection: $sizeClassID,
+                    placeholder: "Select Size Class",
+                    options: sizeClasses
+                )
                 DetailOptionPickerRow(
                     label: "Light",
                     selection: $lightConditionID,
                     placeholder: "Select Light Condition",
                     options: lightConditions
                 )
+                soilMixBlock
             } else {
                 DetailLabeledRow(
                     label: "Style",
                     value: DetailOptionPickerRow.displayName(for: styleID, in: styles)
                 )
-                DetailLabeledRow(
-                    label: "Pot",
-                    value: DetailOptionPickerRow.displayName(for: potTypeID, in: potTypes)
-                )
-                soilMixBlock
                 DetailLabeledRow(label: "Garden", value: gardenDisplayName)
                 DetailLabeledRow(label: "Location", value: locationDisplayName)
+                DetailLabeledRow(label: "Health", value: healthStatus.title)
+                DetailLabeledRow(
+                    label: "Growing Status",
+                    value: DetailOptionPickerRow.displayName(for: treeStatusID, in: treeStatuses)
+                )
+                DetailLabeledRow(
+                    label: "Size Class",
+                    value: DetailOptionPickerRow.displayName(for: sizeClassID, in: sizeClasses)
+                )
                 DetailLabeledRow(
                     label: "Light",
                     value: DetailOptionPickerRow.displayName(for: lightConditionID, in: lightConditions)
                 )
+                soilMixBlock
             }
         }
         .onAppear {
@@ -134,6 +149,24 @@ struct GrowingSection: View {
                     locationID: $locationID
                 )
             }
+        }
+    }
+
+    @ViewBuilder
+    private var healthPicker: some View {
+        VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+            Text("Health")
+                .font(FaloTypography.caption)
+                .foregroundStyle(.secondary)
+
+            Picker("Health", selection: $healthStatus) {
+                ForEach(TreeHealthStatus.allCases) { status in
+                    Text(status.title).tag(status)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

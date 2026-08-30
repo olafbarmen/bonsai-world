@@ -145,7 +145,10 @@ final class StorageService {
     }
 
     func loadImage(id: StorageAssetID, fileExtension: String) async throws -> Data {
-        try await provider.loadImage(id: id, fileExtension: fileExtension)
+        let provider = provider
+        return try await Task.detached(priority: .userInitiated) {
+            try await provider.loadImage(id: id, fileExtension: fileExtension)
+        }.value
     }
 
     func deleteImage(id: StorageAssetID, fileExtension: String) async throws {

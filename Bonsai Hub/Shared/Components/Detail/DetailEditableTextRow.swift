@@ -25,7 +25,6 @@ struct DetailEditableTextRow: View {
                 .labelsHidden()
                 .help(help ?? label)
         }
-        .padding(.vertical, FaloSpacing.xSmall)
         .accessibilityElement(children: .contain)
     }
 }

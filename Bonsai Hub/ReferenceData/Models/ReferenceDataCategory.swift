@@ -38,7 +38,6 @@ enum ReferenceDataCategory: String, CaseIterable, Identifiable, Hashable {
 
     // Fertilizer
     case fertilizerTypes
-    case fertilizerBrands
 
     // Inventory Preparation (lists only — no quantities)
     case inventoryPots
@@ -67,7 +66,6 @@ enum ReferenceDataCategory: String, CaseIterable, Identifiable, Hashable {
         case .soilComponents: "Soil Components"
         case .soilMixes: "Soil Mixes"
         case .fertilizerTypes: "Fertilizer Types"
-        case .fertilizerBrands: "Fertilizer Brands"
         case .inventoryPots: "Pots"
         case .tools: "Tools"
         case .wire: "Wire"
@@ -89,7 +87,7 @@ enum ReferenceDataCategory: String, CaseIterable, Identifiable, Hashable {
             .growing
         case .soilComponents, .soilMixes:
             .soil
-        case .fertilizerTypes, .fertilizerBrands:
+        case .fertilizerTypes:
             .fertilizer
         case .inventoryPots, .tools, .wire, .chemicals:
             .inventory

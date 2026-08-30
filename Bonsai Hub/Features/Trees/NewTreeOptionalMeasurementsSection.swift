@@ -37,7 +37,7 @@ struct NewTreeOptionalMeasurementsSection: View {
                 Text("Measurements (Optional)")
             }
         } footer: {
-            Text("Optional. Entered values become the first Tree Measurement when you create the tree.")
+            Text("Optional. Entered values become the first Tree Measurement when you add the tree.")
                 .font(FaloTypography.caption)
         }
     }

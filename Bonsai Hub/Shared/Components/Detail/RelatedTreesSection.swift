@@ -87,11 +87,7 @@ private struct MembershipTreeRow: View {
         HStack(alignment: .center, spacing: FaloSpacing.medium) {
             Button(action: onSelect) {
                 HStack(alignment: .center, spacing: FaloSpacing.medium) {
-                    Image(systemName: "leaf")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .symbolRenderingMode(.hierarchical)
-                        .frame(width: 28, height: 28, alignment: .center)
+                    TreeListThumbnail(imageID: item.imageID)
 
                     VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
                         Text(item.name)
@@ -155,11 +151,7 @@ private struct RelatedTreeRow: View {
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: FaloSpacing.medium) {
-                Image(systemName: "leaf")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .symbolRenderingMode(.hierarchical)
-                    .frame(width: 22, height: 22, alignment: .center)
+                TreeListThumbnail(imageID: item.imageID)
 
                 VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
                     Text(item.name)
@@ -213,6 +205,7 @@ private struct RelatedTreeRow: View {
         onSelect: { _ in },
         onRemove: { _ in }
     )
+    .environment(ImageService(storage: .shared, previewData: ImagePreviewData()))
     .padding()
     .frame(width: 480)
 }
@@ -226,6 +219,7 @@ private struct RelatedTreeRow: View {
             collectionName: "Japanese Maples"
         )
     ])
+    .environment(ImageService(storage: .shared, previewData: ImagePreviewData()))
     .padding()
     .frame(width: 420)
 }

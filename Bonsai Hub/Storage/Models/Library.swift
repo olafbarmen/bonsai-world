@@ -49,6 +49,8 @@ enum LibraryPackageLayout {
     static let imagesThumbnails = "Images/Thumbnails"
     /// Persistent ImageAsset / Tree Photo metadata catalog.
     static let imagesCatalogFileName = "Images/Catalog.json"
+    /// Non-destructive presentation crop recipes (Original bytes never modified).
+    static let imagesPresentationsFileName = "Images/Presentations.json"
     /// Tree ↔ photo membership (primary + gallery order) until full Tree DB lands.
     static let treePhotoIndexFileName = "Database/TreePhotoIndex.json"
     /// Append-only Tree Measurement History (dated sessions).
@@ -59,6 +61,16 @@ enum LibraryPackageLayout {
     static let bonsaiNameSequencesFileName = "Database/BonsaiNameSequences.json"
     /// Collection records for the library (LibraryCollectionRepository).
     static let collectionsFileName = "Database/Collections.json"
+    /// Garden records for the library (LibraryGardenRepository).
+    static let gardensFileName = "Database/Gardens.json"
+    /// LocationReference records for the library (LibraryLocationRepository).
+    static let locationsFileName = "Database/Locations.json"
+    /// WorkRecord entries for the library (LibraryWorkRepository).
+    static let workFileName = "Database/Work.json"
+    /// CareTask entries for the library (LibraryTaskRepository).
+    static let tasksFileName = "Database/Tasks.json"
+    /// CareSchedule entries for the library (LibraryScheduleRepository).
+    static let schedulesFileName = "Database/Schedules.json"
     static let documents = "Documents"
     static let cache = "Cache"
     static let backups = "Backups"

@@ -86,9 +86,11 @@ Design the path from intention to outcome. Never expose database structures or i
 
 Every action exists in **only one place**.
 
-**Quick Actions** is the primary action area for user work. Toolbars and other chrome stay reserved for global application function — not a second copy of the same command.
+**Context Tools** is the primary action area for user work. Toolbars and other chrome stay reserved for global application function — not a second copy of the same command.
 
 If an action appears twice, remove one occurrence.
+
+*(2026-08: **Context Tools** supersedes the earlier product term **Quick Actions** — same rule, clearer workspace-scoped naming. See Product Blueprint §7.2.)*
 
 ---
 

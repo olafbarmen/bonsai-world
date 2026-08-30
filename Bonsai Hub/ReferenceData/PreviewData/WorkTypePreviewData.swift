@@ -12,28 +12,48 @@ enum WorkTypePreviewData {
     private static func item(
         _ n: Int,
         _ name: String,
-        _ category: WorkTypeCategory
+        _ category: WorkTypeCategory,
+        behaviour: WorkTypeBehaviourFlags = .default
     ) -> WorkType {
         WorkType(
             id: ReferencePreviewSeed.id(list: 14, n: n),
             name: name,
             category: category,
             sortOrder: n,
-            behaviour: .default
+            behaviour: behaviour
         )
+    }
+
+    private static var requiresFertilizer: WorkTypeBehaviourFlags {
+        var flags = WorkTypeBehaviourFlags.default
+        flags.requiresFertilizer = true
+        return flags
+    }
+
+    /// Routine, high-frequency care (Blueprint §5.9 "Tasks vs. Work"): completing a Task
+    /// of this Work Type is a single click, no form.
+    private static var tasksCompleteInstantly: WorkTypeBehaviourFlags {
+        var flags = WorkTypeBehaviourFlags.default
+        flags.tasksCompleteInstantly = true
+        flags.expiresIfMissed = true
+        return flags
     }
 
     static let all: [WorkType] = {
         var n = 0
-        func next(_ name: String, _ category: WorkTypeCategory) -> WorkType {
+        func next(
+            _ name: String,
+            _ category: WorkTypeCategory,
+            behaviour: WorkTypeBehaviourFlags = .default
+        ) -> WorkType {
             n += 1
-            return item(n, name, category)
+            return item(n, name, category, behaviour: behaviour)
         }
 
         return [
             // Maintenance
-            next("Watering", .maintenance),
-            next("Fertilizing", .maintenance),
+            next("Watering", .maintenance, behaviour: tasksCompleteInstantly),
+            next("Fertilizing", .maintenance, behaviour: requiresFertilizer),
             next("Repotting", .maintenance),
             next("Root Pruning", .maintenance),
             next("Branch Pruning", .maintenance),

@@ -4,7 +4,11 @@
 //
 //  CRUD for flat Settings → Reference Data lists.
 //  Botanical Genus / Species / Cultivar is managed only by BotanicalService.
-//  Persistence is not implemented — mutations stay in memory.
+//  Persistence is not implemented for most lists — mutations stay in memory.
+//  Locations are the exception: they persist through an injected
+//  LocationRepository (UserDefaults-free — PreviewLocationRepository before a
+//  Library exists, Database/Locations.json once one is open; see
+//  LocationMigrationService and ``attachLibraryLocationRepository(_:)``).
 //
 //  Flat saves / active / delete go through ``ReferenceListItem`` helpers —
 //  do not add per-list duplicate save methods.
@@ -17,9 +21,21 @@ import Observation
 @MainActor
 final class ReferenceDataManager {
     private let store: ReferencePreviewData
+    private var locationRepository: LocationRepository
 
-    init(store: ReferencePreviewData) {
+    init(store: ReferencePreviewData, locationRepository: LocationRepository? = nil) {
         self.store = store
+        self.locationRepository = locationRepository ?? PreviewLocationRepository(store: store)
+    }
+
+    /// Switches Location persistence to a Library-backed repository once one becomes
+    /// available (mirrors `UserProfileStore.attachLibraryGardenRepository(_:)`).
+    /// The caller is expected to have migrated the prior source into it first
+    /// (see `LocationMigrationService`); this re-reads the result into `store`.
+    func attachLibraryLocationRepository(_ repository: LocationRepository) {
+        locationRepository = repository
+        store.locations = repository.getAllLocations()
+        store.noteMutation()
     }
 
     /// Mirrors store revision so views observing the Manager refresh.
@@ -64,8 +80,6 @@ final class ReferenceDataManager {
             return SoilMix.mapRecords(store.soilMixes)
         case .fertilizerTypes:
             return FertilizerType.mapRecords(store.fertilizerTypes)
-        case .fertilizerBrands:
-            return FertilizerBrand.mapRecords(store.fertilizerBrands)
         case .inventoryPots:
             return InventoryPot.mapRecords(store.inventoryPots)
         case .tools:
@@ -137,9 +151,7 @@ final class ReferenceDataManager {
         case .soilMixes:
             return false
         case .fertilizerTypes:
-            FertilizerType.upsert(working, into: &store.fertilizerTypes)
-        case .fertilizerBrands:
-            FertilizerBrand.upsert(working, into: &store.fertilizerBrands)
+            return false
         case .inventoryPots:
             InventoryPot.upsert(working, into: &store.inventoryPots)
         case .tools:
@@ -190,8 +202,6 @@ final class ReferenceDataManager {
             SoilMix.setActive(id, isActive: isActive, in: &store.soilMixes)
         case .fertilizerTypes:
             FertilizerType.setActive(id, isActive: isActive, in: &store.fertilizerTypes)
-        case .fertilizerBrands:
-            FertilizerBrand.setActive(id, isActive: isActive, in: &store.fertilizerBrands)
         case .inventoryPots:
             InventoryPot.setActive(id, isActive: isActive, in: &store.inventoryPots)
         case .tools:
@@ -202,6 +212,9 @@ final class ReferenceDataManager {
             Chemical.setActive(id, isActive: isActive, in: &store.chemicals)
         }
         store.noteMutation()
+        if category == .locations {
+            persistLocationsIfNeeded()
+        }
     }
 
     func delete(_ id: UUID, in category: ReferenceDataCategory) {
@@ -240,8 +253,6 @@ final class ReferenceDataManager {
             SoilMix.delete(id, from: &store.soilMixes)
         case .fertilizerTypes:
             FertilizerType.delete(id, from: &store.fertilizerTypes)
-        case .fertilizerBrands:
-            FertilizerBrand.delete(id, from: &store.fertilizerBrands)
         case .inventoryPots:
             InventoryPot.delete(id, from: &store.inventoryPots)
         case .tools:
@@ -252,6 +263,9 @@ final class ReferenceDataManager {
             Chemical.delete(id, from: &store.chemicals)
         }
         store.noteMutation()
+        if category == .locations {
+            persistLocationsIfNeeded()
+        }
     }
 
     // MARK: - Soil Mixes
@@ -348,6 +362,44 @@ final class ReferenceDataManager {
         return true
     }
 
+    // MARK: - Fertilizer Types
+
+    func fertilizerTypeDraft(for id: UUID) -> FertilizerTypeDraft? {
+        guard let fertilizerType = store.fertilizerTypes.first(where: { $0.id == id }) else { return nil }
+        return FertilizerTypeDraft.from(fertilizerType)
+    }
+
+    func blankFertilizerTypeDraft() -> FertilizerTypeDraft {
+        .blank(sortOrder: nextSortOrder(in: .fertilizerTypes))
+    }
+
+    @discardableResult
+    func saveFertilizerType(_ draft: FertilizerTypeDraft) -> FertilizerType? {
+        let trimmed = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let fertilizerType = FertilizerType(
+            id: draft.entityID ?? UUID(),
+            name: trimmed,
+            form: draft.form,
+            release: draft.release,
+            origin: draft.origin,
+            npk: draft.npk.trimmingCharacters(in: .whitespacesAndNewlines),
+            sortOrder: draft.sortOrder,
+            isActive: draft.isActive
+        )
+
+        if let entityID = draft.entityID,
+           let index = store.fertilizerTypes.firstIndex(where: { $0.id == entityID }) {
+            store.fertilizerTypes[index] = fertilizerType
+        } else {
+            store.fertilizerTypes.append(fertilizerType)
+        }
+
+        store.noteMutation()
+        return fertilizerType
+    }
+
     // MARK: - Locations
 
     func locations(inGarden gardenID: UUID) -> [LocationReference] {
@@ -426,6 +478,7 @@ final class ReferenceDataManager {
         }
 
         store.noteMutation()
+        persistLocationsIfNeeded()
         return .success(savedID)
     }
 
@@ -434,5 +487,12 @@ final class ReferenceDataManager {
         guard let index = store.locations.firstIndex(where: { $0.id == id }) else { return }
         store.locations[index].geographicPosition = position
         store.noteMutation()
+        persistLocationsIfNeeded()
+    }
+
+    // MARK: - Private (Locations persistence)
+
+    private func persistLocationsIfNeeded() {
+        try? locationRepository.replaceCatalog(with: store.locations)
     }
 }

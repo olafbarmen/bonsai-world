@@ -24,6 +24,16 @@ enum TreeServiceError: Error, LocalizedError, Sendable {
     case botanicalIdentityLocked
     /// Tree `id` cannot change after a tree is created.
     case treeIdentityLocked
+    /// Add Tree cannot save without a chosen Location.
+    case locationRequired
+    /// The chosen Location no longer exists in Reference Data.
+    case locationNotFound
+    /// Add Tree / copy cannot persist without Genus and Species.
+    case genusAndSpeciesRequired
+    /// Create / copy cannot persist a tree without a Bonsai Name.
+    case bonsaiNameRequired
+    /// Bonsai Name is unique across In Care and Former Trees. Delete frees it.
+    case bonsaiNameAlreadyUsed
 
     var errorDescription: String? {
         switch self {
@@ -31,6 +41,16 @@ enum TreeServiceError: Error, LocalizedError, Sendable {
             return "Tree identity (Bonsai Name, Botanical Name, Genus, Species, Cultivar) cannot be changed after a tree is created."
         case .treeIdentityLocked:
             return "Tree ID cannot be changed after a tree is created."
+        case .locationRequired:
+            return "Choose a location, then try Save again."
+        case .locationNotFound:
+            return "The selected location is no longer available. Choose another location."
+        case .genusAndSpeciesRequired:
+            return "Choose a genus and species, then try Save again."
+        case .bonsaiNameRequired:
+            return "A Bonsai Name could not be generated. The tree needs a genus and species."
+        case .bonsaiNameAlreadyUsed:
+            return "That Bonsai Name is already used. Choose another name, or delete the mistaken tree first. Sold or former trees keep their names."
         }
     }
 }

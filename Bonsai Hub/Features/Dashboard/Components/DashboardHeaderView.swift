@@ -2,7 +2,7 @@
 //  DashboardHeaderView.swift
 //  Bonsai World
 //
-//  Personal identity header above the Collection Summary hero.
+//  Personal identity header above the My Trees hero.
 //
 
 import SwiftUI

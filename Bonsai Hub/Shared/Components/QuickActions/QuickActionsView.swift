@@ -14,6 +14,8 @@ import SwiftUI
 /// this view only renders them. Extend context actions by updating the
 /// catalog (or provider) passed in — never by editing this view.
 struct QuickActionsView: View {
+    /// Section header — "Quick Actions" in Library; "Image Tools" etc. in workspaces.
+    var sectionTitle: String = "Quick Actions"
     /// Always-visible actions (same across modules).
     let globalActions: [ActionDefinition]
     /// Module-specific actions for the current selection; empty when none.
@@ -26,9 +28,7 @@ struct QuickActionsView: View {
     var body: some View {
         Section {
             ForEach(globalActions) { definition in
-                QuickActionRow(definition: definition) {
-                    trigger(definition)
-                }
+                QuickActionRow(definition: definition, onAction: trigger)
                 .listRowInsets(rowInsets)
             }
 
@@ -45,16 +45,14 @@ struct QuickActionsView: View {
                     .accessibilityHidden(true)
 
                 ForEach(contextActions) { definition in
-                    QuickActionRow(definition: definition) {
-                        trigger(definition)
-                    }
+                    QuickActionRow(definition: definition, onAction: trigger)
                     .listRowInsets(rowInsets)
                     .id(definition.id)
                 }
             }
         } header: {
             SidebarSectionHeader(
-                title: "Quick Actions",
+                title: sectionTitle,
                 topPadding: FaloSpacing.xxLarge
             )
         }
@@ -106,27 +104,54 @@ struct QuickActionsDivider: View {
 
 struct QuickActionRow: View {
     let definition: ActionDefinition
-    var onTrigger: () -> Void
+    var onAction: (ActionDefinition) -> Void
 
     var body: some View {
-        Button(action: onTrigger) {
-            Label {
-                Text(definition.title)
-                    .font(FaloTypography.body)
-            } icon: {
-                Image(systemName: definition.systemImage ?? "circle")
-                    .font(.system(size: 14, weight: .semibold))
-                    .symbolRenderingMode(.hierarchical)
-                    .frame(width: 22, height: 22, alignment: .center)
+        Group {
+            if definition.hasMenu {
+                Menu {
+                    ForEach(definition.children) { child in
+                        Button {
+                            onAction(child)
+                        } label: {
+                            Label(child.title, systemImage: child.systemImage ?? "circle")
+                        }
+                        .disabled(!child.isEnabled)
+                        .help(child.resolvedHelp)
+                    }
+                } label: {
+                    rowLabel
+                }
+                .menuStyle(.borderlessButton)
+                .disabled(!definition.isEnabled)
+            } else {
+                Button {
+                    onAction(definition)
+                } label: {
+                    rowLabel
+                }
+                .buttonStyle(.plain)
+                .disabled(!definition.isEnabled)
             }
-            .padding(.vertical, FaloSpacing.xSmall)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
-        .disabled(!definition.isEnabled)
         .help(definition.resolvedHelp)
         .accessibilityLabel(definition.title)
+        .accessibilityHint(definition.hasMenu ? "Opens a menu" : "")
+    }
+
+    private var rowLabel: some View {
+        Label {
+            Text(definition.title)
+                .font(FaloTypography.body)
+        } icon: {
+            Image(systemName: definition.systemImage ?? "circle")
+                .font(.system(size: 14, weight: .semibold))
+                .symbolRenderingMode(.hierarchical)
+                .frame(width: 22, height: 22, alignment: .center)
+        }
+        .padding(.vertical, FaloSpacing.xSmall)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentShape(Rectangle())
     }
 }
 
@@ -134,7 +159,7 @@ struct QuickActionRow: View {
     List {
         QuickActionsView(
             globalActions: [
-                ActionDefinition(id: "g.new", title: "New Tree", systemImage: "leaf", availability: .comingSoon),
+                ActionDefinition(id: "g.new", title: "Add Tree", systemImage: "leaf", availability: .comingSoon),
                 ActionDefinition(id: "g.search", title: "Search", systemImage: "magnifyingglass", availability: .comingSoon),
                 ActionDefinition(id: "g.import", title: "Import", systemImage: "square.and.arrow.down", availability: .comingSoon)
             ],
@@ -152,7 +177,7 @@ struct QuickActionRow: View {
     List {
         QuickActionsView(
             globalActions: [
-                ActionDefinition(id: "g.new", title: "New Tree", systemImage: "leaf", availability: .comingSoon)
+                ActionDefinition(id: "g.new", title: "Add Tree", systemImage: "leaf", availability: .comingSoon)
             ],
             contextActions: []
         )

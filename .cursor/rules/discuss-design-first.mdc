@@ -1,0 +1,30 @@
+---
+description: Do not invent design, layout, or product names — ask concrete questions first
+alwaysApply: true
+---
+
+# Discuss design and layout first
+
+Do not make design, layout, or product-naming choices on your own. The grower
+must be in the decision. Ask **concrete questions** and wait for an answer
+before implementing that choice.
+
+This includes: section order, collapse/expand, new labels, renaming UI,
+grouping, empty-state copy, and any new term the grower has not already used.
+
+**How to ask**
+
+- Offer only names and structures already in the product, or options the
+  grower stated.
+- Ask yes/no or numbered choices. Do not invent a third name “to be helpful.”
+- If something needs a label, ask what it should be called.
+
+**Examples**
+
+- Good: “My Collections first, Former Trees last — yes or no?”
+- Good: “Call the top Trees list **My Trees** or **Trees**?”
+- Bad: Introducing “Care Smart” or “In Care” without asking.
+- Bad: Redesigning a list layout in the same turn you noticed clutter.
+
+Implementation of an already-agreed design can proceed after they answer.
+Do not expand the design while coding.

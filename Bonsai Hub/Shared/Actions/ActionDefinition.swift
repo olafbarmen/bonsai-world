@@ -21,20 +21,26 @@ struct ActionDefinition: Identifiable, Hashable, Sendable {
     var systemImage: String?
     var availability: ActionAvailability
     var help: String?
+    /// When non-empty, the row is a menu and these items fire instead of the parent.
+    var children: [ActionDefinition]
 
     init(
         id: String,
         title: String,
         systemImage: String? = nil,
         availability: ActionAvailability = .available,
-        help: String? = nil
+        help: String? = nil,
+        children: [ActionDefinition] = []
     ) {
         self.id = id
         self.title = title
         self.systemImage = systemImage
         self.availability = availability
         self.help = help
+        self.children = children
     }
+
+    var hasMenu: Bool { !children.isEmpty }
 
     var isEnabled: Bool {
         if case .disabled = availability { return false }

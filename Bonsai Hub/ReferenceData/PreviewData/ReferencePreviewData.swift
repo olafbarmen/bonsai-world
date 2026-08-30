@@ -37,7 +37,6 @@ final class ReferencePreviewData {
     var soilMixes: [SoilMix]
 
     var fertilizerTypes: [FertilizerType]
-    var fertilizerBrands: [FertilizerBrand]
 
     var inventoryPots: [InventoryPot]
     var tools: [Tool]
@@ -72,7 +71,6 @@ final class ReferencePreviewData {
         soilMixes = SoilMixPreviewData.all
 
         fertilizerTypes = FertilizerTypePreviewData.all
-        fertilizerBrands = FertilizerBrandPreviewData.all
 
         inventoryPots = InventoryPotPreviewData.all
         tools = ToolPreviewData.all

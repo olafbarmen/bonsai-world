@@ -2,13 +2,13 @@
 //  TreeDetailToolbar.swift
 //  Bonsai World
 //
-//  Toolbar for New Tree sheet only (create Cancel / Save).
+//  Toolbar for Add Tree sheet only (create Cancel / Save).
 //  Tree Detail actions live exclusively in Quick Actions.
 //
 
 import SwiftUI
 
-/// Toolbar for the New Tree create sheet.
+/// Toolbar for the Add Tree sheet.
 struct TreeDetailToolbar: ToolbarContent {
     var onCancel: () -> Void
     var onSave: () -> Void
@@ -27,12 +27,12 @@ struct TreeDetailToolbar: ToolbarContent {
 
 extension EditorMode {
     /// Navigation title for the tree editor surface.
-    /// Create → Botanical Name when generated, otherwise "New Tree"; Edit → Botanical Name.
+    /// Create → Botanical Name when generated, otherwise "Add Tree"; Edit → Botanical Name.
     func treeEditorTitle(botanicalName: String) -> String {
         let trimmed = botanicalName.trimmingCharacters(in: .whitespacesAndNewlines)
         switch self {
         case .create:
-            return trimmed.isEmpty ? "New Tree" : trimmed
+            return trimmed.isEmpty ? "Add Tree" : trimmed
         case .edit:
             return trimmed.isEmpty ? "Tree" : trimmed
         }

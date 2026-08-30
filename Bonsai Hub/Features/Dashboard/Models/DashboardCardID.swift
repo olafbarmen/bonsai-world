@@ -19,6 +19,12 @@ enum DashboardCardID: String, CaseIterable, Identifiable, Hashable, Codable, Sen
     case treesRequiringAttention
     case weather
     case quickStatistics
+    /// Live Tasks orientation — overdue + today.
+    case tasks
+    /// Live library record gaps (photo, status, species).
+    case library
+    /// Live recent Work history.
+    case recentWork
 
     var id: Self { self }
 
@@ -33,6 +39,9 @@ enum DashboardCardID: String, CaseIterable, Identifiable, Hashable, Codable, Sen
         case .treesRequiringAttention: "Trees Requiring Attention"
         case .weather: "Weather"
         case .quickStatistics: "Quick Statistics"
+        case .tasks: "Tasks"
+        case .library: "Library"
+        case .recentWork: "Recent Work"
         }
     }
 
@@ -47,6 +56,9 @@ enum DashboardCardID: String, CaseIterable, Identifiable, Hashable, Codable, Sen
         case .treesRequiringAttention: "exclamationmark.triangle"
         case .weather: "cloud.sun"
         case .quickStatistics: "chart.bar"
+        case .tasks: "checklist"
+        case .library: "books.vertical"
+        case .recentWork: "clock.arrow.circlepath"
         }
     }
 
@@ -62,6 +74,9 @@ enum DashboardCardID: String, CaseIterable, Identifiable, Hashable, Codable, Sen
         case .treesRequiringAttention: "Opens Tree"
         case .weather: "Opens Locations"
         case .quickStatistics: "Opens Garden"
+        case .tasks: "Opens Tasks"
+        case .library: "Opens Garden"
+        case .recentWork: "Opens Tree"
         }
     }
 }

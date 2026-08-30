@@ -20,6 +20,40 @@ struct DashboardCardSectionLabel: View {
     }
 }
 
+/// Empty-state line inside a live Dashboard card (function exists, nothing to show).
+struct DashboardEmptyMessage: View {
+    let text: String
+
+    var body: some View {
+        Text(text)
+            .font(FaloTypography.body)
+            .foregroundStyle(.secondary)
+            .padding(.vertical, FaloSpacing.small)
+    }
+}
+
+/// Heading is kept; the module behind this card is not wired yet.
+struct DashboardNoFunctionYet: View {
+    var body: some View {
+        DashboardEmptyMessage(text: "No function yet.")
+    }
+}
+
+/// Full-width plain tap target for Dashboard rows (deep-link only).
+struct DashboardCardTapButton<Label: View>: View {
+    let action: () -> Void
+    @ViewBuilder var label: () -> Label
+
+    var body: some View {
+        Button(action: action) {
+            label()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
 /// Compact bullet list for context lines.
 struct DashboardCardBulletList: View {
     let items: [String]

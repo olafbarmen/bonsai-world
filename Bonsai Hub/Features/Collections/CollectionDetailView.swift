@@ -15,6 +15,7 @@ struct CollectionDetailView: View {
     @Environment(AppState.self) private var appState
     @Environment(ReferenceDataService.self) private var referenceData
     @Environment(TreeService.self) private var treeService
+    @Environment(TaskService.self) private var taskService
     @Environment(\.scenePhase) private var scenePhase
 
     @State private var interactionMode: TreeDetailInteractionMode = .viewing
@@ -118,7 +119,11 @@ struct CollectionDetailView: View {
 
     @ViewBuilder
     private func collectionDetail(_ collection: Collection) -> some View {
-        let members = treeService.trees(inCollection: collection.id)
+        let members = treeService.trees(
+            inCollection: collection.id,
+            disposalMethods: referenceData.disposalMethods,
+            liveMembers: taskService.liveSmartCollectionMembers()
+        )
 
         ScrollView {
             VStack(alignment: .leading, spacing: FaloSpacing.xxLarge) {
@@ -141,9 +146,7 @@ struct CollectionDetailView: View {
                         FeaturedEmptyState(
                             title: collection.isSmart ? "Smart Collection" : "Ready for members",
                             systemImage: collection.isSmart ? "sparkles" : "leaf",
-                            description: collection.isSmart
-                                ? "Membership rules are not evaluated yet. This placeholder establishes Collections navigation."
-                                : "Use Quick Actions → Add Existing Tree to organise trees into this collection."
+                            description: smartEmptyDescription(for: collection)
                         )
                         .frame(minHeight: 180)
                     } else {
@@ -309,6 +312,31 @@ struct CollectionDetailView: View {
         count == 1 ? "1 Member" : "\(count) Members"
     }
 
+    private func smartEmptyDescription(for collection: Collection) -> String {
+        if let outcome = SystemSmartCollections.lifecycleOutcome(for: collection.id) {
+            return "Trees with ownership \(outcome.dashboardLabel) appear here automatically."
+        }
+        if SystemSmartCollections.isNeedsWater(collection.id) {
+            return "Trees with watering due today appear here automatically — the same trees as Tasks → Today."
+        }
+        if SystemSmartCollections.isTodaysWork(collection.id) {
+            return "Trees with work due today appear here automatically — the same trees as Tasks → Today."
+        }
+        if SystemSmartCollections.isNeedsRepotting(collection.id) {
+            return "Trees with Repotting due (overdue through this month) appear here automatically from Tasks."
+        }
+        if SystemSmartCollections.isNeedsPhotos(collection.id) {
+            return "My Trees without a photo appear here automatically — the same gap as Dashboard → Library."
+        }
+        if SystemSmartCollections.isFavoriteTrees(collection.id) {
+            return "Use Quick Actions → Add to Favorite Trees on a tree."
+        }
+        if collection.isSmart {
+            return "Membership rules are not evaluated yet. This placeholder establishes Collections navigation."
+        }
+        return "Use Quick Actions → Add Existing Tree to organise trees into this collection."
+    }
+
     // MARK: - Quick Actions
 
     private func handleQuickAction(_ command: CollectionQuickActionCommand) {
@@ -457,7 +485,8 @@ struct CollectionDetailView: View {
                 species: tree.botanicalName,
                 collectionName: FaloDisplayValue.text(
                     referenceData.location(id: tree.locationID)?.name
-                )
+                ),
+                imageID: tree.listImageID
             )
         }
     }
@@ -468,10 +497,20 @@ struct CollectionDetailView: View {
     let previewData = PreviewData()
     let store = ReferencePreviewData()
     let treeService = TreeService.preview(previewData: previewData)
+    let referenceData = ReferenceDataService(previewData: store)
+    let workService = WorkService(referenceData: referenceData)
+    let taskService = TaskService(
+        referenceData: referenceData,
+        workService: workService,
+        treeService: treeService,
+        botanicalService: BotanicalService(store: store)
+    )
     state.selectedSection = .gardenCollections
     state.selectedCollectionID = previewData.collections.first?.id
     return CollectionDetailView()
         .environment(state)
         .environment(treeService)
-        .environment(ReferenceDataService(previewData: store))
+        .environment(referenceData)
+        .environment(taskService)
+        .environment(ImageService(storage: .shared, previewData: ImagePreviewData()))
 }

@@ -18,12 +18,12 @@ struct DetailCard<Content: View>: View {
         VStack(alignment: .leading, spacing: FaloCardTypography.titleToContent) {
             DetailSectionHeader(title: title)
 
-            VStack(alignment: .leading, spacing: FaloSpacing.small) {
+            VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
                 content()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(FaloSpacing.large)
+        .padding(FaloSpacing.medium)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background {
             RoundedRectangle(cornerRadius: FaloRadius.medium, style: .continuous)

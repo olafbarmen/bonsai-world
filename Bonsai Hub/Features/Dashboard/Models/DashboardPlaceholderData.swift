@@ -7,51 +7,14 @@
 //
 
 import Foundation
-import SwiftUI
 
 enum DashboardPlaceholderData {
     static let identity = DashboardIdentity.placeholder
     static let layout = DashboardLayout.refined
 
     // MARK: - Collection Summary Hero
-
-    struct HeroMetric: Identifiable, Hashable, Sendable {
-        let id: String
-        let label: String
-        let value: String
-    }
-
-    struct HeroListItem: Identifiable, Hashable, Sendable {
-        let id: String
-        let title: String
-        var detail: String? = nil
-    }
-
-    /// Column 1 — overall collection counts (future: TreeService aggregates).
-    static let heroCollection: [HeroMetric] = [
-        HeroMetric(id: "total", label: "Trees", value: "150"),
-        HeroMetric(id: "finished", label: "Finished Bonsai", value: "36"),
-        HeroMetric(id: "development", label: "Development Trees", value: "54"),
-        HeroMetric(id: "yamadori", label: "Yamadori", value: "22")
-    ]
-
-    /// Dominant Species list with counts (future: botanical frequency from Trees).
-    static let heroSpecies: [HeroListItem] = [
-        HeroListItem(id: "acer", title: "Acer palmatum", detail: "34"),
-        HeroListItem(id: "juniper", title: "Juniper", detail: "22"),
-        HeroListItem(id: "larch", title: "Larch", detail: "18"),
-        HeroListItem(id: "pine", title: "Pine", detail: "16"),
-        HeroListItem(id: "beech", title: "Beech", detail: "12"),
-        HeroListItem(id: "spruce", title: "Spruce", detail: "10"),
-        HeroListItem(id: "azalea", title: "Azalea", detail: "8"),
-        HeroListItem(id: "elm", title: "Elm", detail: "6"),
-        HeroListItem(id: "hornbeam", title: "Hornbeam", detail: "5"),
-        HeroListItem(id: "cotoneaster", title: "Cotoneaster", detail: "4"),
-        HeroListItem(id: "olive", title: "Olive", detail: "3"),
-        HeroListItem(id: "boxwood", title: "Boxwood", detail: "3"),
-        HeroListItem(id: "oak", title: "Oak", detail: "2"),
-        HeroListItem(id: "yew", title: "Yew", detail: "2")
-    ]
+    //
+    // Live data — see ``DashboardCollectionSummary``. No placeholder numbers here.
 
     // MARK: - Today's Care
 
@@ -252,107 +215,6 @@ enum DashboardPlaceholderData {
     static let treesAttentionNextAction = "Inspect Dragon Maple wiring before it bites in."
 
     // MARK: - Weather
-
-    /// Future: selected Garden. Placeholder display name only.
-    static let weatherGardenName = "My Garden"
-
-    struct WeatherComparisonRow: Identifiable, Hashable, Sendable {
-        let id: String
-        let label: String
-        let todayValue: String
-        let tomorrowValue: String
-        /// Placeholder Bonsai status color — not calculated.
-        let todayStatus: WeatherParameterStatusPlaceholder
-        /// Placeholder Bonsai status color — not calculated.
-        let tomorrowStatus: WeatherParameterStatusPlaceholder
-    }
-
-    /// Design-only status dots for weather parameters. Future: derived from weather, species, garden, stage.
-    enum WeatherParameterStatusPlaceholder: String, Hashable, Sendable {
-        case normal
-        case watch
-        case caution
-        case critical
-
-        var color: Color {
-            switch self {
-            case .normal: Color.green
-            case .watch: Color.yellow
-            case .caution: Color.orange
-            case .critical: Color.red
-            }
-        }
-    }
-
-    /// Shared short labels; Today / Tomorrow values side by side.
-    static let weatherComparisonRows: [WeatherComparisonRow] = [
-        WeatherComparisonRow(
-            id: "temp",
-            label: "Temp",
-            todayValue: "18°",
-            tomorrowValue: "16°",
-            todayStatus: .normal,
-            tomorrowStatus: .normal
-        ),
-        WeatherComparisonRow(
-            id: "rain",
-            label: "Rain",
-            todayValue: "40%",
-            tomorrowValue: "70%",
-            todayStatus: .watch,
-            tomorrowStatus: .caution
-        ),
-        WeatherComparisonRow(
-            id: "wind",
-            label: "Wind",
-            todayValue: "12 km/h",
-            tomorrowValue: "18 km/h",
-            todayStatus: .normal,
-            tomorrowStatus: .watch
-        ),
-        WeatherComparisonRow(
-            id: "humidity",
-            label: "Humidity",
-            todayValue: "62%",
-            tomorrowValue: "74%",
-            todayStatus: .normal,
-            tomorrowStatus: .normal
-        ),
-        WeatherComparisonRow(
-            id: "uv",
-            label: "UV",
-            todayValue: "Moderate",
-            tomorrowValue: "Low",
-            todayStatus: .watch,
-            tomorrowStatus: .normal
-        )
-    ]
-
-    /// Placeholder Bonsai-facing risks for today. Empty → show calm empty copy.
-    static let todaysBonsaiRisks: [String] = [
-        "Heavy rain may wash fertilizer away.",
-        "Afternoon sun may require additional watering."
-    ]
-
-    static let todaysBonsaiRisksEmptyMessage = "No significant Bonsai weather risks today."
-
-    static let weatherNextAction = "Water exposed benches after the afternoon sun peak."
-
-    struct WeatherWeekDay: Identifiable, Hashable, Sendable {
-        let id: String
-        let weekday: String
-        let systemImage: String
-        let temperature: String
-    }
-
-    /// Compact seven-day planning strip — day, icon, temperature only.
-    static let weatherWeek: [WeatherWeekDay] = [
-        WeatherWeekDay(id: "mon", weekday: "Mon", systemImage: "sun.max", temperature: "18°"),
-        WeatherWeekDay(id: "tue", weekday: "Tue", systemImage: "cloud.sun", temperature: "17°"),
-        WeatherWeekDay(id: "wed", weekday: "Wed", systemImage: "cloud.rain", temperature: "15°"),
-        WeatherWeekDay(id: "thu", weekday: "Thu", systemImage: "sun.max", temperature: "19°"),
-        WeatherWeekDay(id: "fri", weekday: "Fri", systemImage: "cloud.bolt", temperature: "14°"),
-        WeatherWeekDay(id: "sat", weekday: "Sat", systemImage: "cloud.sun.fill", temperature: "16°"),
-        WeatherWeekDay(id: "sun", weekday: "Sun", systemImage: "cloud", temperature: "15°")
-    ]
+    //
+    // Live data — see ``WeatherService`` and ``WeatherRiskAssessment``. No placeholder numbers here.
 }

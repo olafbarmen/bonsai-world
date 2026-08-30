@@ -65,10 +65,12 @@ struct WorkTypeEditorSheet: View {
                     behaviourToggle("Can be applied to multiple Trees", \.canApplyToMultipleTrees)
                     behaviourToggle("Can be scheduled", \.canBeScheduled)
                     behaviourToggle("Can use Templates", \.canUseTemplates)
+                    behaviourToggle("Tasks complete instantly (no form)", \.tasksCompleteInstantly)
+                    behaviourToggle("Expires if missed (never overdue)", \.expiresIfMissed)
                 } header: {
                     Text("Behaviour")
                 } footer: {
-                    Text("These flags prepare future Work workflows. They are not enforced yet.")
+                    Text("“Expires if missed” is for care you cannot do late (watering). Forgotten occurrences disappear instead of stacking as Overdue. Fertilizing and similar work should leave this off.")
                 }
             }
             .formStyle(.grouped)

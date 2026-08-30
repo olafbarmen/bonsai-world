@@ -57,6 +57,15 @@ struct WorkTypeBehaviourFlags: Codable, Hashable, Sendable {
     var canApplyToMultipleTrees: Bool
     var canBeScheduled: Bool
     var canUseTemplates: Bool
+    /// Routine, high-frequency care (starting with Watering, Blueprint §5.9 "Tasks vs.
+    /// Work"). Completing a Task of this Work Type is a single action — no form —
+    /// writing a minimal WorkRecord automatically instead of opening Add Work.
+    var tasksCompleteInstantly: Bool
+    /// Missed occurrences of this Work Type are not actionable later (you cannot
+    /// water "last Tuesday"). They never appear in Overdue and are not notified;
+    /// a recurring rule catch-up shows as due today instead. Fertilizing and
+    /// similar care leave this off so a forgotten application stays overdue.
+    var expiresIfMissed: Bool
 
     static let `default` = WorkTypeBehaviourFlags(
         requiresSoilMix: false,
@@ -70,8 +79,41 @@ struct WorkTypeBehaviourFlags: Codable, Hashable, Sendable {
         affectsEconomy: false,
         canApplyToMultipleTrees: false,
         canBeScheduled: false,
-        canUseTemplates: false
+        canUseTemplates: false,
+        tasksCompleteInstantly: false,
+        expiresIfMissed: false
     )
+}
+
+// MARK: - Codable (tolerant of pre-`expiresIfMissed` Work Types)
+
+extension WorkTypeBehaviourFlags {
+    private enum CodingKeys: String, CodingKey {
+        case requiresSoilMix, requiresPot, requiresFertilizer, requiresProduct
+        case requiresWire, requiresMeasurements, createsTreeHistory
+        case affectsInventory, affectsEconomy, canApplyToMultipleTrees
+        case canBeScheduled, canUseTemplates, tasksCompleteInstantly, expiresIfMissed
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        requiresSoilMix = try container.decodeIfPresent(Bool.self, forKey: .requiresSoilMix) ?? false
+        requiresPot = try container.decodeIfPresent(Bool.self, forKey: .requiresPot) ?? false
+        requiresFertilizer = try container.decodeIfPresent(Bool.self, forKey: .requiresFertilizer) ?? false
+        requiresProduct = try container.decodeIfPresent(Bool.self, forKey: .requiresProduct) ?? false
+        requiresWire = try container.decodeIfPresent(Bool.self, forKey: .requiresWire) ?? false
+        requiresMeasurements = try container.decodeIfPresent(Bool.self, forKey: .requiresMeasurements) ?? false
+        createsTreeHistory = try container.decodeIfPresent(Bool.self, forKey: .createsTreeHistory) ?? true
+        affectsInventory = try container.decodeIfPresent(Bool.self, forKey: .affectsInventory) ?? false
+        affectsEconomy = try container.decodeIfPresent(Bool.self, forKey: .affectsEconomy) ?? false
+        canApplyToMultipleTrees = try container.decodeIfPresent(Bool.self, forKey: .canApplyToMultipleTrees) ?? false
+        canBeScheduled = try container.decodeIfPresent(Bool.self, forKey: .canBeScheduled) ?? false
+        canUseTemplates = try container.decodeIfPresent(Bool.self, forKey: .canUseTemplates) ?? false
+        tasksCompleteInstantly = try container.decodeIfPresent(Bool.self, forKey: .tasksCompleteInstantly) ?? false
+        // Pre-flag Watering was instant-complete only — those types expire if missed.
+        expiresIfMissed = try container.decodeIfPresent(Bool.self, forKey: .expiresIfMissed)
+            ?? tasksCompleteInstantly
+    }
 }
 
 /// A catalogued kind of work. Built-in and user-defined types share this model.

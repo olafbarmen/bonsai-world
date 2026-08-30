@@ -127,14 +127,20 @@ enum WorkingDomainCatalog {
                 feedsGrowingIntelligence: false
             )
 
-        case .gallery:
+        case .media:
             WorkingDomainDefinition(
-                id: .gallery,
-                workingName: "Gallery",
-                purpose: "Visual memory of the collection.",
-                status: .reserved,
-                futureResponsibilities: [],
-                contributingSections: [.gardenGallery],
+                id: .media,
+                workingName: "Media",
+                purpose: "Digital assets — browse, organize, and find photos, documents, and other media.",
+                status: .active,
+                futureResponsibilities: [
+                    "Images",
+                    "Documents",
+                    "Notes",
+                    "Video",
+                    "Audio"
+                ],
+                contributingSections: [.mediaImages],
                 feedsGrowingIntelligence: false
             )
 

@@ -20,4 +20,5 @@ struct RelatedTreeItem: Identifiable, Hashable, Sendable {
     let name: String
     let species: String
     let collectionName: String
+    var imageID: UUID? = nil
 }

@@ -83,7 +83,6 @@ extension LightCondition: ReferenceNamedItem {}
 extension SoilComponent: ReferenceNamedItem {}
 extension SoilMix: ReferenceNamedItem {}
 extension FertilizerType: ReferenceNamedItem {}
-extension FertilizerBrand: ReferenceNamedItem {}
 extension InventoryPot: ReferenceNamedItem {}
 extension Tool: ReferenceNamedItem {}
 extension Wire: ReferenceNamedItem {}

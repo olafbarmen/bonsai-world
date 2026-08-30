@@ -23,86 +23,92 @@ extension DashboardPlaceholderData {
         switch id {
         case .todaysCare:
             DashboardHoverInfo(
-                title: "Affected trees",
-                lines: [
-                    "Dragon Maple — Water",
-                    "Coast Juniper — Water",
-                    "Black Pine #3 — Fertilize",
-                    "Olive Cascade — Repot",
-                    "Trident Maple — Move"
-                ]
+                title: "Today’s Care",
+                lines: ["Replaced by the Tasks card.", "No function yet."]
             )
         case .alerts:
             DashboardHoverInfo(
-                title: "Alert details",
+                title: "Alerts",
                 lines: [
-                    "Heat Warning — afternoon peak",
-                    "Frost Warning — overnight low",
-                    "Inventory Low — Akadama"
+                    "Overdue opens Tasks → Overdue",
+                    "Weather risks open Locations → Map"
                 ]
             )
         case .upcoming:
             DashboardHoverInfo(
-                title: "Next work",
+                title: "Upcoming",
                 lines: [
-                    "Today — Water maple group",
-                    "This week — Fertilize deciduous",
-                    "This month — Repot three pines"
+                    "This Week / Month / Year / Next Year",
+                    "Today lives on the Tasks card",
+                    "Tap a row to open that Tasks horizon"
                 ]
             )
         case .collectionOverview:
             DashboardHoverInfo(
-                title: "Collection summary",
+                title: "Collections",
                 lines: [
-                    "150 trees across 42 species",
-                    "36 finished · 54 in development",
-                    "22 yamadori"
+                    "Named Collections with member counts",
+                    "Library totals live on My Trees",
+                    "Tap opens the Collection"
                 ]
             )
         case .inventoryStatus:
             DashboardHoverInfo(
-                title: "Products running low",
-                lines: [
-                    "Akadama — reorder soon",
-                    "BioGold — about two weeks left",
-                    "Wire 2.0 mm — running low",
-                    "Mesh — running low"
-                ]
+                title: "Inventory Status",
+                lines: ["No function yet.", "Needs Inventory 2.0"]
             )
         case .repotting:
             DashboardHoverInfo(
-                title: "Trees due for repotting",
-                lines: [
-                    "Black Pine #3 — overdue",
-                    "Scots Pine — due this month",
-                    "Trident Maple — due this month"
-                ]
+                title: "Repotting",
+                lines: ["No function yet.", "Repot due will come from Tasks / Work Types"]
             )
         case .treesRequiringAttention:
             DashboardHoverInfo(
                 title: "Trees to check",
                 lines: [
-                    "Dragon Maple — wire inspection",
-                    "Coast Juniper — weak vigour",
-                    "Olive Cascade — health watch"
+                    "Health: Needs Attention or Recovering",
+                    "Tap opens Tree Detail"
                 ]
             )
         case .weather:
             DashboardHoverInfo(
                 title: "Bonsai weather support",
                 lines: [
-                    "Garden — My Garden (placeholder)",
+                    "Live forecast for the default Garden",
                     "Today vs Tomorrow comparison",
-                    "Risk — Normal (placeholder)",
+                    "Bonsai-specific risk flags (heat, frost, rain, wind, UV)",
                     "Seven-day planning strip"
                 ]
             )
         case .quickStatistics:
             DashboardHoverInfo(
                 title: "Quick statistics",
+                lines: ["No function yet."]
+            )
+        case .tasks:
+            DashboardHoverInfo(
+                title: "Today’s care",
                 lines: [
-                    "Average tree age — 14 years",
-                    "New trees this year — 6"
+                    "Overdue opens Tasks → Overdue",
+                    "Today’s rows open Tasks → Today",
+                    "Watering is one count, not one row per tree",
+                    "Complete lives in Tasks, not here"
+                ]
+            )
+        case .library:
+            DashboardHoverInfo(
+                title: "Library records",
+                lines: [
+                    "Trees missing photo, status, or species",
+                    "Tap opens Garden → Trees"
+                ]
+            )
+        case .recentWork:
+            DashboardHoverInfo(
+                title: "Recent Work",
+                lines: [
+                    "Latest Work records from the library",
+                    "Tap opens the Tree"
                 ]
             )
         }

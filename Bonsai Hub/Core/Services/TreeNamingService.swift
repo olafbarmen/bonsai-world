@@ -98,8 +98,72 @@ enum TreeNamingService {
 
         let culRaw = makeAbbreviation(from: cultivarName ?? "")
         let cul = culRaw.isEmpty ? unspecifiedCultivarAbbreviation : culRaw
-        let nnn = String(format: "%03d", max(sequence, 1))
-        return "\(gen)-\(spe)-\(cul)-\(acquisitionYear)-\(nnn)"
+        return officialBonsaiName(
+            genus: gen,
+            species: spe,
+            cultivar: cul,
+            acquisitionYear: acquisitionYear,
+            sequence: sequence
+        )
+    }
+
+    /// Same official format as Add Tree, with fallbacks when lookup strings are empty.
+    /// 1) Genus / species / cultivar names  2) Botanical Name  3) GEN/SPE/CUL from an existing official name.
+    static func makeGeneratedBonsaiName(
+        genusName: String,
+        speciesName: String,
+        cultivarName: String?,
+        botanicalName: String,
+        existingBonsaiName: String,
+        acquisitionYear: Int,
+        sequence: Int
+    ) -> String {
+        let botanical = namingParts(fromBotanicalName: botanicalName)
+        let genus = firstNonEmpty(genusName, botanical.genus)
+        let species = firstNonEmpty(speciesName, botanical.species)
+        let cultivar = firstNonEmpty(cultivarName, botanical.cultivar)
+
+        let fromNames = makeBonsaiName(
+            genusName: genus,
+            speciesName: species,
+            cultivarName: cultivar,
+            acquisitionYear: acquisitionYear,
+            sequence: sequence
+        )
+        if !fromNames.isEmpty { return fromNames }
+
+        guard let existing = parseOfficialBonsaiName(existingBonsaiName) else { return "" }
+        return officialBonsaiName(
+            genus: existing.genusAbbreviation,
+            species: existing.speciesAbbreviation,
+            cultivar: existing.cultivarAbbreviation,
+            acquisitionYear: acquisitionYear,
+            sequence: sequence
+        )
+    }
+
+    /// Genus, species epithet, and optional cultivar from a stored Botanical Name
+    /// (`Genus epithet 'Cultivar'`).
+    static func namingParts(fromBotanicalName name: String) -> (genus: String, species: String, cultivar: String?) {
+        var remainder = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        var cultivar: String?
+
+        if let first = remainder.firstIndex(of: "'"),
+           first < remainder.endIndex {
+            let afterFirst = remainder.index(after: first)
+            if let second = remainder[afterFirst...].firstIndex(of: "'") {
+                let raw = String(remainder[afterFirst..<second])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                if !raw.isEmpty { cultivar = raw }
+                remainder = String(remainder[..<first])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+        }
+
+        let words = remainder.split(whereSeparator: { $0.isWhitespace }).map(String.init)
+        let genus = words.first ?? ""
+        let species = words.dropFirst().joined(separator: " ")
+        return (genus, species, cultivar)
     }
 
     /// Acquisition calendar year for Bonsai Name generation.
@@ -107,8 +171,14 @@ enum TreeNamingService {
         calendar.component(.year, from: date)
     }
 
-    /// Parses the trailing sequence (`NNN`) from a Bonsai Name.
-    static func parseBonsaiNameSequence(_ bonsaiName: String) -> Int? {
+    /// Parses an official five-segment Bonsai Name (`GEN-SPE-CUL-YYYY-NNN`).
+    static func parseOfficialBonsaiName(_ bonsaiName: String) -> (
+        genusAbbreviation: String,
+        speciesAbbreviation: String,
+        cultivarAbbreviation: String,
+        year: Int,
+        sequence: Int
+    )? {
         let trimmed = bonsaiName.trimmingCharacters(in: .whitespacesAndNewlines)
         let parts = trimmed.split(separator: "-").map(String.init)
         guard parts.count == 5,
@@ -116,25 +186,34 @@ enum TreeNamingService {
               parts[1].count == 3,
               parts[2].count == 3,
               parts[3].count == 4,
-              Int(parts[3]) != nil,
+              let year = Int(parts[3]),
               let sequence = Int(parts[4]),
               parts[4].count == 3
         else { return nil }
-        return sequence
+        return (parts[0], parts[1], parts[2], year, sequence)
     }
 
-    /// Next sequence for a species: one past the high-water mark and any live trees.
-    /// Deleted trees do not free numbers when `highWaterMark` is retained by the catalog.
+    /// Parses the trailing sequence (`NNN`) from a Bonsai Name.
+    static func parseBonsaiNameSequence(_ bonsaiName: String) -> Int? {
+        parseOfficialBonsaiName(bonsaiName)?.sequence
+    }
+
+    /// Next sequence for a species: the lowest unused number among remaining trees
+    /// (In Care and Former). Deleted trees free their number; sold / died keep theirs.
     static func nextSequence(
         forSpecies speciesID: UUID,
-        existingTrees: [Tree],
-        highWaterMark: Int
+        existingTrees: [Tree]
     ) -> Int {
-        let fromTrees = existingTrees
-            .filter { $0.speciesID == speciesID }
-            .compactMap { parseBonsaiNameSequence($0.bonsaiName) }
-            .max() ?? 0
-        return max(fromTrees, highWaterMark, 0) + 1
+        let used = Set(
+            existingTrees
+                .filter { $0.speciesID == speciesID }
+                .compactMap { parseBonsaiNameSequence($0.bonsaiName) }
+        )
+        var sequence = 1
+        while used.contains(sequence) {
+            sequence += 1
+        }
+        return sequence
     }
 
     // MARK: - Import compatibility
@@ -142,6 +221,25 @@ enum TreeNamingService {
     /// Imported / legacy Names are kept as Display Name — never overwritten by botanical regeneration.
     static func preservedImportedName(_ existingName: String) -> String {
         existingName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func officialBonsaiName(
+        genus: String,
+        species: String,
+        cultivar: String,
+        acquisitionYear: Int,
+        sequence: Int
+    ) -> String {
+        let nnn = String(format: "%03d", max(sequence, 1))
+        return "\(genus)-\(species)-\(cultivar)-\(acquisitionYear)-\(nnn)"
+    }
+
+    private static func firstNonEmpty(_ values: String?...) -> String {
+        for value in values {
+            let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !trimmed.isEmpty { return trimmed }
+        }
+        return ""
     }
 }
 

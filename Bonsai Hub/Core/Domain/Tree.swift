@@ -201,6 +201,12 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
         self.modifiedDate = modifiedDate
     }
 
+    /// Photo for tree lists: primary, otherwise the first gallery image.
+    var listImageID: UUID? { primaryImageID ?? imageIDs.first }
+
+    /// In the grower’s care — no disposal method recorded (Blueprint §4.5 Active).
+    var isInCare: Bool { disposalMethodID == nil }
+
     /// True when any disposal field indicates ownership has ended.
     var hasDisposalRecord: Bool {
         disposalDate != nil

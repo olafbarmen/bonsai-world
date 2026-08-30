@@ -2,7 +2,7 @@
 //  SidebarView.swift
 //  Bonsai World
 //
-//  Architecture Version 2 — hierarchical Workspace modules.
+//  Architecture Version 3 — workflow-first sidebar (Tasks, Garden + Locations, Shaping).
 //  Visual hierarchy: Section → Module → Subpage (typography & spacing only).
 //  User actions live in Quick Actions only (no duplicate toolbars).
 //
@@ -12,8 +12,10 @@ import SwiftUI
 struct SidebarView: View {
     @Environment(AppState.self) private var appState
     @Environment(TreeService.self) private var treeService
+    @Environment(TaskService.self) private var taskService
+    @Environment(\.openWindow) private var openWindow
     @State private var expandedModules: Set<AppModule> = [
-        .garden, .locations, .workshop, .nursery
+        .tasks, .garden, .media, .nursery
     ]
 
     private let sidebarWidth: CGFloat = 220
@@ -23,31 +25,56 @@ struct SidebarView: View {
 
         List(selection: $appState.selectedSection) {
             Section {
-                ForEach(AppModule.workspaceModules) { module in
+                ForEach(AppModule.primaryWorkspaceModules) { module in
+                    moduleNavigation(module)
+                }
+
+                Divider()
+                    .padding(.vertical, FaloSpacing.xSmall)
+
+                ForEach(AppModule.libraryWorkspaceModules) { module in
                     moduleNavigation(module)
                 }
             } header: {
                 SidebarSectionHeader(title: "Workspace")
             }
 
-            QuickActionsView(
-                globalActions: GlobalQuickActionsCatalog.actions,
-                contextActions: ContextQuickActionsCatalog.actions(
-                    for: appState.selectedSection,
-                    treesContext: ContextQuickActionsCatalog.TreesContext(
-                        selectedTreeID: appState.selectedTreeID,
-                        interactionMode: appState.treeDetailInteractionMode
+            if appState.isImageWorkspaceWindow {
+                QuickActionsView(
+                    sectionTitle: "Image Tools",
+                    globalActions: [],
+                    contextActions: ImageWorkspaceToolsCatalog.actions(
+                        for: ImageWorkspaceExperienceLevel.current
                     ),
-                    collectionsContext: ContextQuickActionsCatalog.CollectionsContext(
-                        selectedCollectionID: appState.selectedCollectionID,
-                        selectedCollectionIsManual: appState.selectedCollectionID.flatMap {
-                            treeService.collection(id: $0)?.isManual
-                        } ?? false,
-                        interactionMode: appState.collectionDetailInteractionMode
-                    )
-                ),
-                onAction: handleQuickAction
-            )
+                    onAction: handleImageWorkspaceTool
+                )
+            } else {
+                QuickActionsView(
+                    globalActions: GlobalQuickActionsCatalog.actions,
+                    contextActions: ContextQuickActionsCatalog.actions(
+                        for: appState.selectedSection,
+                        treesContext: ContextQuickActionsCatalog.TreesContext(
+                            selectedTreeID: appState.selectedTreeID,
+                            interactionMode: appState.treeDetailInteractionMode,
+                            isInCare: appState.selectedTreeID.flatMap {
+                                treeService.getTree(id: $0)?.isInCare
+                            } ?? true,
+                            isFavorite: appState.selectedTreeID.map {
+                                treeService.isFavoriteTree($0)
+                            } ?? false
+                        ),
+                        collectionsContext: ContextQuickActionsCatalog.CollectionsContext(
+                            selectedCollectionID: appState.selectedCollectionID,
+                            selectedCollectionIsManual: appState.selectedCollectionID.flatMap {
+                                treeService.collection(id: $0)?.isManual
+                            } ?? false,
+                            interactionMode: appState.collectionDetailInteractionMode
+                        ),
+                        mediaSelectedImageID: appState.selectedMediaImageID
+                    ),
+                    onAction: handleQuickAction
+                )
+            }
 
             Section {
                 ForEach(AppModule.toolsModules) { module in
@@ -66,7 +93,7 @@ struct SidebarView: View {
         .navigationTitle(WorldIdentity.appName)
         .navigationSplitViewColumnWidth(min: 180, ideal: sidebarWidth, max: 280)
         .onChange(of: appState.selectedSection) { _, newValue in
-            if let module = newValue?.module, module.routes.count > 1 {
+            if let module = newValue?.module, module.showsChildNavigation {
                 expandedModules.insert(module)
             }
         }
@@ -75,14 +102,7 @@ struct SidebarView: View {
     @ViewBuilder
     private func moduleNavigation(_ module: AppModule) -> some View {
         let routes = module.routes
-        if routes.count <= 1, let route = routes.first {
-            navigationRow(
-                route,
-                title: module.title,
-                systemImage: module.systemImage,
-                level: .module
-            )
-        } else {
+        if module.showsChildNavigation {
             DisclosureGroup(isExpanded: expansionBinding(for: module)) {
                 ForEach(routes) { route in
                     navigationRow(
@@ -96,6 +116,13 @@ struct SidebarView: View {
                 moduleLabel(title: module.title, systemImage: module.systemImage)
             }
             .listRowInsets(SidebarChrome.moduleInsets)
+        } else if let route = routes.first {
+            navigationRow(
+                route,
+                title: module.title,
+                systemImage: module.systemImage,
+                level: .module
+            )
         }
     }
 
@@ -134,6 +161,8 @@ struct SidebarView: View {
         switch definition.id {
         case GlobalQuickActionsCatalog.newTreeID:
             appState.presentNewTree()
+        case GlobalQuickActionsCatalog.copyExistingTreeID:
+            appState.presentCopyExistingTree()
         case ContextQuickActionsCatalog.newLocationID:
             appState.presentNewLocation()
         case ContextQuickActionsCatalog.newCollectionID:
@@ -155,14 +184,54 @@ struct SidebarView: View {
             appState.requestTreeQuickAction(.addMeasurement)
         case ContextQuickActionsCatalog.showOnMapID:
             appState.requestTreeQuickAction(.showOnMap)
-        case ContextQuickActionsCatalog.viewGalleryID:
-            appState.requestTreeQuickAction(.viewGallery)
+        case ContextQuickActionsCatalog.viewImagesID:
+            appState.requestTreeQuickAction(.viewImages)
         case ContextQuickActionsCatalog.duplicateTreeID:
             appState.requestTreeQuickAction(.duplicateTree)
         case ContextQuickActionsCatalog.deleteTreeID:
             appState.requestTreeQuickAction(.deleteTree)
+        case ContextQuickActionsCatalog.returnToCareID:
+            appState.requestTreeQuickAction(.returnToCare)
+        case ContextQuickActionsCatalog.addToFavoriteTreesID:
+            if let id = appState.selectedTreeID {
+                treeService.setFavoriteTree(id, isFavorite: true)
+            }
+        case ContextQuickActionsCatalog.removeFromFavoriteTreesID:
+            if let id = appState.selectedTreeID {
+                treeService.setFavoriteTree(id, isFavorite: false)
+            }
         case ContextQuickActionsCatalog.cancelTreeEditID:
             appState.requestTreeQuickAction(.cancel)
+        case ContextQuickActionsCatalog.cropPhotoID:
+            if let imageID = appState.selectedMediaImageID {
+                openWindow(
+                    id: CropWorkspaceWindowContext.windowID,
+                    value: CropWorkspaceWindowContext(imageID: imageID)
+                )
+            }
+        default:
+            break
+        }
+    }
+
+    private func handleImageWorkspaceTool(_ definition: ActionDefinition) {
+        switch definition.id {
+        case ImageWorkspaceToolsCatalog.importID:
+            appState.requestImageQuickAction(.importPhotos)
+        case ImageWorkspaceToolsCatalog.attachToTreeID:
+            appState.requestImageQuickAction(.attachToTree)
+        case ImageWorkspaceToolsCatalog.cropID:
+            appState.requestImageQuickAction(.crop)
+        case ImageWorkspaceToolsCatalog.rotateID:
+            appState.requestImageQuickAction(.rotate)
+        case ImageWorkspaceToolsCatalog.setPrimaryID:
+            appState.requestImageQuickAction(.setPrimary)
+        case ImageWorkspaceToolsCatalog.setFeaturedID:
+            appState.requestImageQuickAction(.setFeatured)
+        case ImageWorkspaceToolsCatalog.compareID:
+            appState.requestImageQuickAction(.compare)
+        case ImageWorkspaceToolsCatalog.deleteID:
+            appState.requestImageQuickAction(.delete)
         default:
             break
         }
@@ -175,7 +244,9 @@ struct SidebarView: View {
         level: SidebarNavLevel
     ) -> some View {
         Group {
-            if let systemImage {
+            if route == .tasksOverdue {
+                overdueRow
+            } else if let systemImage {
                 Label {
                     Text(title)
                         .font(level.titleFont)
@@ -196,6 +267,25 @@ struct SidebarView: View {
         .padding(.vertical, level.verticalPadding)
         .tag(route)
         .listRowInsets(level.rowInsets)
+    }
+
+    private var overdueRow: some View {
+        let count = taskService.pendingOccurrences(due: .overdue).count
+        return HStack {
+            Text("Overdue")
+                .font(SidebarNavLevel.subpage.titleFont)
+                .foregroundStyle(count > 0 ? Color.orange : SidebarNavLevel.subpage.titleColor)
+            Spacer(minLength: FaloSpacing.xSmall)
+            if count > 0 {
+                Text("\(count)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(Color.orange))
+                    .accessibilityLabel("\(count) overdue")
+            }
+        }
     }
 }
 

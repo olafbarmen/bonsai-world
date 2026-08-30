@@ -2,7 +2,7 @@
 //  ContentView.swift
 //  Bonsai World
 //
-//  Architecture Version 2 — routes existing features and placeholders.
+//  Architecture Version 3 — routes existing features and placeholders.
 //
 
 import SwiftUI
@@ -13,15 +13,30 @@ struct ContentView: View {
     @Environment(TreeService.self) private var treeService
     @Environment(ReferenceDataService.self) private var referenceData
 
-    /// Dashboard is the only module that uses a two-column shell (sidebar + workspace).
+    /// Dashboard uses a two-column shell (sidebar + workspace).
     private var isDashboardSelected: Bool {
         appState.selectedSection == .dashboard
+    }
+
+    /// Media → Images — sidebar + grid + inspector (Image Workspace windows omit the inspector).
+    private var isMediaImagesSelected: Bool {
+        appState.selectedSection == .mediaImages
     }
 
     /// Trees in the Library uses sidebar + list/detail split (Tree Overview).
     /// A Tree Workspace window uses sidebar + full-area Tree Detail for one Tree.
     private var isTreesSectionSelected: Bool {
         appState.selectedSection == .gardenTrees
+    }
+
+    /// Tasks horizons — sidebar + full-width workspace (no detail column).
+    private var isTasksSectionSelected: Bool {
+        switch appState.selectedSection {
+        case .tasksOverdue, .tasksToday, .tasksThisWeek, .tasksThisMonth, .tasksThisYear, .tasksNextYear:
+            true
+        default:
+            false
+        }
     }
 
     var body: some View {
@@ -37,11 +52,27 @@ struct ContentView: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(.windowBackground)
                 }
+            } else if isMediaImagesSelected {
+                NavigationSplitView {
+                    SidebarView()
+                } detail: {
+                    mediaImagesContent
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(.windowBackground)
+                }
             } else if isTreesSectionSelected {
                 NavigationSplitView {
                     SidebarView()
                 } detail: {
                     treesContent
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background(.windowBackground)
+                }
+            } else if isTasksSectionSelected {
+                NavigationSplitView {
+                    SidebarView()
+                } detail: {
+                    tasksContent
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background(.windowBackground)
                 }
@@ -79,12 +110,28 @@ struct ContentView: View {
                 .environment(treeService)
                 .environment(referenceData)
         }
+        .sheet(isPresented: $appState.isCopyExistingTreePresented) {
+            CopyExistingTreeSheet()
+                .environment(appState)
+                .environment(treeService)
+                .environment(referenceData)
+        }
         .onChange(of: appState.selectedSection) { _, newValue in
             // Sidebar already wrote `selectedSection`. Defer dependent clears so we
             // do not mutate AppState during the List selection view update.
             Task { @MainActor in
                 appState.handleSelectedSectionChange(newValue)
             }
+        }
+    }
+
+    /// Library: Images browse. Image Workspace: one image fills the content area.
+    @ViewBuilder
+    private var mediaImagesContent: some View {
+        if let imageID = appState.imageWorkspaceImageID {
+            ImageWorkspaceView(imageID: imageID)
+        } else {
+            GalleryView()
         }
     }
 
@@ -98,6 +145,27 @@ struct ContentView: View {
         }
     }
 
+    /// Tasks horizons — full-width card workspace in the detail column.
+    @ViewBuilder
+    private var tasksContent: some View {
+        switch appState.selectedSection {
+        case .tasksOverdue:
+            TasksPlaceholderViews.overdue
+        case .tasksToday:
+            TasksPlaceholderViews.today
+        case .tasksThisWeek:
+            TasksPlaceholderViews.thisWeek
+        case .tasksThisMonth:
+            TasksPlaceholderViews.thisMonth
+        case .tasksThisYear:
+            TasksPlaceholderViews.thisYear
+        case .tasksNextYear:
+            TasksPlaceholderViews.nextYear
+        default:
+            EmptyView()
+        }
+    }
+
     @ViewBuilder
     private var contentColumn: some View {
         switch appState.selectedSection {
@@ -105,17 +173,42 @@ struct ContentView: View {
             // Unreachable while `isDashboardSelected` uses the two-column shell.
             EmptyView()
 
+        case .tasksOverdue, .tasksToday, .tasksThisWeek, .tasksThisMonth, .tasksThisYear, .tasksNextYear:
+            // Unreachable while `isTasksSectionSelected` uses the two-column shell.
+            EmptyView()
+
         case .gardenTrees:
             // Unreachable while `isTreesSectionSelected` uses the Trees shell.
             EmptyView()
         case .gardenCollections:
             CollectionsView()
-        case .gardenGallery:
+        case .mediaImages:
+            // Unreachable while `isMediaImagesSelected` uses the two-column shell.
+            EmptyView()
+
+        case .mediaDocuments:
             ModulePlaceholderView(
-                title: "Gallery",
-                systemImage: "photo.on.rectangle",
-                purpose: "Visual memory of the collection — under Garden.",
-                items: ["Tree photos", "Timeline images", "Exhibition shots"]
+                title: "Documents",
+                systemImage: "doc",
+                purpose: "Future document browse under Media — not implemented yet."
+            )
+        case .mediaNotes:
+            ModulePlaceholderView(
+                title: "Notes",
+                systemImage: "note.text",
+                purpose: "Future notes browse under Media — not implemented yet."
+            )
+        case .mediaVideo:
+            ModulePlaceholderView(
+                title: "Videos",
+                systemImage: "video",
+                purpose: "Future video browse under Media — not implemented yet."
+            )
+        case .mediaAudio:
+            ModulePlaceholderView(
+                title: "Audio",
+                systemImage: "waveform",
+                purpose: "Future audio browse under Media — not implemented yet."
             )
 
         case .locationsGardens:
@@ -168,35 +261,37 @@ struct ContentView: View {
             carePlaceholder("Watering", "Watering guidance from Growing Intelligence.")
         case .careFertilizing:
             carePlaceholder("Fertilizing", "Fertilizing guidance from Growing Intelligence.")
+        case .careRepotting:
+            carePlaceholder("Repotting", "Repotting windows and aftercare guidance.")
         case .carePlacement:
             carePlaceholder("Placement", "Placement and microclimate guidance.")
         case .careTreeHealth:
-            carePlaceholder("Tree Health", "Health signals and recovery cues.")
+            carePlaceholder("Health", "Health signals and recovery cues.")
         case .careSeasonal:
             carePlaceholder("Seasonal Care", "Season-aware care recommendations.")
         case .careWinter:
             carePlaceholder("Winter Care", "Winter protection and winter wash guidance.")
 
         case .designVision:
-            designPlaceholder("Vision", "Long-term artistic intention for a tree.")
+            shapingPlaceholder("Vision", "Long-term artistic intention for a tree.")
         case .designStyle:
-            designPlaceholder("Style", "Style classification and planning.")
+            shapingPlaceholder("Style", "Style classification and planning.")
         case .designFrontSelection:
-            designPlaceholder("Front Selection", "Choosing and refining the front.")
+            shapingPlaceholder("Front Selection", "Choosing and refining the front.")
         case .designVirtual:
-            designPlaceholder("Virtual Design", "Digital design exploration.")
+            shapingPlaceholder("Virtual Design", "Digital design exploration.")
         case .designBranchPlan:
-            designPlaceholder("Branch Plan", "Primary and secondary branch planning.")
+            shapingPlaceholder("Branch Plan", "Primary and secondary branch planning.")
         case .designTrunkDevelopment:
-            designPlaceholder("Trunk Development", "Trunk movement and taper planning.")
+            shapingPlaceholder("Trunk Development", "Trunk movement and taper planning.")
         case .designRamification:
-            designPlaceholder("Ramification", "Fine branching development plans.")
+            shapingPlaceholder("Ramification", "Fine branching development plans.")
         case .designApex:
-            designPlaceholder("Apex", "Apex design and refinement.")
+            shapingPlaceholder("Apex", "Apex design and refinement.")
         case .designDeadwood:
-            designPlaceholder("Deadwood", "Jin, shari, and deadwood design.")
+            shapingPlaceholder("Deadwood", "Jin, shari, and deadwood design.")
         case .designTimeline:
-            designPlaceholder("Timeline", "Multi-year design milestones.")
+            shapingPlaceholder("Timeline", "Multi-year design milestones.")
 
         case .inventoryPots:
             inventoryPlaceholder("Pots", "Pot inventory — single source of truth.")
@@ -341,11 +436,11 @@ struct ContentView: View {
         )
     }
 
-    private func designPlaceholder(_ title: String, _ purpose: String) -> ModulePlaceholderView {
+    private func shapingPlaceholder(_ title: String, _ purpose: String) -> ModulePlaceholderView {
         ModulePlaceholderView(
             title: title,
             systemImage: "pencil.and.outline",
-            purpose: purpose + " Design tools are not implemented yet."
+            purpose: purpose + " Shaping tools are not implemented yet."
         )
     }
 

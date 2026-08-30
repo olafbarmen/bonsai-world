@@ -9,7 +9,20 @@ import SwiftUI
 
 struct ThumbnailPlaceholder: View {
     var systemImage: String = "leaf"
-    var size: CGFloat = 52
+    var width: CGFloat = 52
+    var height: CGFloat = 52
+
+    init(systemImage: String = "leaf", size: CGFloat = 52) {
+        self.systemImage = systemImage
+        self.width = size
+        self.height = size
+    }
+
+    init(systemImage: String = "leaf", width: CGFloat, height: CGFloat) {
+        self.systemImage = systemImage
+        self.width = width
+        self.height = height
+    }
 
     var body: some View {
         ZStack {
@@ -17,11 +30,11 @@ struct ThumbnailPlaceholder: View {
                 .fill(Color.primary.opacity(0.06))
 
             Image(systemName: systemImage)
-                .font(.system(size: size * 0.36, weight: .semibold))
+                .font(.system(size: min(width, height) * 0.36, weight: .semibold))
                 .foregroundStyle(.secondary)
                 .symbolRenderingMode(.hierarchical)
         }
-        .frame(width: size, height: size)
+        .frame(width: width, height: height)
         .accessibilityHidden(true)
     }
 }

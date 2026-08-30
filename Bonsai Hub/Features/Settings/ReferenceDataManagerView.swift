@@ -17,6 +17,7 @@ struct ReferenceDataManagerView: View {
     @State private var editorDraft: ReferenceDataDraft?
     @State private var soilMixDraft: SoilMixDraft?
     @State private var workTypeDraft: WorkTypeDraft?
+    @State private var fertilizerTypeDraft: FertilizerTypeDraft?
     @State private var locationDraft: LocationReferenceDraft?
     @State private var pendingDeleteID: UUID?
 
@@ -57,6 +58,9 @@ struct ReferenceDataManagerView: View {
         }
         .sheet(item: $workTypeDraft) { draft in
             WorkTypeEditorSheet(draft: draft)
+        }
+        .sheet(item: $fertilizerTypeDraft) { draft in
+            FertilizerTypeEditorSheet(draft: draft)
         }
         .sheet(item: $locationDraft) { draft in
             LocationReferenceEditorSheet(draft: draft)
@@ -218,6 +222,8 @@ struct ReferenceDataManagerView: View {
             soilMixDraft = manager.blankSoilMixDraft()
         } else if selectedCategory == .workTypes {
             workTypeDraft = manager.blankWorkTypeDraft()
+        } else if selectedCategory == .fertilizerTypes {
+            fertilizerTypeDraft = manager.blankFertilizerTypeDraft()
         } else if selectedCategory == .locations {
             locationDraft = manager.blankLocationDraft(gardenID: profile.defaultGarden?.id)
         } else {
@@ -233,6 +239,8 @@ struct ReferenceDataManagerView: View {
             soilMixDraft = manager.soilMixDraft(for: record.id)
         } else if selectedCategory == .workTypes {
             workTypeDraft = manager.workTypeDraft(for: record.id)
+        } else if selectedCategory == .fertilizerTypes {
+            fertilizerTypeDraft = manager.fertilizerTypeDraft(for: record.id)
         } else if selectedCategory == .locations {
             locationDraft = manager.locationDraft(for: record.id)
         } else {

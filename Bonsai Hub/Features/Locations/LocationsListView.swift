@@ -20,6 +20,7 @@ struct LocationsListView: View {
     @Environment(ReferenceDataService.self) private var referenceData
     @Environment(ReferenceDataManager.self) private var manager
     @Environment(TreeService.self) private var treeService
+    @Environment(TaskService.self) private var taskService
     @Environment(ImageService.self) private var imageService
 
     @State private var mapStyle: LocationMapStyle = .standard
@@ -28,13 +29,20 @@ struct LocationsListView: View {
     @State private var statusMessage: String?
     @State private var zoomBand: MapZoomBand = .medium
     @State private var layers = MapLayerConfiguration.default
-    @State private var selectedGardenID: UUID?
     @State private var selectedMapTreeID: UUID?
     @State private var hasAppliedGardenCamera = false
-    @State private var framedDefaultGardenID: UUID?
+    @State private var framedGardenID: UUID?
 
-    private var defaultGarden: Garden? {
+    /// Garden currently framed/filtered on the map (Phase 4 — multi-Garden support).
+    /// Falls back to the default Garden when nothing has been explicitly picked, or
+    /// when the picked Garden was deactivated/removed.
+    private var browsedGarden: Garden? {
         _ = profile.revision
+        if let id = appState.selectedGardenID,
+           let garden = profile.garden(id: id),
+           garden.isActive {
+            return garden
+        }
         return profile.defaultGarden
     }
 
@@ -43,7 +51,7 @@ struct LocationsListView: View {
         _ = manager.revision
         _ = profile.revision
         let all = referenceData.locations
-        guard let gardenID = defaultGarden?.id else { return all }
+        guard let gardenID = browsedGarden?.id else { return all }
         return all.filter { $0.gardenID == gardenID }
     }
 
@@ -53,7 +61,7 @@ struct LocationsListView: View {
     }
 
     private var selectedAnnotationID: UUID? {
-        selectedMapTreeID ?? appState.selectedLocationID ?? selectedGardenID
+        selectedMapTreeID ?? appState.selectedLocationID ?? browsedGarden?.id
     }
 
     private var collectionFilterID: UUID? {
@@ -65,7 +73,13 @@ struct LocationsListView: View {
         _ = treeService.trees
         let trees = treeService.trees(at: locationID)
         guard let collectionFilterID else { return trees }
-        let memberIDs = Set(treeService.trees(inCollection: collectionFilterID).map(\.id))
+        let memberIDs = Set(
+            treeService.trees(
+                inCollection: collectionFilterID,
+                disposalMethods: referenceData.disposalMethods,
+                liveMembers: taskService.liveSmartCollectionMembers()
+            ).map(\.id)
+        )
         return trees.filter { memberIDs.contains($0.id) }
     }
 
@@ -74,7 +88,7 @@ struct LocationsListView: View {
         var pins: [LocationMapAnnotation] = []
 
         if layers.showsGardens,
-           let garden = defaultGarden,
+           let garden = browsedGarden,
            let coordinate = garden.mapCenter {
             pins.append(
                 LocationMapAnnotation(
@@ -83,7 +97,7 @@ struct LocationsListView: View {
                     subtitle: garden.isDefault ? "Default Garden" : "Garden",
                     coordinate: coordinate,
                     level: .garden,
-                    isHighlighted: selectedGardenID == garden.id
+                    isHighlighted: appState.selectedLocationID == nil && selectedMapTreeID == nil
                 )
             )
         }
@@ -159,26 +173,28 @@ struct LocationsListView: View {
         .navigationSplitViewColumnWidth(min: 280, ideal: 360, max: 480)
         .onChange(of: appState.selectedLocationID) { _, newID in
             selectedMapTreeID = nil
-            if newID != nil {
-                selectedGardenID = nil
-            }
             focusSelectedLocation(id: newID)
             updateLocationStatus()
         }
         .onChange(of: appState.pendingLocationMapFocusID) { _, focusID in
             guard let focusID else { return }
             selectedMapTreeID = nil
-            selectedGardenID = nil
             focusSelectedLocation(id: focusID, forceZoom: true)
             appState.clearPendingLocationMapFocus()
             updateLocationStatus()
         }
         .onChange(of: profile.revision) { _, _ in
-            let gardenID = profile.defaultGarden?.id
-            if gardenID != framedDefaultGardenID {
+            let gardenID = browsedGarden?.id
+            if gardenID != framedGardenID {
                 hasAppliedGardenCamera = false
                 Task { await applyInitialMapCamera() }
             }
+        }
+        .onChange(of: appState.selectedGardenID) { _, _ in
+            appState.selectedLocationID = nil
+            selectedMapTreeID = nil
+            hasAppliedGardenCamera = false
+            Task { await applyInitialMapCamera() }
         }
         .onChange(of: layers.collectionFilterID) { _, _ in
             updateLocationStatus()
@@ -194,7 +210,7 @@ struct LocationsListView: View {
     }
 
     private var needsGardenPlacement: Bool {
-        guard let garden = defaultGarden else { return false }
+        guard let garden = browsedGarden else { return false }
         return !garden.hasGardenPosition
     }
 
@@ -234,6 +250,14 @@ struct LocationsListView: View {
                     try? await imageService.loadOriginalData(for: imageID)
                 }
             )
+            // Hero-surface framing (matches TreePhotoManagerSection's photo hero) so the map
+            // reads as a card like every other module surface, instead of full-bleed.
+            .clipShape(RoundedRectangle(cornerRadius: FaloRadius.hero, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: FaloRadius.hero, style: .continuous)
+                    .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+            }
+            .padding(FaloSpacing.medium)
 
             mapChrome
         }
@@ -241,7 +265,8 @@ struct LocationsListView: View {
     }
 
     private var mapChrome: some View {
-        VStack(alignment: .leading, spacing: FaloSpacing.small) {
+        @Bindable var appState = appState
+        return VStack(alignment: .leading, spacing: FaloSpacing.small) {
             HStack(spacing: FaloSpacing.medium) {
                 Picker("Map View", selection: $mapStyle) {
                     ForEach(LocationMapStyle.allCases) { style in
@@ -267,6 +292,17 @@ struct LocationsListView: View {
 
             HStack(spacing: FaloSpacing.medium) {
                 layerMenu
+
+                if profile.activeGardens.count > 1 {
+                    Picker("Garden", selection: $appState.selectedGardenID) {
+                        ForEach(profile.activeGardens) { garden in
+                            Text(garden.name).tag(Optional(garden.id))
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .frame(maxWidth: 180)
+                    .help("Garden — shows Locations for the chosen Garden. Weather still follows your default Garden.")
+                }
 
                 Picker("Collection", selection: $layers.collectionFilterID) {
                     Text("All Trees").tag(Optional<UUID>.none)
@@ -311,13 +347,8 @@ struct LocationsListView: View {
         }
     }
 
-    @ViewBuilder
     private func bottomPane(selection: Binding<UUID?>) -> some View {
-        if let location = selectedLocation {
-            locationSelectionPane(location)
-        } else {
-            locationsListPane(selection: selection)
-        }
+        locationsListPane(selection: selection)
     }
 
     private func locationsListPane(selection: Binding<UUID?>) -> some View {
@@ -338,108 +369,41 @@ struct LocationsListView: View {
             .tag(location.id)
         }
         .faloScrollSurface()
+        .background {
+            RoundedRectangle(cornerRadius: FaloRadius.hero, style: .continuous)
+                .fill(Color.primary.opacity(0.03))
+        }
         .overlay {
             if locations.isEmpty {
                 ContentUnavailableView(
                     "No Locations",
                     systemImage: "mappin.and.ellipse",
                     description: Text(
-                        defaultGarden == nil
+                        browsedGarden == nil
                             ? "Add a Garden in Settings → User Profile first."
-                            : "Use Quick Actions → New Location to add one for \(defaultGarden?.name ?? "this Garden")."
+                            : "Use Quick Actions → New Location to add one for \(browsedGarden?.name ?? "this Garden")."
                     )
                 )
             }
         }
-    }
-
-    private func locationSelectionPane(_ location: LocationReference) -> some View {
-        let trees = visibleTrees(at: location.id)
-
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: FaloSpacing.medium) {
-                Button {
-                    appState.selectedLocationID = nil
-                    selectedMapTreeID = nil
-                } label: {
-                    Label("Locations", systemImage: "chevron.left")
-                }
-                .buttonStyle(.borderless)
-
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, FaloSpacing.medium)
-            .padding(.top, FaloSpacing.small)
-
-            VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
-                Text(location.name)
-                    .font(FaloTypography.headline)
-                Text(trees.count == 1 ? "1 Tree" : "\(trees.count) Trees")
-                    .font(FaloTypography.caption)
-                    .foregroundStyle(.secondary)
-                if let collectionFilterID,
-                   let name = treeService.collection(id: collectionFilterID)?.name {
-                    Text("Filtered by \(name)")
-                        .font(FaloTypography.caption)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .padding(.horizontal, FaloSpacing.medium)
-            .padding(.vertical, FaloSpacing.small)
-
-            Divider()
-
-            if trees.isEmpty {
-                ContentUnavailableView(
-                    "No Trees",
-                    systemImage: "leaf",
-                    description: Text(
-                        collectionFilterID == nil
-                            ? "No Trees are assigned to this Location."
-                            : "No Trees in this Collection are assigned to this Location."
-                    )
-                )
-            } else {
-                List(trees, id: \.id) { tree in
-                    Button {
-                        openTree(tree)
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
-                                Text(TreePresentation.title(for: tree))
-                                    .font(FaloTypography.body)
-                                    .foregroundStyle(.primary)
-                                if !tree.botanicalName.isEmpty {
-                                    Text(tree.botanicalName)
-                                        .font(FaloTypography.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                            }
-                            Spacer(minLength: 0)
-                            Image(systemName: "chevron.right")
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.tertiary)
-                        }
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                }
-                .faloScrollSurface()
-            }
+        // Same hero-surface framing as the map above and the Detail cards on the right,
+        // so the Locations list reads as a peer module surface, not a bare system list.
+        .overlay {
+            RoundedRectangle(cornerRadius: FaloRadius.hero, style: .continuous)
+                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
         }
-        .background(.windowBackground)
+        .clipShape(RoundedRectangle(cornerRadius: FaloRadius.hero, style: .continuous))
+        .padding(FaloSpacing.medium)
     }
 
     private func handleMapSelection(_ annotation: LocationMapAnnotation) {
         switch annotation.level {
         case .garden:
-            selectedGardenID = annotation.id
             selectedMapTreeID = nil
             appState.selectedLocationID = nil
             statusMessage = annotation.subtitle.map { "\(annotation.title) · \($0)" } ?? annotation.title
 
         case .location:
-            selectedGardenID = nil
             selectedMapTreeID = nil
             appState.selectedLocationID = annotation.id
             updateLocationStatus()
@@ -455,7 +419,6 @@ struct LocationsListView: View {
     }
 
     private func openTree(_ tree: Tree) {
-        selectedGardenID = nil
         selectedMapTreeID = tree.id
         appState.selectedLocationID = tree.locationID
         statusMessage = "Opening \(TreePresentation.title(for: tree))…"
@@ -478,18 +441,18 @@ struct LocationsListView: View {
                 status: nil
             )
             hasAppliedGardenCamera = true
-            framedDefaultGardenID = defaultGarden?.id
+            framedGardenID = browsedGarden?.id
             return
         }
 
         guard !hasAppliedGardenCamera else { return }
-        await frameDefaultGarden()
+        await frameBrowsedGarden()
     }
 
-    private func frameDefaultGarden() async {
-        guard let garden = defaultGarden else {
+    private func frameBrowsedGarden() async {
+        guard let garden = browsedGarden else {
             hasAppliedGardenCamera = true
-            framedDefaultGardenID = nil
+            framedGardenID = nil
             return
         }
 
@@ -499,9 +462,8 @@ struct LocationsListView: View {
                 LocationMapCamera(center: coordinate, visibleMeters: 1_200),
                 status: "Showing \(garden.name)."
             )
-            selectedGardenID = garden.id
             hasAppliedGardenCamera = true
-            framedDefaultGardenID = garden.id
+            framedGardenID = garden.id
             return
         }
 
@@ -509,8 +471,7 @@ struct LocationsListView: View {
         let address = garden.composedAddress
         guard !address.isEmpty else {
             hasAppliedGardenCamera = true
-            framedDefaultGardenID = garden.id
-            selectedGardenID = garden.id
+            framedGardenID = garden.id
             statusMessage = "Click on the map to place your Garden."
             return
         }
@@ -521,21 +482,18 @@ struct LocationsListView: View {
                 LocationMapCamera(center: coordinate, visibleMeters: 1_200),
                 status: "Click on the map to place your Garden."
             )
-            selectedGardenID = garden.id
             hasAppliedGardenCamera = true
-            framedDefaultGardenID = garden.id
+            framedGardenID = garden.id
         } catch {
             hasAppliedGardenCamera = true
-            framedDefaultGardenID = garden.id
-            selectedGardenID = garden.id
+            framedGardenID = garden.id
             statusMessage = "Could not find the Garden address. Click on the map to place your Garden."
         }
     }
 
     private func placeGardenPosition(at coordinate: GeographicCoordinate) {
-        guard let garden = defaultGarden else { return }
+        guard let garden = browsedGarden else { return }
         profile.updateGardenPosition(id: garden.id, coordinate: coordinate)
-        selectedGardenID = garden.id
         appState.selectedLocationID = nil
         selectedMapTreeID = nil
         applyCamera(
@@ -589,10 +547,20 @@ struct LocationsListView: View {
 #Preview {
     let store = ReferencePreviewData()
     let previewData = PreviewData()
+    let treeService = TreeService.preview(previewData: previewData)
+    let referenceData = ReferenceDataService(previewData: store)
+    let workService = WorkService(referenceData: referenceData)
+    let taskService = TaskService(
+        referenceData: referenceData,
+        workService: workService,
+        treeService: treeService,
+        botanicalService: BotanicalService(store: store)
+    )
     return LocationsListView()
         .environment(AppState())
         .environment(UserProfileStore())
-        .environment(ReferenceDataService(previewData: store))
+        .environment(referenceData)
         .environment(ReferenceDataManager(store: store))
-        .environment(TreeService.preview(previewData: previewData))
+        .environment(treeService)
+        .environment(taskService)
 }

@@ -18,20 +18,21 @@ enum FaloTypography {
 
 /// Fixed typography for informational Detail cards (Tree Detail and future Falo Worlds).
 /// Hierarchy: section title → field label → value.
+/// Sized for desktop information density — professional management, not marketing scale.
 enum FaloCardTypography {
-    /// Section marker (e.g. IDENTITY) — 13 pt semibold, secondary, tracked caps.
-    static let sectionTitle: Font = .system(size: 13, weight: .semibold)
-    static let sectionTitleTracking: CGFloat = 1.2
+    /// Section marker (e.g. IDENTITY) — small tracked caps.
+    static let sectionTitle: Font = .system(size: 11, weight: .semibold)
+    static let sectionTitleTracking: CGFloat = 1.0
 
-    /// Field label (e.g. Nickname) — 16 pt regular, secondary.
-    static let fieldLabel: Font = .system(size: 16, weight: .regular)
+    /// Field label (e.g. Nickname) — one step below body, secondary.
+    static let fieldLabel: Font = .system(size: 13, weight: .regular)
 
-    /// Field value — 16 pt medium, primary (empty values stay secondary).
-    static let fieldValue: Font = .system(size: 16, weight: .medium)
+    /// Field value — same size as label, semibold primary (empty values stay secondary).
+    static let fieldValue: Font = .system(size: 13, weight: .semibold)
 
-    /// Extra space under the section title before the first field (≈ 6–8 pt beyond base).
-    static let titleToContentExtra: CGFloat = 8
+    /// Extra space under the section title before the first field.
+    static let titleToContentExtra: CGFloat = 4
 
-    /// Total spacing from card title to first row (medium + extra).
-    static var titleToContent: CGFloat { FaloSpacing.medium + titleToContentExtra }
+    /// Total spacing from card title to first row (small + extra).
+    static var titleToContent: CGFloat { FaloSpacing.small + titleToContentExtra }
 }

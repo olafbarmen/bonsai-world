@@ -4,7 +4,10 @@
 //
 //  Read-only entry point for Reference Data pickers (master data).
 //  Mutations go through ReferenceDataManager; both share ReferencePreviewData.
-//  No persistence or Excel import.
+//  No persistence or Excel import for most lists. Locations are the exception —
+//  ReferenceDataManager keeps previewData.locations in sync with the injected
+//  LocationRepository (Database/Locations.json once a Library is open), so
+//  reads here already reflect persisted state.
 //
 //  Usage:
 //    @Environment(ReferenceDataService.self) private var referenceData
@@ -124,11 +127,7 @@ final class ReferenceDataService {
     // MARK: - Fertilizer
 
     var fertilizerTypes: [FertilizerType] {
-        activeSorted(previewData.fertilizerTypes)
-    }
-
-    var fertilizerBrands: [FertilizerBrand] {
-        activeSorted(previewData.fertilizerBrands)
+        activeSorted(previewData.fertilizerTypes, name: \.name, sortOrder: \.sortOrder, isActive: \.isActive)
     }
 
     // MARK: - Inventory Preparation
@@ -175,7 +174,6 @@ final class ReferenceDataService {
     func soilMix(id: UUID) -> SoilMix? { previewData.soilMixes.first { $0.id == id } }
 
     func fertilizerType(id: UUID) -> FertilizerType? { previewData.fertilizerTypes.first { $0.id == id } }
-    func fertilizerBrand(id: UUID) -> FertilizerBrand? { previewData.fertilizerBrands.first { $0.id == id } }
 
     func inventoryPot(id: UUID) -> InventoryPot? { previewData.inventoryPots.first { $0.id == id } }
     func tool(id: UUID) -> Tool? { previewData.tools.first { $0.id == id } }

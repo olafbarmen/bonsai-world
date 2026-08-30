@@ -22,7 +22,7 @@ struct CollectionAddTreeSheet: View {
     /// Trees from the global repository that are not yet members of this collection.
     private var candidateTrees: [Tree] {
         _ = treeService.collections
-        return treeService.getAllTrees()
+        return treeService.treesInCare
             .filter { !treeService.isMember(treeID: $0.id, collectionID: collectionID) }
             .sorted {
                 TreePresentation.title(for: $0).localizedCaseInsensitiveCompare(
@@ -38,22 +38,25 @@ struct CollectionAddTreeSheet: View {
                     ContentUnavailableView(
                         "No Trees Available",
                         systemImage: "leaf",
-                        description: Text("Every tree is already in “\(collectionName)”. Create trees from Trees → New Tree, then add them here.")
+                        description: Text("Every tree is already in “\(collectionName)”. Add trees with Quick Actions → Add Tree, then add them here.")
                     )
                 } else {
                     List(candidateTrees) { tree in
                         Button {
                             addTree(tree.id)
                         } label: {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(TreePresentation.title(for: tree))
-                                    .foregroundStyle(.primary)
-                                Text(tree.botanicalName)
-                                    .font(FaloTypography.caption)
-                                    .foregroundStyle(.secondary)
-                                    .lineLimit(1)
+                            HStack(alignment: .center, spacing: FaloSpacing.medium) {
+                                TreeListThumbnail(imageID: tree.listImageID)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(TreePresentation.title(for: tree))
+                                        .foregroundStyle(.primary)
+                                    Text(tree.botanicalName)
+                                        .font(FaloTypography.caption)
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             }
-                            .frame(maxWidth: .infinity, alignment: .leading)
                             .contentShape(Rectangle())
                         }
                         .buttonStyle(.plain)

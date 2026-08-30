@@ -3,6 +3,8 @@
 //  Bonsai World
 //
 //  Edit Photo Name, Capture Date, Primary flag, and Delete for one Tree Photo.
+//  Delete requests confirmation via the parent Photo Manager (same dialog as
+//  the filmstrip context menu). Done only dismisses and commits field edits.
 //
 
 import SwiftUI

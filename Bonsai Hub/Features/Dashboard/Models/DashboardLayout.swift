@@ -48,22 +48,21 @@ struct DashboardLayout: Hashable, Codable, Sendable {
         cards.filter { !$0.isHidden }
     }
 
-    /// Active layout — top row Today's Care | Weather, then remaining cards.
+    /// Active layout — live cards first, then headings kept for unwired modules.
     static let refined = DashboardLayout(
         cards: [
-            DashboardCardPlacement(id: .todaysCare, prominence: .primary, isFavorite: true),
+            DashboardCardPlacement(id: .tasks, prominence: .primary, isFavorite: true),
             DashboardCardPlacement(id: .weather, prominence: .primary),
-            DashboardCardPlacement(id: .alerts, prominence: .primary, autoHideWhenEmpty: true),
+            DashboardCardPlacement(id: .alerts, prominence: .primary),
             DashboardCardPlacement(id: .upcoming, prominence: .primary),
+            DashboardCardPlacement(id: .treesRequiringAttention, prominence: .secondary),
+            DashboardCardPlacement(id: .library, prominence: .secondary),
+            DashboardCardPlacement(id: .recentWork, prominence: .secondary),
             DashboardCardPlacement(id: .collectionOverview, prominence: .secondary),
-            DashboardCardPlacement(id: .inventoryStatus, prominence: .secondary, autoHideWhenEmpty: true),
-            DashboardCardPlacement(id: .repotting, prominence: .secondary, autoHideWhenEmpty: true),
-            DashboardCardPlacement(
-                id: .treesRequiringAttention,
-                prominence: .secondary,
-                autoHideWhenEmpty: true
-            ),
-            DashboardCardPlacement(id: .quickStatistics, prominence: .secondary, isHidden: true)
+            DashboardCardPlacement(id: .inventoryStatus, prominence: .secondary),
+            DashboardCardPlacement(id: .repotting, prominence: .secondary),
+            DashboardCardPlacement(id: .quickStatistics, prominence: .secondary),
+            DashboardCardPlacement(id: .todaysCare, prominence: .primary, isHidden: true)
         ]
     )
 

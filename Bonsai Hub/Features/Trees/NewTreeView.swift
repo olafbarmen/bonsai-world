@@ -2,8 +2,8 @@
 //  NewTreeView.swift
 //  Bonsai World
 //
-//  Create Tree sheet. Uses TreeService for create; ReferenceDataService for Lists pickers.
-//  Sheet Cancel/Save toolbar is create-flow chrome only — Trees module actions live in Quick Actions.
+//  Add Tree sheet. Uses TreeService for create; ReferenceDataService for Lists pickers.
+//  Sheet Cancel/Save toolbar is add-flow chrome only — Trees module actions live in Quick Actions.
 //
 
 import SwiftUI
@@ -75,13 +75,15 @@ struct NewTreeView: View {
     @State private var isNewCollectionPresented = false
 
     @State private var saveFailed = false
-    @State private var saveErrorMessage = "Select a Location on the map (or from the list), then try Save again."
+    @State private var saveErrorMessage = "Choose a genus, species, and location, then try Save again."
 
     /// Generated Botanical Name — always mirrors current Genus / Species / Cultivar.
     @State private var botanicalName = ""
 
-    /// Generated Bonsai Name (GEN-SPE-CUL-YYYY-NNN). Updated during New Tree registration only.
+    /// Generated Bonsai Name (GEN-SPE-CUL-YYYY-NNN), or a confirmed manual override.
     @State private var bonsaiName = ""
+    @State private var isBonsaiNameOverridden = false
+    @State private var showBonsaiNameOverrideAlert = false
 
     private var genusName: String {
         genusID.flatMap { referenceData.genus(id: $0)?.name } ?? ""
@@ -112,8 +114,7 @@ struct NewTreeView: View {
 
     var body: some View {
         NavigationStack {
-            FaloAdaptiveDesktopWorkspace(profile: .form) {
-                Form {
+            Form {
                 Section("General") {
                     TextField("Nickname", text: $nickname)
                         .help("Optional personal name for this tree")
@@ -133,13 +134,43 @@ struct NewTreeView: View {
                     .help("Generated automatically from Genus, Species, and Cultivar — not editable")
 
                     LabeledContent("Bonsai Name") {
-                        Text(bonsaiNameDisplay)
-                            .foregroundStyle(bonsaiName.isEmpty ? .secondary : .primary)
-                            .textSelection(.enabled)
-                            .font(.body.monospaced())
-                            .id(bonsaiName)
+                        if isBonsaiNameOverridden {
+                            VStack(alignment: .leading, spacing: 4) {
+                                HStack(spacing: 8) {
+                                    TextField("Bonsai Name", text: $bonsaiName)
+                                        .font(.body.monospaced())
+                                    Button("Use Generated Name") {
+                                        revertBonsaiNameToGenerated()
+                                    }
+                                    .help("Restore the automatic GEN-SPE-CUL-YYYY-NNN name")
+                                }
+                                if treeService.isBonsaiNameInUse(bonsaiName) {
+                                    Text("That Bonsai Name is already used.")
+                                        .font(FaloTypography.caption)
+                                        .foregroundStyle(.red)
+                                }
+                            }
+                        } else {
+                            HStack(spacing: 8) {
+                                Text(bonsaiNameDisplay)
+                                    .foregroundStyle(bonsaiName.isEmpty ? .secondary : .primary)
+                                    .textSelection(.enabled)
+                                    .font(.body.monospaced())
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .id(bonsaiName)
+                                Button("Change…") {
+                                    showBonsaiNameOverrideAlert = true
+                                }
+                                .disabled(makeBonsaiNamePreview().isEmpty)
+                                .help("Use an existing Bonsai Name instead of the generated one")
+                            }
+                        }
                     }
-                    .help("Generated automatically as GEN-SPE-CUL-YYYY-NNN from hierarchy and acquisition year")
+                    .help(
+                        isBonsaiNameOverridden
+                            ? "Custom Bonsai Name — locked after you save"
+                            : "Generated automatically as GEN-SPE-CUL-YYYY-NNN from hierarchy and acquisition year"
+                    )
                 }
 
                 Section("Classification") {
@@ -267,7 +298,6 @@ struct NewTreeView: View {
             }
             .formStyle(.grouped)
             .faloScrollSurface()
-            }
             .navigationTitle(mode.treeEditorTitle(botanicalName: botanicalName))
             .toolbar {
                 TreeDetailToolbar(
@@ -275,10 +305,18 @@ struct NewTreeView: View {
                     onSave: handleSave
                 )
             }
-            .alert("Could Not Create Tree", isPresented: $saveFailed) {
+            .alert("Could Not Add Tree", isPresented: $saveFailed) {
                 Button("OK", role: .cancel) {}
             } message: {
                 Text(saveErrorMessage)
+            }
+            .alert("Change Bonsai Name?", isPresented: $showBonsaiNameOverrideAlert) {
+                Button("Cancel", role: .cancel) {}
+                Button("Change") {
+                    isBonsaiNameOverridden = true
+                }
+            } message: {
+                Text("Bonsai Name is generated as GEN-SPE-CUL-YYYY-NNN from genus, species, cultivar, and acquisition year. After you save, it cannot be changed. Use a custom name only if this tree already has one.")
             }
             .onAppear {
                 ensureDefaultPlacement()
@@ -359,14 +397,30 @@ struct NewTreeView: View {
         return trimmed.isEmpty ? "Select Genus and Species" : trimmed
     }
 
-    /// Regenerates Botanical Name and Bonsai Name from current create-form inputs.
+    /// Regenerates Botanical Name, and Bonsai Name unless the grower overrode it.
     private func refreshAutomaticNames() {
         botanicalName = TreeNamingService.makeBotanicalName(
             genus: genusName,
             species: speciesLabelForNaming,
             cultivar: cultivarName
         )
+        if !isBonsaiNameOverridden {
+            bonsaiName = makeBonsaiNamePreview()
+        }
+    }
+
+    private func revertBonsaiNameToGenerated() {
+        isBonsaiNameOverridden = false
         bonsaiName = makeBonsaiNamePreview()
+    }
+
+    /// Saved Bonsai Name: the typed override if present, otherwise the generated preview.
+    private func resolvedBonsaiNameForSave() -> String {
+        let trimmed = bonsaiName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isBonsaiNameOverridden, !trimmed.isEmpty {
+            return trimmed
+        }
+        return makeBonsaiNamePreview()
     }
 
     /// Preview of the permanent Bonsai Name for the current form state (does not consume sequence).
@@ -411,25 +465,13 @@ struct NewTreeView: View {
         appState.dismissTreeEditor()
     }
 
-    private func handleSave() {
-        guard let locationID else {
-            saveErrorMessage = "Choose a location, then try Save again."
-            saveFailed = true
-            return
-        }
-
-        guard referenceData.locations.contains(where: { $0.id == locationID }) else {
-            saveErrorMessage = "The selected location is no longer available. Choose another location."
-            saveFailed = true
-            return
-        }
-
-        let now = Date.now
-        let finalBonsaiName = makeBonsaiNamePreview()
-        let tree = Tree(
+    /// Gathers current form state into a draft. TreeService owns validation and
+    /// Tree construction — this view never builds a `Tree` or checks Location itself.
+    private func makeDraft() -> NewTreeDraft {
+        NewTreeDraft(
+            nickname: nickname,
             botanicalName: botanicalName,
-            nickname: nickname.trimmingCharacters(in: .whitespacesAndNewlines),
-            bonsaiName: finalBonsaiName,
+            bonsaiName: resolvedBonsaiNameForSave(),
             genusID: genusID,
             speciesID: speciesID,
             cultivarID: cultivarID,
@@ -442,15 +484,19 @@ struct NewTreeView: View {
             lightConditionID: lightConditionID,
             acquisitionDate: acquisitionDate,
             acquisitionMethodID: acquisitionMethodID,
-            acquisitionSourceName: acquisitionSourceName.trimmingCharacters(in: .whitespacesAndNewlines),
+            acquisitionSourceName: acquisitionSourceName,
             purchasePrice: parsePurchasePrice(),
-            acquisitionNotes: acquisitionNotes.trimmingCharacters(in: .whitespacesAndNewlines),
-            createdDate: now,
-            modifiedDate: now
+            acquisitionNotes: acquisitionNotes
         )
+    }
 
+    private func handleSave() {
         do {
-            let created = try treeService.createTree(tree, joiningCollectionIDs: selectedCollectionIDs)
+            let created = try treeService.createTree(
+                fromDraft: makeDraft(),
+                validLocationIDs: Set(referenceData.locations.map(\.id)),
+                joiningCollectionIDs: selectedCollectionIDs
+            )
             let newID = created.id
 
             if let record = initialMeasurementRecord(for: newID) {
@@ -464,7 +510,7 @@ struct NewTreeView: View {
             appState.selectedTreeID = newID
         } catch {
             saveErrorMessage = error.localizedDescription.isEmpty
-                ? "Something went wrong while creating the tree. Try Save again."
+                ? "Something went wrong while adding the tree. Try Save again."
                 : error.localizedDescription
             saveFailed = true
         }

@@ -2,12 +2,16 @@
 //  CollectionSummaryHeroCard.swift
 //  Bonsai World
 //
-//  Dashboard hero — Collection column + dominant Species list with counts.
+//  Dashboard hero — My Trees (whole-library counts) + dominant Species list.
+//  Reads live Trees + Reference Data via DashboardCollectionSummary — no placeholder numbers.
 //
 
 import SwiftUI
 
 struct CollectionSummaryHeroCard: View {
+    @Environment(TreeService.self) private var treeService
+    @Environment(ReferenceDataService.self) private var referenceData
+
     private let collectionColumnWidth: CGFloat = 200
 
     private var speciesColumns: [GridItem] {
@@ -18,9 +22,26 @@ struct CollectionSummaryHeroCard: View {
         ]
     }
 
+    private var heroMetrics: [DashboardCollectionSummary.Metric] {
+        DashboardCollectionSummary.heroMetrics(
+            trees: treeService.trees,
+            treeStatuses: referenceData.treeStatuses,
+            acquisitionMethods: referenceData.acquisitionMethods,
+            disposalMethods: referenceData.disposalMethods
+        )
+    }
+
+    private var speciesBreakdown: [DashboardCollectionSummary.SpeciesBreakdown] {
+        DashboardCollectionSummary.speciesBreakdown(
+            trees: treeService.treesInCare,
+            genus: referenceData.genus,
+            species: referenceData.species
+        )
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: DashboardSpacing.titleToContent) {
-            Text("Collection Summary")
+            Text("My Trees")
                 .font(FaloTypography.headline)
                 .foregroundStyle(.primary)
 
@@ -36,7 +57,7 @@ struct CollectionSummaryHeroCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .dashboardCardChrome()
         .accessibilityElement(children: .contain)
-        .accessibilityLabel("Collection Summary")
+        .accessibilityLabel("My Trees")
     }
 
     private var collectionColumn: some View {
@@ -46,9 +67,9 @@ struct CollectionSummaryHeroCard: View {
                 .foregroundStyle(.secondary)
 
             VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
-                ForEach(DashboardPlaceholderData.heroCollection) { metric in
+                ForEach(heroMetrics) { metric in
                     HStack(alignment: .firstTextBaseline, spacing: FaloSpacing.small) {
-                        Text(metric.value)
+                        Text(metric.count, format: .number)
                             .font(FaloTypography.headline)
                             .monospacedDigit()
                         Text(metric.label)
@@ -70,15 +91,19 @@ struct CollectionSummaryHeroCard: View {
                 .font(FaloTypography.caption)
                 .foregroundStyle(.secondary)
 
-            LazyVGrid(columns: speciesColumns, alignment: .leading, spacing: FaloSpacing.small) {
-                ForEach(DashboardPlaceholderData.heroSpecies) { item in
-                    HStack(alignment: .firstTextBaseline, spacing: FaloSpacing.small) {
-                        Text(item.title)
-                            .font(FaloTypography.body)
-                            .lineLimit(1)
-                        Spacer(minLength: FaloSpacing.xSmall)
-                        if let detail = item.detail {
-                            Text(detail)
+            if speciesBreakdown.isEmpty {
+                Text("Add trees with a Genus or Species to see a breakdown here.")
+                    .font(FaloTypography.body)
+                    .foregroundStyle(.secondary)
+            } else {
+                LazyVGrid(columns: speciesColumns, alignment: .leading, spacing: FaloSpacing.small) {
+                    ForEach(speciesBreakdown) { item in
+                        HStack(alignment: .firstTextBaseline, spacing: FaloSpacing.small) {
+                            Text(item.name)
+                                .font(FaloTypography.body)
+                                .lineLimit(1)
+                            Spacer(minLength: FaloSpacing.xSmall)
+                            Text(item.count, format: .number)
                                 .font(FaloTypography.body)
                                 .monospacedDigit()
                                 .foregroundStyle(.secondary)
@@ -101,7 +126,11 @@ struct CollectionSummaryHeroCard: View {
 }
 
 #Preview {
-    CollectionSummaryHeroCard()
+    let preview = PreviewData()
+    let referenceStore = ReferencePreviewData()
+    return CollectionSummaryHeroCard()
+        .environment(TreeService.preview(previewData: preview))
+        .environment(ReferenceDataService(previewData: referenceStore))
         .padding()
         .frame(width: 960)
 }

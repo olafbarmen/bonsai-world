@@ -80,10 +80,13 @@ struct TreeDetailCardColumns<C0: View, C1: View, C2: View>: View {
         HStack(alignment: .top, spacing: TreeDetailSpacing.cardGap) {
             columnStack(content: column0)
                 .frame(width: columnWidth, alignment: .topLeading)
+                .clipped()
             columnStack(content: column1)
                 .frame(width: columnWidth, alignment: .topLeading)
+                .clipped()
             columnStack(content: column2)
                 .frame(width: columnWidth, alignment: .topLeading)
+                .clipped()
         }
         .frame(width: contentWidth, alignment: .topLeading)
     }

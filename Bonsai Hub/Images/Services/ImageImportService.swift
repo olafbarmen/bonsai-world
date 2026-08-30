@@ -5,12 +5,12 @@
 //  Finder-based single-image import into the Bonsai World Library.
 //  Reads the picked file, copies bytes via StorageService, and creates ImageAsset metadata.
 //  TreeDetailView must call this service — never touch the file system itself.
+//  File selection and pixel decoding go through ImageFilePicking / ImagePixelSizeReading —
+//  this file never references a concrete OS picker or decoder (Constitution §11).
 //
 
-import AppKit
 import Foundation
 import Observation
-import UniformTypeIdentifiers
 
 /// Errors specific to image import from Finder.
 enum ImageImportError: Error, LocalizedError, Sendable {
@@ -39,10 +39,19 @@ enum ImageImportError: Error, LocalizedError, Sendable {
 final class ImageImportService {
     private let storage: StorageService
     private let imageCatalog: ImagePreviewData
+    private let filePicker: ImageFilePicking
+    private let pixelSizeReader: ImagePixelSizeReading
 
-    init(storage: StorageService, imageCatalog: ImagePreviewData) {
+    init(
+        storage: StorageService,
+        imageCatalog: ImagePreviewData,
+        filePicker: ImageFilePicking = MacImagePicker(),
+        pixelSizeReader: ImagePixelSizeReading = MacImagePicker()
+    ) {
         self.storage = storage
         self.imageCatalog = imageCatalog
+        self.filePicker = filePicker
+        self.pixelSizeReader = pixelSizeReader
     }
 
     /// Opens the macOS open panel, copies one image into the library, and returns metadata.
@@ -72,7 +81,7 @@ final class ImageImportService {
         guard !data.isEmpty else { throw ImageImportError.emptyFile }
 
         let id = UUID()
-        let size = pixelSize(of: data)
+        let size = pixelSizeReader.pixelSize(of: data)
         let now = Date.now
         let captureDate = ImageCaptureDateReader.captureDate(from: data) ?? now
         let relativePath = ImageAsset.originalsRelativePath(id: id, fileExtension: fileExtension)
@@ -118,34 +127,18 @@ final class ImageImportService {
     // MARK: - Finder
 
     private func pickSingleImageURL() async throws -> URL {
-        try await withCheckedThrowingContinuation { continuation in
-            let panel = NSOpenPanel()
-            panel.title = "Choose a Tree Image"
-            panel.message = "Select a HEIC, JPEG, PNG, or TIFF image."
-            panel.prompt = "Import"
-            panel.allowsMultipleSelection = false
-            panel.canChooseDirectories = false
-            panel.canChooseFiles = true
-            panel.allowedContentTypes = Self.allowedContentTypes
-
-            panel.begin { response in
-                if response == .OK, let url = panel.url {
-                    continuation.resume(returning: url)
-                } else {
-                    continuation.resume(throwing: ImageImportError.cancelled)
-                }
-            }
+        do {
+            return try await filePicker.pickImageFile(
+                title: "Choose a Tree Image",
+                message: "Select a HEIC, JPEG, PNG, or TIFF image.",
+                prompt: "Import"
+            )
+        } catch is ImageFilePickingCancelled {
+            throw ImageImportError.cancelled
         }
     }
 
     // MARK: - Helpers
-
-    private static let allowedContentTypes: [UTType] = [
-        .heic,
-        .jpeg,
-        .png,
-        .tiff
-    ]
 
     static let supportedExtensions: Set<String> = [
         "heic", "heif", "jpg", "jpeg", "png", "tif", "tiff"
@@ -153,17 +146,5 @@ final class ImageImportService {
 
     private func normalizedExtension(for url: URL) -> String {
         url.pathExtension.lowercased()
-    }
-
-    private func pixelSize(of data: Data) -> (width: Int, height: Int) {
-        guard let image = NSImage(data: data) else { return (0, 0) }
-        if let rep = image.representations.first {
-            let wide = rep.pixelsWide
-            let high = rep.pixelsHigh
-            if wide > 0, high > 0 {
-                return (wide, high)
-            }
-        }
-        return (Int(image.size.width.rounded()), Int(image.size.height.rounded()))
     }
 }

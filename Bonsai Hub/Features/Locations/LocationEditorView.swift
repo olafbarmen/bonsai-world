@@ -11,6 +11,7 @@ import SwiftUI
 struct LocationEditorView: View {
     @Environment(ReferenceDataManager.self) private var manager
     @Environment(UserProfileStore.self) private var profile
+    @Environment(AppState.self) private var appState
 
     let mode: EditorMode
 
@@ -31,12 +32,16 @@ struct LocationEditorView: View {
     }
 
     private func loadDraft() {
+        // Prefer the Garden currently being browsed in the Locations map so
+        // "New Location" lands where the user is looking, falling back to
+        // the default Garden when nothing is being browsed (e.g. Quick Actions).
+        let targetGardenID = appState.selectedGardenID ?? profile.defaultGarden?.id
         switch mode {
         case .create:
-            draft = manager.blankLocationDraft(gardenID: profile.defaultGarden?.id)
+            draft = manager.blankLocationDraft(gardenID: targetGardenID)
         case .edit(let id):
             draft = manager.locationDraft(for: id)
-                ?? manager.blankLocationDraft(gardenID: profile.defaultGarden?.id)
+                ?? manager.blankLocationDraft(gardenID: targetGardenID)
         }
     }
 }

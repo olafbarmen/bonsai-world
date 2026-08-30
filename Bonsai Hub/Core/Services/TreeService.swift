@@ -67,23 +67,92 @@ final class TreeService {
         trees.filter { $0.locationID == locationID }
     }
 
-    /// Trees that belong to a Collection — resolved from ``Collection/treeIDs``.
-    /// Smart Collections do not evaluate filter rules yet; membership is the stored ID list only.
-    func trees(inCollection collectionID: UUID) -> [Tree] {
+    /// Trees of a given Genus — used to resolve dynamic Task/Schedule targets
+    /// (e.g. "water every Acer the same way").
+    func trees(genusID: UUID) -> [Tree] {
+        trees.filter { $0.genusID == genusID }
+    }
+
+    /// Trees still in the grower’s care (no disposal method).
+    var treesInCare: [Tree] {
+        trees.filter(\.isInCare)
+    }
+
+    /// Trees whose ownership has ended (disposal method set).
+    var treesFormer: [Tree] {
+        trees.filter { !$0.isInCare }
+    }
+
+    /// Trees that belong to a Collection.
+    /// Lifecycle Smart Collections resolve from disposal outcome.
+    /// Needs Water / Today's Work / Needs Repotting resolve from ``liveMembers``.
+    /// Needs Photos is In Care trees without a photo (same as Dashboard Library).
+    /// Other Smart Collections still use the stored ID list until their rules ship.
+    func trees(
+        inCollection collectionID: UUID,
+        disposalMethods: [DisposalMethod] = [],
+        liveMembers: SmartCollectionLiveMembers = SmartCollectionLiveMembers()
+    ) -> [Tree] {
+        if SystemSmartCollections.isNeedsWater(collectionID) {
+            return trees.filter { liveMembers.needsWater.contains($0.id) }
+        }
+        if SystemSmartCollections.isTodaysWork(collectionID) {
+            return trees.filter { liveMembers.todaysWork.contains($0.id) }
+        }
+        if SystemSmartCollections.isNeedsRepotting(collectionID) {
+            return trees.filter { liveMembers.needsRepotting.contains($0.id) }
+        }
+        if SystemSmartCollections.isNeedsPhotos(collectionID) {
+            return treesInCare.filter { $0.primaryImageID == nil && $0.imageIDs.isEmpty }
+        }
+        if let outcome = SystemSmartCollections.lifecycleOutcome(for: collectionID) {
+            let methodIDs = Set(disposalMethods.filter { $0.outcome == outcome }.map(\.id))
+            return trees.filter { tree in
+                guard let id = tree.disposalMethodID else { return false }
+                return methodIDs.contains(id)
+            }
+        }
         guard let collection = collection(id: collectionID) else { return [] }
         let memberIDs = Set(collection.treeIDs)
         return trees.filter { memberIDs.contains($0.id) }
     }
 
-    /// Member count for a Collection (same Tree objects as ``getAllTrees()``).
-    func treeCount(inCollection collectionID: UUID) -> Int {
-        trees(inCollection: collectionID).count
+    /// Member count for a Collection (same resolution as ``trees(inCollection:disposalMethods:liveMembers:)``).
+    func treeCount(
+        inCollection collectionID: UUID,
+        disposalMethods: [DisposalMethod] = [],
+        liveMembers: SmartCollectionLiveMembers = SmartCollectionLiveMembers()
+    ) -> Int {
+        trees(
+            inCollection: collectionID,
+            disposalMethods: disposalMethods,
+            liveMembers: liveMembers
+        ).count
     }
 
-    /// Smart Collections in permanent navigation order.
+    /// Smart Collections in permanent navigation order (Favorite Trees, Today's Work, …).
+    /// Lifecycle outcomes (Died, Sold, …) are ``formerTreeCollections``, not this list.
     var smartCollections: [Collection] {
         collections
-            .filter(\.isSmart)
+            .filter { collection in
+                collection.isSmart
+                    && SystemSmartCollections.lifecycleOutcome(for: collection.id) == nil
+            }
+            .sorted { lhs, rhs in
+                let left = SystemSmartCollections.sortIndex(for: lhs.id) ?? Int.max
+                let right = SystemSmartCollections.sortIndex(for: rhs.id) ?? Int.max
+                if left != right { return left < right }
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+            }
+    }
+
+    /// Died, Sold, Gifted, Donated, Exchanged, Lost — same names as on the Trees list.
+    var formerTreeCollections: [Collection] {
+        collections
+            .filter { collection in
+                collection.isSmart
+                    && SystemSmartCollections.lifecycleOutcome(for: collection.id) != nil
+            }
             .sorted { lhs, rhs in
                 let left = SystemSmartCollections.sortIndex(for: lhs.id) ?? Int.max
                 let right = SystemSmartCollections.sortIndex(for: rhs.id) ?? Int.max
@@ -100,20 +169,34 @@ final class TreeService {
     }
 
     /// Default Collection when entering the module or restoring selection.
-    /// Prefers the first Smart Collection; otherwise the last opened; otherwise the first Manual.
+    /// Prefers last opened; otherwise the first My Collection; then Smart; then Former Trees.
     func defaultCollectionID(lastOpened: UUID?) -> UUID? {
-        if let firstSmart = smartCollections.first {
-            return firstSmart.id
-        }
         if let lastOpened, collection(id: lastOpened) != nil {
             return lastOpened
         }
-        return manualCollections.first?.id
+        if let firstManual = manualCollections.first {
+            return firstManual.id
+        }
+        if let firstSmart = smartCollections.first {
+            return firstSmart.id
+        }
+        return formerTreeCollections.first?.id
     }
 
     /// Reloads trees from the repository.
     func reload() {
         trees = repository.getAllTrees()
+    }
+
+    /// True when any remaining tree (In Care or Former) already has this Bonsai Name.
+    func isBonsaiNameInUse(_ name: String, excluding treeID: UUID? = nil) -> Bool {
+        let needle = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return false }
+        return trees.contains { tree in
+            if let treeID, tree.id == treeID { return false }
+            return tree.bonsaiName.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare(needle) == .orderedSame
+        }
     }
 
     /// Next Bonsai Name sequence for a species (does not consume sequence).
@@ -123,8 +206,7 @@ final class TreeService {
         }
         return TreeNamingService.nextSequence(
             forSpecies: speciesID,
-            existingTrees: trees,
-            highWaterMark: 0
+            existingTrees: trees
         )
     }
 
@@ -165,15 +247,29 @@ final class TreeService {
     }
 
     /// Sets which Collections include this tree. Collection records are the source of truth.
+    /// Only Manual Collections (My Collections) — Smart Collections keep their own membership.
     func setCollectionMembership(treeID: UUID, collectionIDs: Set<UUID>) throws {
-        let current = Set(collections(for: treeID).map(\.id))
-        let target = collectionIDs
+        let current = Set(collections(for: treeID).filter(\.isManual).map(\.id))
+        let target = Set(collectionIDs.filter { collection(id: $0)?.isManual == true })
 
         for collectionID in current.subtracting(target) {
             try removeTree(treeID, from: collectionID)
         }
         for collectionID in target.subtracting(current) {
             try addTree(treeID, to: collectionID)
+        }
+    }
+
+    func isFavoriteTree(_ treeID: UUID) -> Bool {
+        isMember(treeID: treeID, collectionID: SystemSmartCollections.StableID.favoriteTrees)
+    }
+
+    func setFavoriteTree(_ treeID: UUID, isFavorite: Bool) {
+        let collectionID = SystemSmartCollections.StableID.favoriteTrees
+        if isFavorite {
+            addTreesToCollection(treeIDs: [treeID], collectionID: collectionID)
+        } else {
+            removeTreeFromCollection(treeID: treeID, collectionID: collectionID)
         }
     }
 
@@ -236,8 +332,73 @@ final class TreeService {
 
     // MARK: - Writes
 
+    /// Validates and constructs a new Tree from an Add Tree draft, then persists it.
+    ///
+    /// This is the **single** place the Add Tree business rules live — genus,
+    /// species, and location are required; location must exist in Reference Data.
+    /// Every platform's Add Tree UI calls this method rather than re-implementing
+    /// validation and field mapping itself.
+    /// `validLocationIDs` is supplied by the caller (Reference Data owns the catalog;
+    /// TreeService does not depend on ReferenceDataService to avoid a circular dependency).
+    @discardableResult
+    func createTree(
+        fromDraft draft: NewTreeDraft,
+        validLocationIDs: Set<UUID>,
+        joiningCollectionIDs: Set<UUID> = []
+    ) throws -> Tree {
+        guard draft.genusID != nil, draft.speciesID != nil else {
+            throw TreeServiceError.genusAndSpeciesRequired
+        }
+        guard let locationID = draft.locationID else {
+            throw TreeServiceError.locationRequired
+        }
+        guard validLocationIDs.contains(locationID) else {
+            throw TreeServiceError.locationNotFound
+        }
+
+        let now = Date.now
+        let tree = Tree(
+            botanicalName: draft.botanicalName,
+            nickname: draft.nickname.trimmingCharacters(in: .whitespacesAndNewlines),
+            bonsaiName: draft.bonsaiName,
+            genusID: draft.genusID,
+            speciesID: draft.speciesID,
+            cultivarID: draft.cultivarID,
+            styleID: draft.styleID,
+            sizeClassID: draft.sizeClassID,
+            treeStatusID: draft.treeStatusID,
+            locationID: locationID,
+            soilMixID: draft.soilMixID,
+            potTypeID: draft.potTypeID,
+            lightConditionID: draft.lightConditionID,
+            acquisitionDate: draft.acquisitionDate,
+            acquisitionMethodID: draft.acquisitionMethodID,
+            acquisitionSourceName: draft.acquisitionSourceName.trimmingCharacters(in: .whitespacesAndNewlines),
+            purchasePrice: draft.purchasePrice,
+            acquisitionNotes: draft.acquisitionNotes.trimmingCharacters(in: .whitespacesAndNewlines),
+            createdDate: now,
+            modifiedDate: now
+        )
+
+        return try createTree(tree, joiningCollectionIDs: joiningCollectionIDs)
+    }
+
     @discardableResult
     func createTree(_ tree: Tree, joiningCollectionIDs: Set<UUID> = []) throws -> Tree {
+        guard tree.genusID != nil, tree.speciesID != nil else {
+            throw TreeServiceError.genusAndSpeciesRequired
+        }
+        let trimmedName = tree.bonsaiName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            throw TreeServiceError.bonsaiNameRequired
+        }
+        if isBonsaiNameInUse(trimmedName, excluding: tree.id) {
+            throw TreeServiceError.bonsaiNameAlreadyUsed
+        }
+
+        var tree = tree
+        tree.bonsaiName = trimmedName
+
         let created = try repository.createTree(tree)
         photoIndex?.saveBinding(
             treeID: created.id,
@@ -288,11 +449,94 @@ final class TreeService {
         return saved
     }
 
+    /// Copies botanics, placement, pot, and acquisition onto a new Tree.
+    /// New id and Bonsai Name (next sequence). Photos, measurements, notes, and disposal are not copied.
+    @discardableResult
+    func duplicateTree(
+        id: UUID,
+        genusName: String,
+        speciesName: String,
+        cultivarName: String?
+    ) throws -> Tree {
+        guard let source = getTree(id: id) else {
+            throw TreeRepositoryError.notFound(id)
+        }
+
+        let year: Int = {
+            if let date = source.acquisitionDate {
+                return TreeNamingService.acquisitionYear(from: date)
+            }
+            return TreeNamingService.acquisitionYear(from: .now)
+        }()
+        let sequence: Int = {
+            guard let speciesID = source.speciesID else { return 1 }
+            return nextBonsaiNameSequence(for: speciesID)
+        }()
+        let bonsaiName = TreeNamingService.makeGeneratedBonsaiName(
+            genusName: genusName,
+            speciesName: speciesName,
+            cultivarName: cultivarName,
+            botanicalName: source.botanicalName,
+            existingBonsaiName: source.bonsaiName,
+            acquisitionYear: year,
+            sequence: sequence
+        )
+        guard !bonsaiName.isEmpty else {
+            throw TreeServiceError.bonsaiNameRequired
+        }
+
+        let now = Date.now
+        let copy = Tree(
+            botanicalName: source.botanicalName,
+            bonsaiName: bonsaiName,
+            genusID: source.genusID,
+            speciesID: source.speciesID,
+            cultivarID: source.cultivarID,
+            styleID: source.styleID,
+            sizeClassID: source.sizeClassID,
+            treeStatusID: source.treeStatusID,
+            healthStatus: source.healthStatus,
+            locationID: source.locationID,
+            soilMixID: source.soilMixID,
+            potTypeID: source.potTypeID,
+            lightConditionID: source.lightConditionID,
+            potLengthMillimetres: source.potLengthMillimetres,
+            potWidthMillimetres: source.potWidthMillimetres,
+            potHeightMillimetres: source.potHeightMillimetres,
+            potDiameterMillimetres: source.potDiameterMillimetres,
+            acquisitionDate: source.acquisitionDate,
+            acquisitionMethodID: source.acquisitionMethodID,
+            acquisitionSourceName: source.acquisitionSourceName,
+            purchasePrice: source.purchasePrice,
+            acquisitionNotes: source.acquisitionNotes,
+            createdDate: now,
+            modifiedDate: now
+        )
+
+        let collectionIDs = Set(collections(for: id).filter(\.isManual).map(\.id))
+        return try createTree(copy, joiningCollectionIDs: collectionIDs)
+    }
+
+    /// Clears disposal so the tree is In Care again. History (work, photos, notes) stays.
+    @discardableResult
+    func returnToCare(id: UUID) throws -> Tree {
+        guard var tree = getTree(id: id) else {
+            throw TreeRepositoryError.notFound(id)
+        }
+        tree.disposalDate = nil
+        tree.disposalMethodID = nil
+        tree.disposalPartyName = ""
+        tree.disposalPrice = nil
+        tree.disposalNotes = ""
+        return try updateTree(tree)
+    }
+
     func deleteTree(id: UUID) throws {
         try repository.deleteTree(id: id)
         removeTreeFromAllCollections(treeID: id)
         reload()
         refreshCollections()
+        bonsaiNameSequences?.reconcile(with: trees)
     }
 
     // MARK: - Convenience (session UI)

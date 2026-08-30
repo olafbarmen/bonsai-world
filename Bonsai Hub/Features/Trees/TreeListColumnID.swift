@@ -41,7 +41,7 @@ enum TreeListColumnID: String, CaseIterable, Codable, Identifiable, Hashable, Se
     /// Soft minimum so labels remain readable when many columns share the row.
     var minimumWidth: CGFloat {
         switch self {
-        case .botanicalName: 140
+        case .botanicalName: 196
         case .style, .location, .pot: 80
         case .treeStatus, .lastRepot: 80
         case .acquisition: 64

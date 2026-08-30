@@ -15,6 +15,12 @@ final class AppState {
     /// Selected location within the Locations module (master/detail).
     var selectedLocationID: UUID?
 
+    /// Garden currently being browsed in the Locations module (map filter + Garden
+    /// picker). Also the default Garden for new Locations created from that module.
+    /// `nil` means "use the default Garden" — not cleared on navigation, so the
+    /// grower's last-picked Garden persists across visits to Locations.
+    var selectedGardenID: UUID?
+
     /// Selected collection within the Collections module (master/detail).
     var selectedCollectionID: UUID?
 
@@ -54,6 +60,9 @@ final class AppState {
     /// Collection → Add Tree sheet.
     var isCollectionAddTreePresented = false
 
+    /// Global Add Tree → Copy Existing Tree picker.
+    var isCopyExistingTreePresented = false
+
     /// Settings content selection (e.g. Reference Data).
     var selectedSettingsPane: SettingsPane?
 
@@ -65,8 +74,21 @@ final class AppState {
     /// `nil` in the Library window.
     var treeWorkspaceTreeID: UUID?
 
+    /// Non-nil when this window is a dedicated **Image Workspace** for one image.
+    /// The content area shows that image only — never the Media browser.
+    var imageWorkspaceImageID: UUID?
+
+    /// Selected image in Media → Images browse (drives Context Tools Crop).
+    var selectedMediaImageID: UUID?
+
+    /// One-shot Image Tools request for the active Image Workspace.
+    var pendingImageQuickAction: ImageQuickActionRequest?
+
     /// Whether this window is a dedicated Tree Workspace (one Tree, not a browser).
     var isTreeWorkspaceWindow: Bool { treeWorkspaceTreeID != nil }
+
+    /// Whether this window is a dedicated Image Workspace (one image, not a browser).
+    var isImageWorkspaceWindow: Bool { imageWorkspaceImageID != nil }
 
     /// Fresh navigation state for a Tree Workspace window focused on one Tree.
     /// Shares no UI state with other windows — only library services are shared.
@@ -75,6 +97,14 @@ final class AppState {
         state.treeWorkspaceTreeID = treeID
         state.selectedSection = .gardenTrees
         state.selectedTreeID = treeID
+        return state
+    }
+
+    /// Fresh navigation state for an Image Workspace window focused on one image.
+    static func makeImageWorkspace(imageID: UUID) -> AppState {
+        let state = AppState()
+        state.imageWorkspaceImageID = imageID
+        state.selectedSection = .mediaImages
         return state
     }
 
@@ -153,6 +183,15 @@ final class AppState {
         newTreePreselectedCollectionIDs = []
     }
 
+    func presentCopyExistingTree() {
+        selectedSection = .gardenTrees
+        isCopyExistingTreePresented = true
+    }
+
+    func dismissCopyExistingTree() {
+        isCopyExistingTreePresented = false
+    }
+
     /// Opens Add Tree for the currently selected Manual Collection.
     func presentAddTreeToSelectedCollection() {
         guard selectedCollectionID != nil else { return }
@@ -180,10 +219,18 @@ final class AppState {
         pendingCollectionQuickAction = nil
     }
 
+    func requestImageQuickAction(_ command: ImageQuickActionCommand) {
+        pendingImageQuickAction = ImageQuickActionRequest(command: command)
+    }
+
+    func clearPendingImageQuickAction() {
+        pendingImageQuickAction = nil
+    }
+
     private func clearSelections(except section: AppRoute?) {
         let module = section?.module
 
-        if module != .locations {
+        if !AppRoute.isGardenLocationRoute(section) {
             selectedLocationID = nil
             pendingLocationMapFocusID = nil
         }
@@ -199,8 +246,9 @@ final class AppState {
             treeDetailInteractionMode = .viewing
             pendingTreeQuickAction = nil
         }
-        if section != .workshopWork {
-            selectedWorkTypeID = nil
+        if section != .mediaImages {
+            selectedMediaImageID = nil
+            pendingImageQuickAction = nil
         }
         if section == .gardenCollections {
             selectedTreeID = nil

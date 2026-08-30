@@ -20,6 +20,7 @@ struct TreeDetailView: View {
     @Environment(ImageService.self) private var imageService
     @Environment(ImageImportService.self) private var imageImportService
     @Environment(TreeMeasurementHistoryStore.self) private var measurementHistory
+    @Environment(WorkService.self) private var workService
     @Environment(\.scenePhase) private var scenePhase
 
     var mode: EditorMode
@@ -38,6 +39,16 @@ struct TreeDetailView: View {
     @State private var savedIndicatorTask: Task<Void, Never>?
     @State private var isAddMeasurementPresented = false
     @State private var addMeasurementPrefill: TreeMeasurementRecord?
+    @State private var isAddWorkPresented = false
+    @State private var showDeleteTreeConfirmation = false
+    @State private var deleteFailed = false
+    @State private var deleteErrorMessage = "The tree could not be deleted. Try again."
+    @State private var showReturnToCareConfirmation = false
+    @State private var returnToCareFailed = false
+    @State private var returnToCareErrorMessage = "The tree could not be returned to My Trees. Try again."
+    @State private var showDuplicateTreeConfirmation = false
+    @State private var duplicateFailed = false
+    @State private var duplicateErrorMessage = "Tree info could not be duplicated. Try again."
 
     private var treeID: UUID? {
         mode.editingID ?? appState.selectedTreeID
@@ -52,6 +63,11 @@ struct TreeDetailView: View {
         interactionMode.isEditing
     }
 
+    /// Former Trees are history — no Edit, Add Activity, or Tasks.
+    private var allowsEditing: Bool {
+        tree?.isInCare == true
+    }
+
     private var navigationTitleText: String {
         mode.treeEditorTitle(botanicalName: tree?.botanicalName ?? "")
     }
@@ -61,7 +77,11 @@ struct TreeDetailView: View {
             if let tree {
                 treeDetail(tree)
                     .onAppear {
-                        publishInteractionMode()
+                        if tree.isInCare {
+                            publishInteractionMode()
+                        } else {
+                            discardDraftAndReturnToViewing()
+                        }
                         syncSelectedImage(for: tree, reason: .treeOpened)
                         migrateMeasurementsIfNeeded(for: tree)
                     }
@@ -69,6 +89,11 @@ struct TreeDetailView: View {
                         discardDraftAndReturnToViewing()
                         syncSelectedImage(for: tree, reason: .treeOpened)
                         migrateMeasurementsIfNeeded(for: tree)
+                    }
+                    .onChange(of: tree.isInCare) { _, inCare in
+                        if !inCare {
+                            discardDraftAndReturnToViewing()
+                        }
                     }
                     .onChange(of: tree.primaryImageID) { _, _ in
                         guard !isEditing else { return }
@@ -129,6 +154,76 @@ struct TreeDetailView: View {
         .onChange(of: isAddMeasurementPresented) { _, presented in
             if !presented { addMeasurementPrefill = nil }
         }
+        .sheet(isPresented: $isAddWorkPresented) {
+            if let tree {
+                NavigationStack {
+                    AddWorkSheet(treeID: tree.id)
+                }
+            }
+        }
+        .confirmationDialog(
+            "Delete Tree?",
+            isPresented: $showDeleteTreeConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete", role: .destructive) {
+                performDeleteTree()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let tree {
+                Text("“\(TreePresentation.title(for: tree))” will be removed from the library. This cannot be undone. Use this only for a mistaken or duplicate record — not for sold, gifted, dead, or lost trees.")
+            } else {
+                Text("This tree will be removed from the library. This cannot be undone.")
+            }
+        }
+        .alert("Could Not Delete Tree", isPresented: $deleteFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(deleteErrorMessage)
+        }
+        .confirmationDialog(
+            "Return to My Trees?",
+            isPresented: $showReturnToCareConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Return to My Trees") {
+                performReturnToCare()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let tree {
+                Text("“\(TreePresentation.title(for: tree))” will leave Former Trees. The disposal record (date, method, notes) is cleared. Tasks and editing become available again.")
+            } else {
+                Text("The disposal record will be cleared and this tree will return to My Trees.")
+            }
+        }
+        .alert("Could Not Return to My Trees", isPresented: $returnToCareFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(returnToCareErrorMessage)
+        }
+        .confirmationDialog(
+            "Duplicate Tree Info?",
+            isPresented: $showDuplicateTreeConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Duplicate Tree Info") {
+                performDuplicateTree()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let tree {
+                Text("Create a tree from “\(TreePresentation.title(for: tree))” with a new Bonsai Name. Botanics, placement, pot, and acquisition are copied. Photos, measurements, and notes stay on the original.")
+            } else {
+                Text("Create a tree with a new Bonsai Name. Photos and history stay on the original.")
+            }
+        }
+        .alert("Could Not Duplicate Tree Info", isPresented: $duplicateFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(duplicateErrorMessage)
+        }
     }
 
     private var draftCollectionBinding: Binding<Set<UUID>>? {
@@ -144,17 +239,79 @@ struct TreeDetailView: View {
     private func handleQuickAction(_ command: TreeQuickActionCommand) {
         switch command {
         case .editTree:
+            guard allowsEditing else { return }
             beginEditing()
         case .addImage:
+            guard allowsEditing else { return }
             Task { await addImageFromQuickAction() }
         case .showOnMap:
             showTreeLocationOnMap()
         case .cancel:
             finishEditing()
         case .addMeasurement:
+            guard allowsEditing else { return }
             presentAddMeasurement()
-        case .viewGallery, .duplicateTree, .deleteTree:
-            break
+        case .viewImages:
+            appState.selectSection(.mediaImages)
+        case .duplicateTree:
+            guard allowsEditing else { return }
+            showDuplicateTreeConfirmation = true
+        case .deleteTree:
+            showDeleteTreeConfirmation = true
+        case .returnToCare:
+            showReturnToCareConfirmation = true
+        }
+    }
+
+    private func performDuplicateTree() {
+        guard let tree else { return }
+        let genusName = tree.genusID.flatMap { referenceData.genus(id: $0)?.name } ?? ""
+        let speciesName: String = {
+            guard let id = tree.speciesID, let species = referenceData.species(id: id) else {
+                return ""
+            }
+            return species.epithet.isEmpty ? species.name : species.epithet
+        }()
+        let cultivarName = tree.cultivarID.flatMap { referenceData.cultivar(id: $0)?.name }
+        do {
+            let copy = try treeService.duplicateTree(
+                id: tree.id,
+                genusName: genusName,
+                speciesName: speciesName,
+                cultivarName: cultivarName
+            )
+            appState.selectedTreeID = copy.id
+        } catch {
+            duplicateErrorMessage = error.localizedDescription.isEmpty
+                ? "Tree info could not be duplicated. Try again."
+                : error.localizedDescription
+            duplicateFailed = true
+        }
+    }
+
+    private func performReturnToCare() {
+        guard let id = treeID else { return }
+        do {
+            try treeService.returnToCare(id: id)
+        } catch {
+            returnToCareErrorMessage = error.localizedDescription.isEmpty
+                ? "The tree could not be returned to My Trees. Try again."
+                : error.localizedDescription
+            returnToCareFailed = true
+        }
+    }
+
+    private func performDeleteTree() {
+        guard let id = treeID else { return }
+        discardDraftAndReturnToViewing()
+        do {
+            try treeService.deleteTree(id: id)
+            appState.selectedTreeID = nil
+        } catch {
+            deleteErrorMessage = error.localizedDescription.isEmpty
+                ? "The tree could not be deleted. Try again."
+                : error.localizedDescription
+            deleteFailed = true
         }
     }
 
@@ -180,8 +337,8 @@ struct TreeDetailView: View {
     // MARK: - View / Edit
 
     private func beginEditing() {
-        guard let tree else { return }
-        let membership = Set(treeService.collections(for: tree.id).map(\.id))
+        guard allowsEditing, let tree else { return }
+        let membership = Set(treeService.collections(for: tree.id).filter(\.isManual).map(\.id))
         var captured = TreeDetailDraft.capture(from: tree, collectionIDs: membership)
         captured.imageIDs = sortedImageIDs(captured.imageIDs)
         draft = captured
@@ -291,7 +448,7 @@ struct TreeDetailView: View {
             }
 
             if let updated = treeService.getTree(id: tree.id) {
-                let membership = Set(treeService.collections(for: updated.id).map(\.id))
+                let membership = Set(treeService.collections(for: updated.id).filter(\.isManual).map(\.id))
                 let refreshed = TreeDetailDraft.capture(from: updated, collectionIDs: membership)
                 draft = refreshed
                 lastPersistedDraft = refreshed
@@ -365,79 +522,72 @@ struct TreeDetailView: View {
             // One continuous scroll surface: image + cards move together (not sticky).
             FaloAdaptiveDesktopWorkspace(profile: .treeDetail) {
                 VStack(alignment: .leading, spacing: TreeDetailSpacing.cardGap) {
-                    TreePhotoManagerSection(
-                        treeID: tree.id,
-                        imageIDs: displayedImageIDs(for: tree),
-                        primaryImageID: displayedPrimaryImageID(for: tree),
-                        photoNames: displayedPhotoNames(for: tree),
-                        captureDates: displayedCaptureDates(for: tree),
-                        selectedImageID: $selectedImageID,
-                        isEditing: isEditing,
-                        onAddImage: {
-                            Task { await importGalleryImage() }
-                        },
-                        onSelectImage: { imageID in
-                            selectedImageID = imageID
-                        },
-                        onSetPrimary: { imageID in
-                            setPrimaryPhoto(imageID)
-                        },
-                        onUpdatePhotoMetadata: { imageID, name, date in
-                            updatePhotoMetadata(id: imageID, name: name, captureDate: date)
-                        },
-                        onDeletePhoto: { imageID in
-                            deletePhoto(id: imageID)
-                        }
+                    TreeDetailActivityHeader(
+                        tree: tree,
+                        showsAddActivity: allowsEditing,
+                        onSelectWork: { isAddWorkPresented = true }
                     )
 
                     TreeDetailCardColumns {
+                        TreePhotoManagerSection(
+                            treeID: tree.id,
+                            imageIDs: displayedImageIDs(for: tree),
+                            primaryImageID: displayedPrimaryImageID(for: tree),
+                            photoNames: displayedPhotoNames(for: tree),
+                            captureDates: displayedCaptureDates(for: tree),
+                            selectedImageID: $selectedImageID,
+                            isEditing: isEditing,
+                            onAddImage: {
+                                Task { await importGalleryImage() }
+                            },
+                            onSelectImage: { imageID in
+                                selectedImageID = imageID
+                            },
+                            onSetPrimary: { imageID in
+                                setPrimaryPhoto(imageID)
+                            },
+                            onUpdatePhotoMetadata: { imageID, name, date in
+                                updatePhotoMetadata(id: imageID, name: name, captureDate: date)
+                            },
+                            onDeletePhoto: { imageID in
+                                deletePhoto(id: imageID)
+                            }
+                        )
                         IdentitySection(
                             bonsaiName: tree.bonsaiName,
                             botanicalName: tree.botanicalName,
                             nickname: nicknameBinding(for: tree),
+                            genusName: genusDisplayName(for: tree),
+                            speciesName: speciesDisplayName(for: tree),
+                            cultivarName: cultivarDisplayName(for: tree),
+                            origin: originDisplayName(for: tree),
                             isEditing: isEditing
                         )
-                        PotMeasurementsSection(
-                            potLengthMillimetres: potLengthMillimetresBinding,
-                            potWidthMillimetres: potWidthMillimetresBinding,
-                            potHeightMillimetres: potHeightMillimetresBinding,
-                            potDiameterMillimetres: potDiameterMillimetresBinding,
-                            isEditing: isEditing
-                        )
-                    } column1: {
                         GrowingSection(
                             styleID: styleIDBinding,
                             locationID: locationIDBinding(for: tree),
-                            soilMixID: soilMixIDBinding,
-                            potTypeID: potTypeIDBinding,
-                            lightConditionID: lightConditionIDBinding,
-                            styles: DetailPickerOption.map(referenceData.styles),
-                            locations: DetailPickerOption.map(referenceData.locations),
-                            soilMixes: DetailPickerOption.map(referenceData.soilMixes),
-                            selectedSoilMix: selectedSoilMix(for: tree),
-                            soilComponentNames: soilComponentNames(for: tree),
-                            potTypes: DetailPickerOption.map(referenceData.potTypes),
-                            lightConditions: DetailPickerOption.map(referenceData.lightConditions),
-                            isEditing: isEditing
-                        )
-                        StatusSection(
                             healthStatus: healthStatusBinding(for: tree),
                             treeStatusID: treeStatusIDBinding,
                             sizeClassID: sizeClassIDBinding,
+                            lightConditionID: lightConditionIDBinding,
+                            soilMixID: soilMixIDBinding,
+                            styles: DetailPickerOption.map(referenceData.styles),
+                            locations: DetailPickerOption.map(referenceData.locations),
                             treeStatuses: DetailPickerOption.map(referenceData.treeStatuses),
                             sizeClasses: DetailPickerOption.map(referenceData.sizeClasses),
+                            lightConditions: DetailPickerOption.map(referenceData.lightConditions),
+                            soilMixes: DetailPickerOption.map(referenceData.soilMixes),
+                            selectedSoilMix: selectedSoilMix(for: tree),
+                            soilComponentNames: soilComponentNames(for: tree),
                             isEditing: isEditing
                         )
-                        TreeNotesSection(
-                            text: notesBinding(for: tree),
-                            isEditing: isEditing
+                        MeasurementHistorySection(
+                            records: measurementHistory.timeline(for: tree.id),
+                            onAddMeasurement: isEditing
+                                ? { presentAddMeasurement() }
+                                : nil
                         )
-                    } column2: {
-                        ClassificationSection(
-                            genusName: genusDisplayName(for: tree),
-                            speciesName: speciesDisplayName(for: tree),
-                            cultivarName: cultivarDisplayName(for: tree)
-                        )
+                    } column1: {
                         OwnershipSection(
                             acquisitionDate: acquisitionDateBinding,
                             acquisitionMethodID: acquisitionMethodIDBinding,
@@ -454,14 +604,27 @@ struct TreeDetailView: View {
                             isEditing: isEditing
                         )
                         collectionsBlock(memberships: memberships)
+                        PotSection(
+                            potTypeID: potTypeIDBinding,
+                            potLengthMillimetres: potLengthMillimetresBinding,
+                            potWidthMillimetres: potWidthMillimetresBinding,
+                            potHeightMillimetres: potHeightMillimetresBinding,
+                            potDiameterMillimetres: potDiameterMillimetresBinding,
+                            potTypes: DetailPickerOption.map(referenceData.potTypes),
+                            isEditing: isEditing
+                        )
+                    } column2: {
+                        TreeUpcomingTasksSection(treeID: tree.id)
+                        TreeNotesSection(
+                            text: notesBinding(for: tree),
+                            isEditing: isEditing,
+                            layout: .journalColumn
+                        )
                     }
 
-                    MeasurementHistorySection(
-                        records: measurementHistory.timeline(for: tree.id),
-                        onAddMeasurement: isEditing
-                            ? { presentAddMeasurement() }
-                            : nil
-                    )
+                    TreeTimelineSection(records: workService.history(for: tree.id)) { workTypeID in
+                        workService.workType(id: workTypeID)?.name
+                    }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -471,9 +634,9 @@ struct TreeDetailView: View {
 
     private func displayedMemberships(for tree: Tree) -> [Collection] {
         if isEditing, let draft {
-            return treeService.collections.filter { draft.collectionIDs.contains($0.id) }
+            return treeService.collections.filter { $0.isManual && draft.collectionIDs.contains($0.id) }
         }
-        return treeService.collections(for: tree.id)
+        return treeService.collections(for: tree.id).filter(\.isManual)
     }
 
     private func collectionsBlock(memberships: [Collection]) -> some View {
@@ -905,6 +1068,20 @@ struct TreeDetailView: View {
         tree.cultivarID.flatMap { referenceData.cultivar(id: $0)?.name } ?? ""
     }
 
+    /// Origin glance for Identity — acquisition method, else source name (Ownership keeps full detail).
+    private func originDisplayName(for tree: Tree) -> String {
+        let methodID = isEditing ? (draft?.acquisitionMethodID ?? tree.acquisitionMethodID) : tree.acquisitionMethodID
+        if let methodID,
+           let name = referenceData.acquisitionMethod(id: methodID)?.name,
+           !name.isEmpty {
+            return name
+        }
+        let source = isEditing
+            ? (draft?.acquisitionSourceName ?? tree.acquisitionSourceName)
+            : tree.acquisitionSourceName
+        return source.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     // MARK: - Gallery import
 
     private func importGalleryImage() async {
@@ -957,4 +1134,5 @@ struct TreeDetailView: View {
         .environment(measurementHistory)
         .environment(ImageService(storage: storage, previewData: imageCatalog))
         .environment(ImageImportService(storage: storage, imageCatalog: imageCatalog))
+        .environment(WorkService(referenceData: reference))
 }

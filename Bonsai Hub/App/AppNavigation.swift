@@ -2,8 +2,7 @@
 //  AppNavigation.swift
 //  Bonsai World
 //
-//  Architecture Version 2 — permanent application navigation structure.
-//  Top-level modules mirror how bonsai enthusiasts think and work.
+//  Workflow navigation — sidebar mirrors how bonsai enthusiasts work (Architecture Version 3).
 //  Leaf routes select content; modules group routes in the sidebar.
 //
 
@@ -11,102 +10,144 @@ import Foundation
 
 // MARK: - Top-level modules (sidebar order is permanent)
 
-/// Architecture Version 2 main modules — exact product navigation order.
+/// Primary workflow modules — exact sidebar order for the Workspace section.
 enum AppModule: String, CaseIterable, Identifiable, Hashable, Sendable {
     case dashboard
+    case tasks
     case garden
+    case shaping
+    case care
+    case nursery
+    case inventory
+    case media
+    case knowledge
+    case settings
+
+    // Legacy module identities — routes may still reference these; not shown in the sidebar.
     case locations
     case workshop
-    case nursery
-    case care
     case design
-    case inventory
-    case knowledge
     case economy
-    case settings
 
     var id: Self { self }
 
     var title: String {
         switch self {
         case .dashboard: "Dashboard"
+        case .tasks: "Tasks"
         case .garden: "Garden"
+        case .shaping: "Shaping"
+        case .care: "Care"
+        case .nursery: "Nursery"
+        case .inventory: "Inventory"
+        case .media: "Media"
+        case .knowledge: "Knowledge"
+        case .settings: "Settings"
         case .locations: "Locations"
         case .workshop: "Workshop"
-        case .nursery: "Nursery"
-        case .care: "Care"
         case .design: "Design"
-        case .inventory: "Inventory"
-        case .knowledge: "Knowledge"
         case .economy: "Economy"
-        case .settings: "Settings"
         }
     }
 
     var systemImage: String {
         switch self {
         case .dashboard: "square.grid.2x2"
+        case .tasks: "checklist"
         case .garden: "leaf"
+        case .shaping: "pencil.and.outline"
+        case .care: "drop"
+        case .nursery: "leaf.circle"
+        case .inventory: "shippingbox"
+        case .media: "photo.on.rectangle.angled"
+        case .knowledge: "book"
+        case .settings: "gearshape"
         case .locations: "mappin.and.ellipse"
         case .workshop: "wrench.and.screwdriver"
-        case .nursery: "leaf.circle"
-        case .care: "drop"
         case .design: "pencil.and.outline"
-        case .inventory: "shippingbox"
-        case .knowledge: "book"
         case .economy: "sterlingsign.circle"
-        case .settings: "gearshape"
         }
     }
 
-    /// Workspace modules (excludes Settings / Tools).
-    static var workspaceModules: [AppModule] {
+    /// Daily workflow modules (Dashboard → Inventory).
+    static var primaryWorkspaceModules: [AppModule] {
         [
             .dashboard,
+            .tasks,
             .garden,
-            .locations,
-            .workshop,
-            .nursery,
+            .shaping,
             .care,
-            .design,
-            .inventory,
-            .knowledge,
-            .economy
+            .nursery,
+            .inventory
         ]
+    }
+
+    /// Library modules below the workflow group (Media, Knowledge).
+    static var libraryWorkspaceModules: [AppModule] {
+        [.media, .knowledge]
+    }
+
+    /// All modules shown under Workspace in the sidebar (excludes Settings / Tools).
+    static var workspaceModules: [AppModule] {
+        primaryWorkspaceModules + libraryWorkspaceModules
     }
 
     static var toolsModules: [AppModule] {
         [.settings]
     }
 
-    /// Child routes shown under this module in the sidebar. Empty = leaf module.
+    /// Child routes shown under this module in the sidebar (shipped routes only).
     var routes: [AppRoute] {
         AppRoute.routes(in: self)
     }
 
+    /// All defined routes for this module, including future subpages not yet in navigation.
+    var allRoutes: [AppRoute] {
+        AppRoute.allRoutes(in: self)
+    }
+
+    /// Whether the sidebar uses a disclosure group (module header + indented subpages).
+    var showsChildNavigation: Bool {
+        routes.count > 1
+    }
+
     var defaultRoute: AppRoute {
-        routes.first ?? .dashboard
+        routes.first ?? allRoutes.first ?? .dashboard
     }
 }
 
 // MARK: - Leaf routes (content selection)
 
-/// Concrete content destinations within Architecture Version 2 modules.
+/// Concrete content destinations within workflow modules.
 enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
     // Dashboard
     case dashboard
 
+    // Tasks
+    case tasksOverdue
+    case tasksToday
+    case tasksThisWeek
+    case tasksThisMonth
+    case tasksThisYear
+    case tasksNextYear
+
     // Garden
     case gardenTrees
     case gardenCollections
-    case gardenGallery
 
-    // Locations
+    // Media
+    case mediaImages
+    case mediaDocuments
+    case mediaNotes
+    case mediaVideo
+    case mediaAudio
+
+    // Locations (under Garden in sidebar; legacy module retained for routing)
     case locationsGardens
     case locationsPlaces
     case locationsMap
 
-    // Workshop
+    // Workshop (legacy — not in sidebar; routes retained)
     case workshopWork
     case workshopCalendar
     case workshopTasks
@@ -123,12 +164,13 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
     case careToday
     case careWatering
     case careFertilizing
+    case careRepotting
     case carePlacement
     case careTreeHealth
     case careSeasonal
     case careWinter
 
-    // Design
+    // Shaping (formerly Design)
     case designVision
     case designStyle
     case designFrontSelection
@@ -162,7 +204,7 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
     case knowledgeFAQ
     case knowledgeExternalLinks
 
-    // Economy
+    // Economy (legacy — not in sidebar; routes retained)
     case economyPurchases
     case economySales
     case economyExpenses
@@ -177,13 +219,46 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
 
     var id: Self { self }
 
+    /// Whether this route is listed in the sidebar today.
+    var isShippedInNavigation: Bool {
+        switch self {
+        case .mediaImages, .mediaVideo, .mediaDocuments:
+            true
+        case .mediaNotes, .mediaAudio:
+            false
+        case .locationsGardens, .locationsMap:
+            false
+        case .workshopWork, .workshopCalendar, .workshopTasks:
+            false
+        case .economyPurchases, .economySales, .economyExpenses, .economyIncome,
+             .economyTreeValue, .economyPotValue, .economyInventoryValue, .economyReports:
+            false
+        case .careToday, .carePlacement, .careWinter:
+            false
+        default:
+            true
+        }
+    }
+
     var title: String {
         switch self {
         case .dashboard: "Dashboard"
 
+        case .tasksOverdue: "Overdue"
+        case .tasksToday: "Today"
+        case .tasksThisWeek: "This Week"
+        case .tasksThisMonth: "This Month"
+        case .tasksThisYear: "This Year"
+        case .tasksNextYear: "Next Year"
+
         case .gardenTrees: "Trees"
         case .gardenCollections: "Collections"
-        case .gardenGallery: "Gallery"
+
+        case .mediaImages: "Images"
+        case .mediaDocuments: "Documents"
+        case .mediaNotes: "Notes"
+        case .mediaVideo: "Videos"
+        case .mediaAudio: "Audio"
 
         case .locationsGardens: "Gardens"
         case .locationsPlaces: "Locations"
@@ -203,8 +278,9 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .careToday: "Today"
         case .careWatering: "Watering"
         case .careFertilizing: "Fertilizing"
+        case .careRepotting: "Repotting"
         case .carePlacement: "Placement"
-        case .careTreeHealth: "Tree Health"
+        case .careTreeHealth: "Health"
         case .careSeasonal: "Seasonal Care"
         case .careWinter: "Winter Care"
 
@@ -259,16 +335,18 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
     var module: AppModule {
         switch self {
         case .dashboard: .dashboard
-        case .gardenTrees, .gardenCollections, .gardenGallery: .garden
-        case .locationsGardens, .locationsPlaces, .locationsMap: .locations
+        case .tasksOverdue, .tasksToday, .tasksThisWeek, .tasksThisMonth, .tasksThisYear, .tasksNextYear: .tasks
+        case .gardenTrees, .gardenCollections,
+             .locationsGardens, .locationsPlaces, .locationsMap: .garden
+        case .mediaImages, .mediaDocuments, .mediaNotes, .mediaVideo, .mediaAudio: .media
         case .workshopWork, .workshopCalendar, .workshopTasks: .workshop
         case .nurserySeeds, .nurseryCuttings, .nurseryAirLayers,
              .nurseryGrafting, .nurseryYamadori, .nurseryDevelopment: .nursery
-        case .careToday, .careWatering, .careFertilizing, .carePlacement,
+        case .careToday, .careWatering, .careFertilizing, .careRepotting, .carePlacement,
              .careTreeHealth, .careSeasonal, .careWinter: .care
         case .designVision, .designStyle, .designFrontSelection, .designVirtual,
              .designBranchPlan, .designTrunkDevelopment, .designRamification,
-             .designApex, .designDeadwood, .designTimeline: .design
+             .designApex, .designDeadwood, .designTimeline: .shaping
         case .inventoryPots, .inventorySoil, .inventorySoilComponents, .inventorySoilMixes,
              .inventoryFertilizers, .inventoryWire, .inventoryTools,
              .inventoryChemicals, .inventoryConsumables: .inventory
@@ -283,40 +361,73 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
     }
 
     static func routes(in module: AppModule) -> [AppRoute] {
+        allRoutes(in: module).filter(\.isShippedInNavigation)
+    }
+
+    /// Canonical subpage order per module (includes future routes before they ship).
+    static func allRoutes(in module: AppModule) -> [AppRoute] {
         switch module {
-        case .dashboard: [.dashboard]
-        case .garden: [.gardenTrees, .gardenCollections, .gardenGallery]
-        case .locations: [.locationsGardens, .locationsPlaces, .locationsMap]
-        case .workshop: [.workshopWork, .workshopCalendar, .workshopTasks]
-        case .nursery: [
-            .nurserySeeds, .nurseryCuttings, .nurseryAirLayers,
-            .nurseryGrafting, .nurseryYamadori, .nurseryDevelopment
-        ]
-        case .care: [
-            .careToday, .careWatering, .careFertilizing, .carePlacement,
-            .careTreeHealth, .careSeasonal, .careWinter
-        ]
-        case .design: [
-            .designVision, .designStyle, .designFrontSelection, .designVirtual,
-            .designBranchPlan, .designTrunkDevelopment, .designRamification,
-            .designApex, .designDeadwood, .designTimeline
-        ]
-        case .inventory: [
-            .inventoryPots, .inventorySoil, .inventorySoilComponents, .inventorySoilMixes,
-            .inventoryFertilizers, .inventoryWire, .inventoryTools,
-            .inventoryChemicals, .inventoryConsumables
-        ]
-        case .knowledge: [
-            .knowledgeQuickGuides, .knowledgeHandbook, .knowledgeSpeciesLibrary,
-            .knowledgeSoilGuides, .knowledgeFertilizerGuides, .knowledgeVideos,
-            .knowledgeCourses, .knowledgeFAQ, .knowledgeExternalLinks
-        ]
-        case .economy: [
-            .economyPurchases, .economySales, .economyExpenses, .economyIncome,
-            .economyTreeValue, .economyPotValue, .economyInventoryValue, .economyReports
-        ]
-        case .settings: [.settings]
+        case .dashboard:
+            [.dashboard]
+        case .tasks:
+            [.tasksOverdue, .tasksToday, .tasksThisWeek, .tasksThisMonth, .tasksThisYear, .tasksNextYear]
+        case .garden:
+            [.gardenTrees, .gardenCollections, .locationsPlaces]
+        case .shaping:
+            [
+                .designVision, .designStyle, .designFrontSelection, .designVirtual,
+                .designBranchPlan, .designTrunkDevelopment, .designRamification,
+                .designApex, .designDeadwood, .designTimeline
+            ]
+        case .care:
+            [
+                .careWatering, .careFertilizing, .careRepotting,
+                .careTreeHealth, .careSeasonal,
+                .careToday, .carePlacement, .careWinter
+            ]
+        case .nursery:
+            [
+                .nurserySeeds, .nurseryCuttings, .nurseryAirLayers,
+                .nurseryGrafting, .nurseryYamadori, .nurseryDevelopment
+            ]
+        case .inventory:
+            [
+                .inventoryPots, .inventorySoil, .inventorySoilComponents, .inventorySoilMixes,
+                .inventoryFertilizers, .inventoryWire, .inventoryTools,
+                .inventoryChemicals, .inventoryConsumables
+            ]
+        case .media:
+            [.mediaImages, .mediaVideo, .mediaDocuments, .mediaNotes, .mediaAudio]
+        case .knowledge:
+            [
+                .knowledgeQuickGuides, .knowledgeHandbook, .knowledgeSpeciesLibrary,
+                .knowledgeSoilGuides, .knowledgeFertilizerGuides, .knowledgeVideos,
+                .knowledgeCourses, .knowledgeFAQ, .knowledgeExternalLinks
+            ]
+        case .settings:
+            [.settings]
+        case .locations:
+            [.locationsGardens, .locationsPlaces, .locationsMap]
+        case .workshop:
+            [.workshopWork, .workshopCalendar, .workshopTasks]
+        case .design:
+            allRoutes(in: .shaping)
+        case .economy:
+            [
+                .economyPurchases, .economySales, .economyExpenses, .economyIncome,
+                .economyTreeValue, .economyPotValue, .economyInventoryValue, .economyReports
+            ]
         }
+    }
+
+    /// Location routes grouped under Garden.
+    static var gardenLocationRoutes: [AppRoute] {
+        [.locationsGardens, .locationsPlaces, .locationsMap]
+    }
+
+    static func isGardenLocationRoute(_ route: AppRoute?) -> Bool {
+        guard let route else { return false }
+        return gardenLocationRoutes.contains(route)
     }
 }
 

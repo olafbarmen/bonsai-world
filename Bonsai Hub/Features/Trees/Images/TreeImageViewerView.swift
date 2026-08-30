@@ -2,7 +2,8 @@
 //  TreeImageViewerView.swift
 //  Bonsai World
 //
-//  Dedicated Tree Image Viewer window — original resolution, fit-to-window.
+//  Dedicated Tree Image Viewer window — display crop, fit-to-window.
+//  Original file is never shown here; Crop in Media → Images is the original canvas.
 //  ESC / Close dismisses; selection is owned by the opener (Tree Detail).
 //  Ready for future zoom, pan, next/previous, slideshow, compare, history.
 //
@@ -41,7 +42,7 @@ struct TreeImageViewerView: View {
                 ContentUnavailableView(
                     "Image Unavailable",
                     systemImage: "photo",
-                    description: Text("The original file could not be loaded.")
+                    description: Text("The image could not be loaded.")
                 )
                 .foregroundStyle(.white)
             }
@@ -60,7 +61,7 @@ struct TreeImageViewerView: View {
         .onExitCommand {
             dismiss()
         }
-        .task(id: context.selectedImageID) {
+        .task(id: "\(context.selectedImageID.uuidString)-\(imageService.presentationRevision)") {
             await loadSelectedImage()
         }
     }
@@ -78,8 +79,7 @@ struct TreeImageViewerView: View {
         defer { isLoading = false }
 
         do {
-            let data = try await imageService.loadOriginalData(for: context.selectedImageID)
-            guard let nsImage = NSImage(data: data) else { return }
+            let nsImage = try await imageService.loadDisplayNSImage(for: context.selectedImageID, context: .treeThumbnail)
             displayImage = Image(nsImage: nsImage)
         } catch {
             displayImage = nil

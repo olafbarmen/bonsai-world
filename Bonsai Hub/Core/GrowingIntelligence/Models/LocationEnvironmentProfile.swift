@@ -125,16 +125,22 @@ enum LocationAirFlow: String, Codable, CaseIterable, Identifiable, Hashable, Sen
 
 // MARK: - Watering method
 
+/// A Location may have more than one — e.g. drip nozzles AND a sprinkler,
+/// used manually when home and automatically while traveling.
 enum LocationWateringMethod: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
     case manual
-    case automatic
+    case drip
+    case soakerHose
+    case sprinkler
 
     var id: Self { self }
 
     var title: String {
         switch self {
         case .manual: "Manual"
-        case .automatic: "Automatic"
+        case .drip: "Drip / Nozzles"
+        case .soakerHose: "Soaker Hose"
+        case .sprinkler: "Sprinkler"
         }
     }
 }
@@ -161,7 +167,7 @@ enum LocationWinterProtection: String, Codable, CaseIterable, Identifiable, Hash
 
 /// Environmental profile for a Location.
 /// Optional fields remain unset until the grower records them.
-struct LocationEnvironmentProfile: Codable, Hashable, Sendable {
+struct LocationEnvironmentProfile: Hashable, Sendable {
     /// Indoor / Outdoor / Greenhouse / Cold Greenhouse / Polytunnel.
     var setting: LocationEnvironmentSetting?
 
@@ -177,7 +183,9 @@ struct LocationEnvironmentProfile: Codable, Hashable, Sendable {
     var rainExposure: LocationRainExposure?
     var humidity: LocationHumidityLevel?
     var airFlow: LocationAirFlow?
-    var wateringMethod: LocationWateringMethod?
+    /// A Location may combine methods — e.g. drip + sprinkler installed,
+    /// used manually when home and switched to automatic while traveling.
+    var wateringMethods: Set<LocationWateringMethod>
     var winterProtection: LocationWinterProtection?
 
     static let unset = LocationEnvironmentProfile()
@@ -193,7 +201,7 @@ struct LocationEnvironmentProfile: Codable, Hashable, Sendable {
         rainExposure: LocationRainExposure? = nil,
         humidity: LocationHumidityLevel? = nil,
         airFlow: LocationAirFlow? = nil,
-        wateringMethod: LocationWateringMethod? = nil,
+        wateringMethods: Set<LocationWateringMethod> = [],
         winterProtection: LocationWinterProtection? = nil
     ) {
         self.setting = setting
@@ -206,7 +214,76 @@ struct LocationEnvironmentProfile: Codable, Hashable, Sendable {
         self.rainExposure = rainExposure
         self.humidity = humidity
         self.airFlow = airFlow
-        self.wateringMethod = wateringMethod
+        self.wateringMethods = wateringMethods
         self.winterProtection = winterProtection
+    }
+
+    // MARK: - Codable (backward compatible: old single `wateringMethod` -> new `wateringMethods` set)
+
+    private enum CodingKeys: String, CodingKey {
+        case setting, morningSun, middaySun, afternoonSun, eveningSun
+        case shadeLevel, windExposure, rainExposure, humidity, airFlow
+        case wateringMethods
+        case wateringMethod // legacy single-value key, pre-multi-select
+        case winterProtection
+    }
+}
+
+extension LocationEnvironmentProfile: Codable {
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        setting = Self.decodeTolerant(LocationEnvironmentSetting.self, container, .setting)
+        morningSun = try container.decodeIfPresent(Bool.self, forKey: .morningSun) ?? false
+        middaySun = try container.decodeIfPresent(Bool.self, forKey: .middaySun) ?? false
+        afternoonSun = try container.decodeIfPresent(Bool.self, forKey: .afternoonSun) ?? false
+        eveningSun = try container.decodeIfPresent(Bool.self, forKey: .eveningSun) ?? false
+        shadeLevel = Self.decodeTolerant(LocationShadeLevel.self, container, .shadeLevel)
+        windExposure = Self.decodeTolerant(LocationWindExposure.self, container, .windExposure)
+        rainExposure = Self.decodeTolerant(LocationRainExposure.self, container, .rainExposure)
+        humidity = Self.decodeTolerant(LocationHumidityLevel.self, container, .humidity)
+        airFlow = Self.decodeTolerant(LocationAirFlow.self, container, .airFlow)
+        winterProtection = Self.decodeTolerant(LocationWinterProtection.self, container, .winterProtection)
+
+        if let methods = (try? container.decodeIfPresent(Set<LocationWateringMethod>.self, forKey: .wateringMethods)) ?? nil {
+            wateringMethods = methods
+        } else if let legacy: LocationWateringMethod = Self.decodeTolerant(LocationWateringMethod.self, container, .wateringMethod) {
+            // Pre-multi-select data. A recognized legacy value (e.g. old "manual")
+            // maps directly; an unrecognized/removed one (old "automatic") is
+            // dropped rather than thrown, since it can't be mapped to a specific
+            // device — the grower re-selects the actual equipment once.
+            wateringMethods = [legacy]
+        } else {
+            wateringMethods = []
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encodeIfPresent(setting, forKey: .setting)
+        try container.encode(morningSun, forKey: .morningSun)
+        try container.encode(middaySun, forKey: .middaySun)
+        try container.encode(afternoonSun, forKey: .afternoonSun)
+        try container.encode(eveningSun, forKey: .eveningSun)
+        try container.encodeIfPresent(shadeLevel, forKey: .shadeLevel)
+        try container.encodeIfPresent(windExposure, forKey: .windExposure)
+        try container.encodeIfPresent(rainExposure, forKey: .rainExposure)
+        try container.encodeIfPresent(humidity, forKey: .humidity)
+        try container.encodeIfPresent(airFlow, forKey: .airFlow)
+        try container.encode(wateringMethods, forKey: .wateringMethods)
+        try container.encodeIfPresent(winterProtection, forKey: .winterProtection)
+    }
+
+    /// Decodes an optional String-backed enum field without throwing when the raw
+    /// value is unknown (removed/renamed case from an older app version). A single
+    /// unrecognized field must never fail decoding of an entire Location catalog —
+    /// see `LibraryLocationRepository.loadLocationsFromDisk()`, which returns `[]`
+    /// for the whole file on any decode error.
+    private static func decodeTolerant<T: RawRepresentable>(
+        _ type: T.Type,
+        _ container: KeyedDecodingContainer<CodingKeys>,
+        _ key: CodingKeys
+    ) -> T? where T.RawValue == String {
+        guard let raw = (try? container.decodeIfPresent(String.self, forKey: key)) ?? nil else { return nil }
+        return T(rawValue: raw)
     }
 }

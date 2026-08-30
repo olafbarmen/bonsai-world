@@ -27,6 +27,8 @@ struct ImageAsset: Identifiable, Codable, Hashable, Sendable {
     var height: Int
     /// Whether this asset is marked primary on its owning tree (denormalized convenience).
     var isPrimary: Bool
+    /// Library-wide featured prominence (Gallery browse / Dashboard — future workflow).
+    var isFeatured: Bool
 
     /// Capture Date — when the photo was actually taken (EXIF when available).
     /// Stored as `photoDate` for catalog compatibility.
@@ -60,6 +62,7 @@ struct ImageAsset: Identifiable, Codable, Hashable, Sendable {
         width: Int = 0,
         height: Int = 0,
         isPrimary: Bool = false,
+        isFeatured: Bool = false,
         photoDate: Date? = nil,
         caption: String = "",
         photographer: String = "",
@@ -80,6 +83,7 @@ struct ImageAsset: Identifiable, Codable, Hashable, Sendable {
         self.width = width
         self.height = height
         self.isPrimary = isPrimary
+        self.isFeatured = isFeatured
         self.photoDate = resolvedCapture
         self.caption = caption
         self.photographer = photographer
@@ -113,7 +117,7 @@ struct ImageAsset: Identifiable, Codable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, fileName, photoName, relativePath, createdDate, modifiedDate
-        case fileSize, width, height, isPrimary
+        case fileSize, width, height, isPrimary, isFeatured
         case photoDate, caption, photographer, camera, tags, notes
     }
 
@@ -128,6 +132,7 @@ struct ImageAsset: Identifiable, Codable, Hashable, Sendable {
         width = try container.decode(Int.self, forKey: .width)
         height = try container.decode(Int.self, forKey: .height)
         isPrimary = try container.decode(Bool.self, forKey: .isPrimary)
+        isFeatured = try container.decodeIfPresent(Bool.self, forKey: .isFeatured) ?? false
         caption = try container.decodeIfPresent(String.self, forKey: .caption) ?? ""
         notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
         photographer = try container.decodeIfPresent(String.self, forKey: .photographer) ?? ""

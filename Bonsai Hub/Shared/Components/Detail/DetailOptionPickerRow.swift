@@ -31,7 +31,6 @@ struct DetailOptionPickerRow: View {
             .font(FaloCardTypography.fieldValue)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, FaloSpacing.xSmall)
         .accessibilityElement(children: .contain)
     }
 

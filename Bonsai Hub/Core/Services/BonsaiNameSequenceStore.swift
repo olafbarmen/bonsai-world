@@ -3,7 +3,7 @@
 //  Bonsai World
 //
 //  Persists per-species Bonsai Name sequence high-water marks in the library package.
-//  Sequences never decrease when a tree is deleted — existing Bonsai Names stay fixed.
+//  Marks follow remaining trees (In Care + Former). Delete frees a number; disposal does not.
 //
 
 import Foundation
@@ -11,7 +11,7 @@ import Observation
 
 /// On-disk envelope for `Database/BonsaiNameSequences.json`.
 struct BonsaiNameSequenceFile: Codable, Hashable, Sendable {
-    /// Highest sequence issued per species ID. Keys are species UUIDs.
+    /// Highest sequence still in use per species ID. Keys are species UUIDs.
     var highWaterBySpeciesID: [UUID: Int]
 
     init(highWaterBySpeciesID: [UUID: Int] = [:]) {
@@ -61,8 +61,7 @@ final class BonsaiNameSequenceStore {
     func nextSequence(forSpecies speciesID: UUID, existingTrees: [Tree]) -> Int {
         TreeNamingService.nextSequence(
             forSpecies: speciesID,
-            existingTrees: existingTrees,
-            highWaterMark: highWaterBySpeciesID[speciesID] ?? 0
+            existingTrees: existingTrees
         )
     }
 
@@ -83,22 +82,18 @@ final class BonsaiNameSequenceStore {
         persist()
     }
 
-    /// Merges high-water marks from live trees without lowering persisted values.
+    /// Sets high-water marks from remaining trees. Lowers when a deleted tree freed a number.
     func reconcile(with trees: [Tree]) {
-        var changed = false
+        var next: [UUID: Int] = [:]
         for tree in trees {
             guard let speciesID = tree.speciesID,
                   let sequence = TreeNamingService.parseBonsaiNameSequence(tree.bonsaiName)
             else { continue }
-            let current = highWaterBySpeciesID[speciesID] ?? 0
-            if sequence > current {
-                highWaterBySpeciesID[speciesID] = sequence
-                changed = true
-            }
+            next[speciesID] = max(next[speciesID] ?? 0, sequence)
         }
-        if changed {
-            persist()
-        }
+        guard next != highWaterBySpeciesID else { return }
+        highWaterBySpeciesID = next
+        persist()
     }
 
     // MARK: - Private

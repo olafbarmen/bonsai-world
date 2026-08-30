@@ -2,7 +2,8 @@
 //  CollectionsList.swift
 //  Bonsai World
 //
-//  Sectioned Collections master list — Smart Collections / My Collections.
+//  Sectioned Collections master list:
+//  My Collections (open) → Smart Collections (collapsed) → Former Trees (collapsed).
 //  Single list column; no type browser pane.
 //
 
@@ -10,33 +11,74 @@ import SwiftUI
 
 struct CollectionsList: View {
     let smartCollections: [Collection]
+    let formerTreeCollections: [Collection]
     let manualCollections: [Collection]
     @Binding var selection: UUID?
     var treeCount: (Collection) -> Int
 
+    @State private var isSmartExpanded = false
+    @State private var isFormerExpanded = false
+
     var body: some View {
         List(selection: $selection) {
-            if !smartCollections.isEmpty {
-                Section {
-                    ForEach(smartCollections) { collection in
-                        collectionRow(collection)
-                    }
-                } header: {
-                    Text("Smart Collections")
-                }
-            }
-
             if !manualCollections.isEmpty {
                 Section {
+                    collectionsSectionTitle("My Collections")
                     ForEach(manualCollections) { collection in
                         collectionRow(collection)
                     }
-                } header: {
-                    Text("My Collections")
+                }
+            }
+
+            if !smartCollections.isEmpty {
+                Section {
+                    DisclosureGroup(isExpanded: $isSmartExpanded) {
+                        ForEach(smartCollections) { collection in
+                            collectionRow(collection)
+                        }
+                    } label: {
+                        collectionsSectionTitle("Smart Collections")
+                    }
+                }
+            }
+
+            if !formerTreeCollections.isEmpty {
+                Section {
+                    DisclosureGroup(isExpanded: $isFormerExpanded) {
+                        ForEach(formerTreeCollections) { collection in
+                            collectionRow(collection)
+                        }
+                    } label: {
+                        collectionsSectionTitle("Former Trees")
+                    }
                 }
             }
         }
         .faloScrollSurface()
+        .onAppear {
+            expandSectionIfNeeded(for: selection)
+        }
+        .onChange(of: selection) { _, newValue in
+            expandSectionIfNeeded(for: newValue)
+        }
+    }
+
+    private func expandSectionIfNeeded(for id: UUID?) {
+        guard let id else { return }
+        if smartCollections.contains(where: { $0.id == id }) {
+            isSmartExpanded = true
+        }
+        if formerTreeCollections.contains(where: { $0.id == id }) {
+            isFormerExpanded = true
+        }
+    }
+
+    private func collectionsSectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(FaloTypography.body)
+            .fontWeight(.semibold)
+            .foregroundStyle(.primary)
+            .textCase(.none)
     }
 
     @ViewBuilder
@@ -91,12 +133,20 @@ struct CollectionListRow: View {
 
 #Preview {
     let previewData = PreviewData()
-    let smart = previewData.collections.filter(\.isSmart)
+    let smart = previewData.collections.filter { collection in
+        collection.isSmart
+            && SystemSmartCollections.lifecycleOutcome(for: collection.id) == nil
+    }
+    let former = previewData.collections.filter { collection in
+        collection.isSmart
+            && SystemSmartCollections.lifecycleOutcome(for: collection.id) != nil
+    }
     let manual = previewData.collections.filter(\.isManual)
     return CollectionsList(
         smartCollections: smart,
+        formerTreeCollections: former,
         manualCollections: manual,
-        selection: .constant(smart.first?.id),
+        selection: .constant(manual.first?.id),
         treeCount: { previewData.trees(in: $0.id).count }
     )
     .frame(width: 280, height: 420)

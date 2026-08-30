@@ -78,13 +78,13 @@ struct ExpandableSection<Content: View>: View {
             case .summary:
                 summaryBlock
             case .expanded:
-                VStack(alignment: .leading, spacing: FaloSpacing.small) {
+                VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
                     content()
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
-        .padding(FaloSpacing.large)
+        .padding(FaloSpacing.medium)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background {
             RoundedRectangle(cornerRadius: FaloRadius.medium, style: .continuous)

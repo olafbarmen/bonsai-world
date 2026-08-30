@@ -50,7 +50,6 @@ struct DetailLabeledRow: View {
             }
             .frame(maxWidth: .infinity, alignment: .trailing)
         }
-        .padding(.vertical, FaloSpacing.xSmall)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label), \(displayValue)")
     }

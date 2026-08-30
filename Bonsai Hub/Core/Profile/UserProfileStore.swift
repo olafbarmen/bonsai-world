@@ -3,7 +3,10 @@
 //  Bonsai World
 //
 //  User Profile + Gardens. Geographic root for Maps, Weather, AI, Work, Notifications.
-//  Persisted in UserDefaults for session continuity (library persistence later).
+//  Name / email / language persist in UserDefaults (lightweight user prefs).
+//  Gardens persist through an injected GardenRepository — UserDefaults before a
+//  Library exists, Database/Gardens.json once one is open (see
+//  GardenMigrationService and ``attachLibraryGardenRepository(_:)``).
 //
 
 import Foundation
@@ -12,19 +15,22 @@ import Observation
 @Observable
 @MainActor
 final class UserProfileStore {
-    private static let storageKey = "falo.userProfile.v1"
+    private static let profileStorageKey = "falo.userProfile.profile.v1"
+    private static let legacyCombinedKey = "falo.userProfile.v1"
     private static let legacyGardenAddressKey = "falo.appSettings.gardenAddress"
 
+    private var gardenRepository: GardenRepository
+
     var name: String = "" {
-        didSet { persistIfNeeded() }
+        didSet { persistProfileFieldsIfNeeded() }
     }
 
     var email: String = "" {
-        didSet { persistIfNeeded() }
+        didSet { persistProfileFieldsIfNeeded() }
     }
 
     var language: AppLanguage = .english {
-        didSet { persistIfNeeded() }
+        didSet { persistProfileFieldsIfNeeded() }
     }
 
     private(set) var gardens: [Garden] = []
@@ -48,8 +54,24 @@ final class UserProfileStore {
             }
     }
 
-    init() {
+    init(gardenRepository: GardenRepository? = nil) {
+        self.gardenRepository = gardenRepository ?? UserDefaultsGardenRepository()
         loadOrCreate()
+    }
+
+    /// Switches Garden persistence to a Library-backed repository once one becomes
+    /// available (mirrors `ImageService.attachStorage(_:)`). Adopts the repository's
+    /// existing gardens if it already has any (second launch of the same Library);
+    /// otherwise the caller is expected to have migrated the prior source into it
+    /// first (see `GardenMigrationService`), so this simply re-reads the result.
+    func attachLibraryGardenRepository(_ repository: GardenRepository) {
+        gardenRepository = repository
+        let loaded = repository.getAllGardens()
+        if !loaded.isEmpty {
+            gardens = loaded
+            ensureSingleDefault()
+        }
+        revision += 1
     }
 
     // MARK: - Gardens
@@ -172,31 +194,30 @@ final class UserProfileStore {
 
     private func noteMutation() {
         revision += 1
-        persistIfNeeded()
+        persistGardensIfNeeded()
     }
 
-    private func persistIfNeeded() {
+    private func persistGardensIfNeeded() {
         guard !isLoading else { return }
-        let snapshot = PersistedProfile(
-            name: name,
-            email: email,
-            language: language,
-            gardens: gardens
-        )
+        try? gardenRepository.replaceCatalog(with: gardens)
+    }
+
+    private func persistProfileFieldsIfNeeded() {
+        guard !isLoading else { return }
+        let snapshot = PersistedProfileFields(name: name, email: email, language: language)
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
-        UserDefaults.standard.set(data, forKey: Self.storageKey)
+        UserDefaults.standard.set(data, forKey: Self.profileStorageKey)
     }
 
     private func loadOrCreate() {
         isLoading = true
         defer { isLoading = false }
 
-        if let data = UserDefaults.standard.data(forKey: Self.storageKey),
-           let snapshot = try? JSONDecoder().decode(PersistedProfile.self, from: data) {
-            name = snapshot.name
-            email = snapshot.email
-            language = snapshot.language
-            gardens = snapshot.gardens
+        loadProfileFields()
+
+        let existingGardens = gardenRepository.getAllGardens()
+        if !existingGardens.isEmpty {
+            gardens = existingGardens
             ensureSingleDefault()
             revision += 1
             return
@@ -214,11 +235,38 @@ final class UserProfileStore {
         gardens = [garden]
         UserDefaults.standard.removeObject(forKey: Self.legacyGardenAddressKey)
         revision += 1
-        persistIfNeeded()
+        persistGardensIfNeeded()
+    }
+
+    private func loadProfileFields() {
+        if let data = UserDefaults.standard.data(forKey: Self.profileStorageKey),
+           let snapshot = try? JSONDecoder().decode(PersistedProfileFields.self, from: data) {
+            name = snapshot.name
+            email = snapshot.email
+            language = snapshot.language
+            return
+        }
+
+        // One-time fallback: recover profile fields from the legacy combined blob
+        // (pre-dates the dedicated profile-fields key).
+        if let data = UserDefaults.standard.data(forKey: Self.legacyCombinedKey),
+           let legacy = try? JSONDecoder().decode(LegacyPersistedProfile.self, from: data) {
+            name = legacy.name
+            email = legacy.email
+            language = legacy.language
+        }
     }
 }
 
-private struct PersistedProfile: Codable {
+private struct PersistedProfileFields: Codable {
+    var name: String
+    var email: String
+    var language: AppLanguage
+}
+
+/// Shape of the pre-refactor combined profile blob (`falo.userProfile.v1`).
+/// Read-only fallback for one-time migration — never written by this store.
+private struct LegacyPersistedProfile: Codable {
     var name: String
     var email: String
     var language: AppLanguage

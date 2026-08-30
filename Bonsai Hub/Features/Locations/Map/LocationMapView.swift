@@ -259,19 +259,27 @@ private struct LocationMapKitRepresentable: NSViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
-            let meters = approximateVisibleMeters(for: mapView.region)
-            parent.camera = LocationMapCamera(
-                center: GeographicCoordinate(
-                    latitude: mapView.region.center.latitude,
-                    longitude: mapView.region.center.longitude
-                ),
-                visibleMeters: meters
-            )
-            let band = MapZoomBand.from(visibleMeters: meters)
-            guard band != currentBand else { return }
-            currentBand = band
-            parent.onZoomBandChange?(band)
-            parent.syncAnnotations(on: mapView, coordinator: self)
+            // Deferred: `updateNSView` calls `setRegion` (via `applyCamera`), which triggers
+            // this delegate method synchronously — writing straight into `parent.camera`
+            // here would mutate SwiftUI state mid-update (and can spin forever, since the
+            // resulting re-render can trigger another region change). Push to the next run
+            // loop turn so the write always lands after SwiftUI's current update finishes.
+            DispatchQueue.main.async { [weak self, weak mapView] in
+                guard let self, let mapView else { return }
+                let meters = self.approximateVisibleMeters(for: mapView.region)
+                self.parent.camera = LocationMapCamera(
+                    center: GeographicCoordinate(
+                        latitude: mapView.region.center.latitude,
+                        longitude: mapView.region.center.longitude
+                    ),
+                    visibleMeters: meters
+                )
+                let band = MapZoomBand.from(visibleMeters: meters)
+                guard band != self.currentBand else { return }
+                self.currentBand = band
+                self.parent.onZoomBandChange?(band)
+                self.parent.syncAnnotations(on: mapView, coordinator: self)
+            }
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
@@ -317,7 +325,14 @@ private struct LocationMapKitRepresentable: NSViewRepresentable {
 
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
             guard let point = view.annotation as? LocationMapPointAnnotation else { return }
-            parent.onAnnotationSelect?(point.model)
+            // Deferred: `updateNSView`'s `syncSelection()` calls `selectAnnotation(_:animated:)`,
+            // which triggers this delegate method synchronously — calling straight into
+            // `onAnnotationSelect` (which sets SwiftUI state) here would mutate state mid-update.
+            // Same fix as `regionDidChangeAnimated` above.
+            let model = point.model
+            DispatchQueue.main.async { [weak self] in
+                self?.parent.onAnnotationSelect?(model)
+            }
         }
 
         func mapView(

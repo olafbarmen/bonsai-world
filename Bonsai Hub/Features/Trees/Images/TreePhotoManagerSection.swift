@@ -2,21 +2,23 @@
 //  TreePhotoManagerSection.swift
 //  Bonsai World
 //
-//  Tree Detail photo manager — Lightroom / Photos style:
-//  primary preview (column 0) + filmstrip (columns 1–2) on the Tree Detail card grid.
-//  Filmstrip rows: thumbnail + Photo Name + Capture Date.
+//  Tree Detail photo manager — Hero preview with a horizontal filmstrip below.
+//  Selecting a thumbnail updates the Hero image.
 //
 
 import AppKit
 import SwiftUI
 
 struct TreePhotoManagerSection: View {
-    /// Locked photo-card height (filmstrip column).
+    /// Legacy height hint for compatibility shells.
     static let defaultFixedHeight: CGFloat = 320
 
-    /// Landscape Primary Image container (wider than tall).
-    private static let mainAspectRatio: CGFloat = 16.0 / 9.0
-    private static let thumbnailSize: CGFloat = 44
+    /// Portrait Primary Image container (mild 3:4 — trees are taller than wide).
+    private static let mainAspectRatio: CGFloat = GalleryLayout.imageAspectRatio
+    private static let thumbnailWidth: CGFloat = 48
+    private static let thumbnailHeight: CGFloat = 64
+    private static let filmstripItemWidth: CGFloat = 64
+    private static let filmstripMinHeight: CGFloat = 112
 
     let treeID: UUID
     let imageIDs: [UUID]
@@ -42,23 +44,38 @@ struct TreePhotoManagerSection: View {
     @State private var infoName: String = ""
     @State private var infoCaptureDate: Date = .now
     @State private var deleteTargetID: UUID?
+    /// When dismissing Photo Information to show delete confirmation, skip metadata commit.
+    @State private var suppressInfoCommitOnDismiss = false
 
     var body: some View {
-        TreeDetailPhotoGrid {
+        let _ = imageService.presentationRevision
+        VStack(alignment: .leading, spacing: FaloSpacing.small) {
             mainPreview
-        } gallery: {
             filmstrip
         }
-        .frame(height: Self.defaultFixedHeight)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .clipped()
         .task(id: imageIDs) {
             await loadThumbnails()
         }
         .task(id: selectedImageID) {
             await loadMainImage()
         }
+        .onChange(of: imageService.presentationRevision) { _, _ in
+            thumbnails = [:]
+            Task {
+                await loadThumbnails()
+                await loadMainImage()
+            }
+        }
         .sheet(isPresented: Binding(
             get: { infoPhotoID != nil },
-            set: { if !$0 { commitInfoEditsIfNeeded(); infoPhotoID = nil } }
+            set: { presented in
+                guard !presented else { return }
+                // Already cleared programmatically (e.g. Delete → confirm).
+                guard infoPhotoID != nil else { return }
+                dismissPhotoInformation(commitEdits: !suppressInfoCommitOnDismiss)
+            }
         )) {
             photoInformationSheet
         }
@@ -75,7 +92,6 @@ struct TreePhotoManagerSection: View {
                     onDeletePhoto(deleteTargetID)
                 }
                 deleteTargetID = nil
-                infoPhotoID = nil
             }
             Button("Cancel", role: .cancel) {
                 deleteTargetID = nil
@@ -91,27 +107,24 @@ struct TreePhotoManagerSection: View {
 
     private var filmstrip: some View {
         VStack(spacing: 0) {
-            ScrollView(.vertical, showsIndicators: true) {
-                LazyVStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+            ScrollView(.horizontal, showsIndicators: true) {
+                HStack(spacing: FaloSpacing.xSmall) {
                     ForEach(imageIDs, id: \.self) { imageID in
                         filmstripItem(imageID)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
-                .padding(.vertical, FaloSpacing.xSmall)
+                .padding(.horizontal, FaloSpacing.small)
+                .padding(.vertical, FaloSpacing.small)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .frame(minHeight: Self.filmstripMinHeight)
             .faloScrollSurface()
 
             if isEditing {
                 addImageButton
                     .padding(.horizontal, FaloSpacing.small)
-                    .padding(.vertical, FaloSpacing.small)
+                    .padding(.bottom, FaloSpacing.small)
             }
         }
-        .padding(.horizontal, FaloSpacing.small)
-        .padding(.top, FaloSpacing.small)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background {
             RoundedRectangle(cornerRadius: FaloRadius.hero, style: .continuous)
                 .fill(Color.primary.opacity(0.03))
@@ -130,23 +143,26 @@ struct TreePhotoManagerSection: View {
         let capture = captureDates[imageID] ?? imageService.captureDate(for: imageID)
         let dateLabel = ImageAsset.displayCaptureDate(capture)
 
-        return HStack(spacing: FaloSpacing.medium) {
+        return VStack(spacing: FaloSpacing.xSmall) {
             ZStack(alignment: .topTrailing) {
                 ZStack {
                     RoundedRectangle(cornerRadius: FaloRadius.small, style: .continuous)
                         .fill(Color.primary.opacity(0.04))
 
                     if let thumb = thumbnails[imageID] {
-                        thumb
-                            .resizable()
-                            .scaledToFill()
+                        Color.clear
+                            .overlay {
+                                thumb
+                                    .resizable()
+                                    .scaledToFill()
+                            }
                     } else {
                         Image(systemName: "photo")
                             .font(.system(size: 14, weight: .regular))
                             .foregroundStyle(.tertiary)
                     }
                 }
-                .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
+                .frame(width: Self.thumbnailWidth, height: Self.thumbnailHeight)
                 .clipShape(RoundedRectangle(cornerRadius: FaloRadius.small, style: .continuous))
                 .overlay {
                     RoundedRectangle(cornerRadius: FaloRadius.small, style: .continuous)
@@ -167,37 +183,14 @@ struct TreePhotoManagerSection: View {
                 }
             }
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(name)
-                    .font(FaloTypography.body.weight(.medium))
-                    .foregroundStyle(isSelected ? .primary : .primary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
-                Text(dateLabel)
-                    .font(FaloTypography.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-            Button {
-                openPhotoInformation(for: imageID)
-            } label: {
-                Image(systemName: "info.circle")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundStyle(.secondary)
-            }
-            .buttonStyle(.plain)
-            .help("Photo Information")
-            .accessibilityLabel("Photo Information")
+            Text(name)
+                .font(FaloTypography.caption)
+                .foregroundStyle(isSelected ? .primary : .secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .frame(width: Self.filmstripItemWidth)
         }
-        .padding(.horizontal, FaloSpacing.small)
-        .padding(.vertical, FaloSpacing.xSmall)
-        .background {
-            RoundedRectangle(cornerRadius: FaloRadius.small, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.12) : Color.clear)
-        }
+        .frame(width: Self.filmstripItemWidth)
         .contentShape(Rectangle())
         .onTapGesture(count: 2) {
             select(imageID)
@@ -217,7 +210,7 @@ struct TreePhotoManagerSection: View {
                 }
                 Divider()
                 Button("Delete Photo…", role: .destructive) {
-                    deleteTargetID = imageID
+                    requestDeleteConfirmation(for: imageID)
                 }
             } else {
                 Button("Set as Primary Photo") {
@@ -256,57 +249,57 @@ struct TreePhotoManagerSection: View {
 
     // MARK: - Main preview
 
-    /// Landscape container (16:9). Image uses Aspect Fit inside — never cropped or stretched.
+    /// Portrait container (3:4). Layout size comes from the column width — never the photo pixels.
     private var mainPreview: some View {
-        ZStack {
-            RoundedRectangle(cornerRadius: FaloRadius.hero, style: .continuous)
-                .fill(Color.primary.opacity(0.03))
-
-            mainImageContent
-                .padding(FaloSpacing.small)
-        }
-        .aspectRatio(Self.mainAspectRatio, contentMode: .fit)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        .clipShape(RoundedRectangle(cornerRadius: FaloRadius.hero, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: FaloRadius.hero, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            if let selectedImageID {
-                openViewer(for: selectedImageID)
+        let shape = RoundedRectangle(cornerRadius: FaloRadius.hero, style: .continuous)
+        return Color.clear
+            .aspectRatio(Self.mainAspectRatio, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+            .background(shape.fill(Color.primary.opacity(0.03)))
+            .overlay {
+                mainImageContent
+                    .padding(FaloSpacing.small)
             }
-        }
-        .contextMenu {
-            if let selectedImageID {
-                Button("Photo Information…") {
-                    openPhotoInformation(for: selectedImageID)
-                }
-                Button("Set as Primary Photo") {
-                    onSetPrimary(selectedImageID)
+            .clipped()
+            .clipShape(shape)
+            .overlay {
+                shape.strokeBorder(Color.primary.opacity(0.06), lineWidth: 1)
+            }
+            .contentShape(shape)
+            .onTapGesture(count: 2) {
+                if let selectedImageID {
+                    openViewer(for: selectedImageID)
                 }
             }
-        }
-        .accessibilityLabel("Main photo")
-        .help("Double-click to view full size")
+            .contextMenu {
+                if let selectedImageID {
+                    Button("Photo Information…") {
+                        openPhotoInformation(for: selectedImageID)
+                    }
+                    Button("Set as Primary Photo") {
+                        onSetPrimary(selectedImageID)
+                    }
+                }
+            }
+            .accessibilityLabel("Main photo")
+            .help("Double-click to view full size")
     }
 
     private var mainImageContent: some View {
-        ZStack {
-            if selectedImageID == nil {
-                emptyPlaceholder
-            } else if mainImage == nil {
-                ProgressView()
-                    .controlSize(.regular)
-            } else if let mainImage {
-                mainImage
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+        Color.clear
+            .overlay {
+                if selectedImageID == nil {
+                    emptyPlaceholder
+                } else if mainImage == nil {
+                    ProgressView()
+                        .controlSize(.regular)
+                } else if let mainImage {
+                    mainImage
+                        .resizable()
+                        .scaledToFill()
+                }
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
     }
 
     private var emptyPlaceholder: some View {
@@ -345,13 +338,10 @@ struct TreePhotoManagerSection: View {
                 }
             },
             onDelete: {
-                if let infoPhotoID {
-                    deleteTargetID = infoPhotoID
-                }
+                requestDeleteConfirmationFromPhotoInformation()
             },
             onDismiss: {
-                commitInfoEditsIfNeeded()
-                infoPhotoID = nil
+                dismissPhotoInformation(commitEdits: true)
             }
         )
     }
@@ -361,6 +351,30 @@ struct TreePhotoManagerSection: View {
         infoName = photoNames[imageID] ?? imageService.photoName(for: imageID)
         infoCaptureDate = captureDates[imageID] ?? imageService.captureDate(for: imageID)
         infoPhotoID = imageID
+    }
+
+    private func dismissPhotoInformation(commitEdits: Bool) {
+        if commitEdits {
+            commitInfoEditsIfNeeded()
+        }
+        infoPhotoID = nil
+    }
+
+    /// Shared delete entry: confirm immediately, then ``onDeletePhoto`` (context menu + sheet).
+    private func requestDeleteConfirmation(for imageID: UUID) {
+        deleteTargetID = imageID
+    }
+
+    /// Sheet Delete must dismiss first — a parent confirmationDialog cannot appear over the sheet.
+    private func requestDeleteConfirmationFromPhotoInformation() {
+        guard let imageID = infoPhotoID else { return }
+        suppressInfoCommitOnDismiss = true
+        dismissPhotoInformation(commitEdits: false)
+        // Present the same confirmationDialog used by the context menu after the sheet closes.
+        Task { @MainActor in
+            suppressInfoCommitOnDismiss = false
+            requestDeleteConfirmation(for: imageID)
+        }
     }
 
     private func commitInfoEditsIfNeeded() {
@@ -393,11 +407,7 @@ struct TreePhotoManagerSection: View {
             return
         }
         do {
-            let data = try await imageService.loadOriginalData(for: selectedImageID)
-            guard let nsImage = NSImage(data: data) else {
-                mainImage = nil
-                return
-            }
+            let nsImage = try await imageService.loadDisplayNSImage(for: selectedImageID, context: .treeThumbnail)
             mainImage = Image(nsImage: nsImage)
         } catch {
             mainImage = nil
@@ -408,10 +418,8 @@ struct TreePhotoManagerSection: View {
         for imageID in imageIDs {
             if thumbnails[imageID] != nil { continue }
             do {
-                let data = try await imageService.loadOriginalData(for: imageID)
-                if let nsImage = NSImage(data: data) {
-                    thumbnails[imageID] = Image(nsImage: nsImage)
-                }
+                let nsImage = try await imageService.loadDisplayNSImage(for: imageID, context: .treeThumbnail)
+                thumbnails[imageID] = Image(nsImage: nsImage)
             } catch {
                 continue
             }
