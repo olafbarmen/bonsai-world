@@ -30,28 +30,30 @@ enum CropWorkspaceToolsCatalog {
             actions.append(
                 ActionDefinition(
                     id: resetCropID,
-                    title: "Reset Crop",
+                    title: "Reset to Original",
                     systemImage: "arrow.counterclockwise",
                     availability: .available,
-                    help: "Revert to the full Original frame"
+                    help: "Revert crop, rotation, and mirror to the full Original frame"
                 )
             )
         }
 
         actions.append(
-            placeholder(
+            ActionDefinition(
                 id: rotateID,
                 title: "Rotate",
                 systemImage: "rotate.right",
-                help: "Rotate the presentation frame"
+                availability: .available,
+                help: "Rotate the presentation 90° clockwise. Original is never modified"
             )
         )
         actions.append(
-            placeholder(
+            ActionDefinition(
                 id: mirrorID,
                 title: "Mirror",
                 systemImage: "arrow.left.and.right.righttriangle.left.righttriangle.right",
-                help: "Mirror the presentation frame"
+                availability: .available,
+                help: "Mirror the presentation horizontally. Original is never modified"
             )
         )
         actions.append(
@@ -74,20 +76,5 @@ enum CropWorkspaceToolsCatalog {
         )
 
         return actions
-    }
-
-    private static func placeholder(
-        id: String,
-        title: String,
-        systemImage: String,
-        help: String
-    ) -> ActionDefinition {
-        ActionDefinition(
-            id: id,
-            title: title,
-            systemImage: systemImage,
-            availability: .comingSoon,
-            help: help
-        )
     }
 }

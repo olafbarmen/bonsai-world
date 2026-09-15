@@ -26,8 +26,9 @@ struct DetailCard<Content: View>: View {
         .padding(FaloSpacing.medium)
         .frame(maxWidth: .infinity, alignment: .topLeading)
         .background {
+            // Level 1 — subtle surface separation (no shadow).
             RoundedRectangle(cornerRadius: FaloRadius.medium, style: .continuous)
-                .fill(Color.primary.opacity(0.03))
+                .fill(BonsaiWorldColors.surface)
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(title)

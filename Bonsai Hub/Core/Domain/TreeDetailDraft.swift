@@ -13,8 +13,10 @@ struct TreeDetailDraft: Equatable, Sendable {
     var nickname: String
     var styleID: UUID?
     var sizeClassID: UUID?
-    var treeStatusID: UUID?
+    var treeStageID: UUID?
     var healthStatus: TreeHealthStatus
+    var fertilizerHealth: FertilizerHealth?
+    var fertilizerKindOverride: FertilizerKind?
     var locationID: UUID?
     var lightConditionID: UUID?
     var soilMixID: UUID?
@@ -42,6 +44,10 @@ struct TreeDetailDraft: Equatable, Sendable {
     var disposalNotes: String
 
     var notes: String
+    var knownHistory: String
+    var carePolicyCollectionID: UUID?
+    var wateringModeOverride: WateringMode?
+    var autoTimesPerDayOverride: Int?
     var primaryImageID: UUID?
     /// Gallery order while editing (applied on Auto Save).
     var imageIDs: [UUID]
@@ -62,8 +68,10 @@ struct TreeDetailDraft: Equatable, Sendable {
             nickname: tree.nickname,
             styleID: tree.styleID,
             sizeClassID: tree.sizeClassID,
-            treeStatusID: tree.treeStatusID,
+            treeStageID: tree.treeStageID,
             healthStatus: tree.healthStatus,
+            fertilizerHealth: tree.fertilizerHealth,
+            fertilizerKindOverride: tree.fertilizerKindOverride,
             locationID: tree.locationID,
             lightConditionID: tree.lightConditionID,
             soilMixID: tree.soilMixID,
@@ -87,6 +95,10 @@ struct TreeDetailDraft: Equatable, Sendable {
             disposalPrice: tree.disposalPrice,
             disposalNotes: tree.disposalNotes,
             notes: tree.notes,
+            knownHistory: tree.knownHistory,
+            carePolicyCollectionID: tree.carePolicyCollectionID,
+            wateringModeOverride: tree.wateringModeOverride,
+            autoTimesPerDayOverride: tree.autoTimesPerDayOverride,
             primaryImageID: tree.primaryImageID,
             imageIDs: tree.imageIDs,
             photoNames: [:],

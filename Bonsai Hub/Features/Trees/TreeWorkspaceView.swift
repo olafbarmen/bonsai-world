@@ -14,22 +14,23 @@ struct TreeWorkspaceView: View {
 
     var body: some View {
         VSplitView {
-            TreeListView()
+            TreeListView(embedded: true)
                 .frame(minHeight: 120, idealHeight: 240)
 
             treeDetailPane
                 .frame(minHeight: 200)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(.windowBackground)
+                .faloWorkspaceCanvas()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.windowBackground)
+        .faloWorkspaceCanvas()
+        .bonsaiWorkspaceNavigationTitle("Trees")
     }
 
     @ViewBuilder
     private var treeDetailPane: some View {
         if let treeID = appState.selectedTreeID {
-            TreeDetailView(mode: .edit(treeID))
+            TreeDetailView(mode: .edit(treeID), showsNavigationTitle: false)
         } else {
             ContentUnavailableView(
                 "Select a Tree",

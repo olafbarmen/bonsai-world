@@ -36,17 +36,21 @@ import Observation
 /// Errors surfaced to callers creating, editing, or completing Tasks and Schedules.
 enum TaskServiceError: Error, LocalizedError, Sendable {
     case noTrees
+    case noTargets
     case unknownWorkType
     case notFound(UUID)
     case alreadyCompleted
     /// This Task's Work Type is not flagged for instant completion — the
     /// caller must collect Work details (Add Work sheet) instead.
     case requiresForm
+    case emptyWorkDescription
 
     var errorDescription: String? {
         switch self {
         case .noTrees:
             return "Select at least one tree for this task."
+        case .noTargets:
+            return "Select at least one tree, seed batch, or library inventory target for this task."
         case .unknownWorkType:
             return "Choose a Work Type before saving."
         case .notFound:
@@ -55,6 +59,8 @@ enum TaskServiceError: Error, LocalizedError, Sendable {
             return "This task is already completed."
         case .requiresForm:
             return "This Work Type needs details — use Add Work to complete it."
+        case .emptyWorkDescription:
+            return "Describe what was done before completing this task."
         }
     }
 }
@@ -127,21 +133,55 @@ final class TaskService {
             .sorted { $0.dueDate < $1.dueDate }
     }
 
-    /// Pending tasks due within the given horizon. Overdue tasks that can
-    /// still be done late appear only in `.overdue`. Work Types flagged
-    /// `expiresIfMissed` whose due date has already passed are omitted.
-    func pendingTasks(due horizon: TasksHorizon) -> [CareTask] {
-        let calendar = Calendar.current
-        let now = Date.now
-        return pendingTasks.filter { task in
-            belongs(
-                dueDate: task.dueDate,
-                expiresIfMissed: expiresIfMissed(workTypeID: task.workTypeID),
-                to: horizon,
-                now: now,
-                calendar: calendar
-            )
+    func pendingShapingTasks(for treeID: UUID, area: ShapingAreaID) -> [CareTask] {
+        pendingTasks.filter {
+            $0.treeIDs.contains(treeID) && $0.shapingAreaID == area.rawValue
         }
+    }
+
+    /// Completes a Shaping-linked Task — records history on the Tree and Work on the Timeline.
+    @discardableResult
+    func completeShapingTask(
+        _ task: CareTask,
+        treeID: UUID,
+        description: String,
+        performedAt: Date = .now,
+        imageIDs: [UUID] = []
+    ) throws -> WorkRecord {
+        guard task.status == .pending else { throw TaskServiceError.alreadyCompleted }
+        guard let areaRaw = task.shapingAreaID, let area = ShapingAreaID(rawValue: areaRaw) else {
+            throw TaskServiceError.requiresForm
+        }
+
+        let trimmed = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw TaskServiceError.emptyWorkDescription }
+
+        var entry = ShapingHistoryEntry(
+            date: performedAt,
+            description: trimmed,
+            imageIDs: imageIDs,
+            linkedTaskID: task.id
+        )
+        entry = try treeService.appendShapingHistory(treeID: treeID, area: area, entry: entry)
+
+        let record = try workService.registerWork(
+            workTypeID: task.workTypeID,
+            treeIDs: task.treeIDs,
+            performedAt: performedAt,
+            notes: trimmed,
+            scheduleID: task.id,
+            shapingAreaID: areaRaw,
+            shapingHistoryEntryID: entry.id
+        )
+
+        try treeService.linkShapingHistoryWorkRecord(
+            treeID: treeID,
+            area: area,
+            historyEntryID: entry.id,
+            workRecordID: record.id
+        )
+        try markCompleted(task, resultingWorkRecordID: record.id)
+        return record
     }
 
     // MARK: - Target resolution
@@ -203,28 +243,138 @@ final class TaskService {
         referenceData.workType(id: workTypeID)?.behaviour.expiresIfMissed ?? false
     }
 
+    /// Pending occurrences for `horizon`, counted by Work Type (Reference Data name).
+    /// Same source as ``pendingOccurrences(due:)`` / Tasks workspace / Tasks Today.
+    /// Only types with at least one occurrence are returned. Reusable for Upcoming.
+    func workTypeSummaries(due horizon: TasksHorizon) -> [TaskWorkTypeSummary] {
+        let occurrences = pendingOccurrences(due: horizon)
+        guard !occurrences.isEmpty else { return [] }
+
+        var counts: [UUID: Int] = [:]
+        for occurrence in occurrences {
+            counts[occurrence.workTypeID, default: 0] += 1
+        }
+
+        return counts.map { workTypeID, count in
+            let workType = workType(id: workTypeID)
+            return TaskWorkTypeSummary(
+                workTypeID: workTypeID,
+                name: workType?.name ?? "Other",
+                count: count,
+                categorySortOrder: workType?.category.sortOrder ?? WorkTypeCategory.other.sortOrder,
+                workTypeSortOrder: workType?.sortOrder ?? Int.max
+            )
+        }
+        .sorted {
+            if $0.categorySortOrder != $1.categorySortOrder {
+                return $0.categorySortOrder < $1.categorySortOrder
+            }
+            if $0.workTypeSortOrder != $1.workTypeSortOrder {
+                return $0.workTypeSortOrder < $1.workTypeSortOrder
+            }
+            if $0.count != $1.count { return $0.count > $1.count }
+            return $0.name.localizedStandardCompare($1.name) == .orderedAscending
+        }
+    }
+
     /// Unique In Care trees with watering due in this horizon (same source as Tasks).
     func treeIDsNeedingWater(due horizon: TasksHorizon) -> Set<UUID> {
         Set(
             pendingOccurrences(due: horizon)
                 .filter { expiresIfMissed(workTypeID: $0.workTypeID) }
-                .map(\.treeID)
+                .compactMap(\.treeID)
         )
     }
 
     /// Unique trees with any work due in this horizon (same source as Tasks).
     func treeIDsWithWork(due horizon: TasksHorizon) -> Set<UUID> {
-        Set(pendingOccurrences(due: horizon).map(\.treeID))
+        Set(pendingOccurrences(due: horizon).compactMap(\.treeID))
+    }
+
+    /// One Watering occurrence per tree (earliest due) for the given horizon.
+    /// Uses the same `expiresIfMissed` rule as Needs Water / Tasks.
+    func pendingWateringOccurrences(due horizon: TasksHorizon = .today) -> [TaskOccurrence] {
+        var byTree: [UUID: TaskOccurrence] = [:]
+        for occurrence in pendingOccurrences(due: horizon) where expiresIfMissed(workTypeID: occurrence.workTypeID) {
+            guard let treeID = occurrence.treeID else { continue }
+            if let existing = byTree[treeID] {
+                if occurrence.dueDate < existing.dueDate {
+                    byTree[treeID] = occurrence
+                }
+            } else {
+                byTree[treeID] = occurrence
+            }
+        }
+        return byTree.values.sorted { $0.dueDate < $1.dueDate }
     }
 
     /// Unique trees with Repotting due overdue through this month (Tasks).
     func treeIDsNeedingRepotting() -> Set<UUID> {
-        let horizons: [TasksHorizon] = [.overdue, .today, .thisWeek, .thisMonth]
-        return Set(
-            horizons.flatMap { pendingOccurrences(due: $0) }
-                .filter { isRepotting(workTypeID: $0.workTypeID) }
-                .map(\.treeID)
+        Set(pendingRepottingOccurrences().compactMap(\.treeID))
+    }
+
+    /// One Repotting occurrence per tree (earliest due), overdue through this month.
+    func pendingRepottingOccurrences() -> [TaskOccurrence] {
+        pendingOccurrencesMatching(isRepotting(workTypeID:), horizons: [.overdue, .today, .thisWeek, .thisMonth])
+    }
+
+    /// One Fertilizing occurrence per tree (earliest due), overdue through this month.
+    func pendingFertilizingOccurrences() -> [TaskOccurrence] {
+        pendingOccurrencesMatching(isFertilizing(workTypeID:), horizons: [.overdue, .today, .thisWeek, .thisMonth])
+    }
+
+    /// One Seasonal occurrence per tree (earliest due), overdue through this month.
+    func pendingSeasonalOccurrences() -> [TaskOccurrence] {
+        pendingOccurrencesMatching(
+            { workTypeCategory(id: $0) == .seasonal },
+            horizons: [.overdue, .today, .thisWeek, .thisMonth]
         )
+    }
+
+    /// Winter-related Seasonal Tasks (name contains Winter or Frost), overdue through this month.
+    func pendingWinterCareOccurrences() -> [TaskOccurrence] {
+        pendingOccurrencesMatching(isWinterCareWorkType(_:), horizons: [.overdue, .today, .thisWeek, .thisMonth])
+    }
+
+    /// One Health-category occurrence per tree (earliest due), overdue through this month.
+    func pendingHealthCategoryOccurrences() -> [TaskOccurrence] {
+        pendingOccurrencesMatching(
+            { workTypeCategory(id: $0) == .health },
+            horizons: [.overdue, .today, .thisWeek, .thisMonth]
+        )
+    }
+
+    func isWinterCareWorkType(_ workTypeID: UUID) -> Bool {
+        Self.matchesWinterCareWorkTypeName(workType(id: workTypeID)?.name ?? "")
+    }
+
+    static func matchesWinterCareWorkTypeName(_ name: String) -> Bool {
+        let lowered = name.lowercased()
+        return lowered.contains("winter") || lowered.contains("frost")
+    }
+
+    private func workTypeCategory(id: UUID) -> WorkTypeCategory? {
+        workType(id: id)?.category
+    }
+
+    private func pendingOccurrencesMatching(
+        _ matches: (UUID) -> Bool,
+        horizons: [TasksHorizon]
+    ) -> [TaskOccurrence] {
+        var byTree: [UUID: TaskOccurrence] = [:]
+        for horizon in horizons {
+            for occurrence in pendingOccurrences(due: horizon) where matches(occurrence.workTypeID) {
+                guard let treeID = occurrence.treeID else { continue }
+                if let existing = byTree[treeID] {
+                    if occurrence.dueDate < existing.dueDate {
+                        byTree[treeID] = occurrence
+                    }
+                } else {
+                    byTree[treeID] = occurrence
+                }
+            }
+        }
+        return byTree.values.sorted { $0.dueDate < $1.dueDate }
     }
 
     /// Live members for Needs Water, Today's Work, and Needs Repotting.
@@ -241,6 +391,12 @@ final class TaskService {
         return name.localizedCaseInsensitiveContains("repot")
     }
 
+    private func isFertilizing(workTypeID: UUID) -> Bool {
+        guard let type = workType(id: workTypeID) else { return false }
+        return type.behaviour.requiresFertilizer
+            || type.name.localizedCaseInsensitiveContains("fertiliz")
+    }
+
     /// Deletes one-off Tasks whose Work Type expires if missed and whose due
     /// date is already before today (you cannot water last week). Recurring
     /// watering is not deleted — those rules catch up to today instead.
@@ -253,7 +409,7 @@ final class TaskService {
                 && isOverdue($0.dueDate, now: now, calendar: calendar)
         }
         for task in doomed {
-            try? deleteTask(id: task.id)
+            _ = try? deleteTask(id: task.id)
         }
     }
 
@@ -277,14 +433,28 @@ final class TaskService {
         let now = Date.now
         let calendar = Calendar.current
 
-        var occurrences: [TaskOccurrence] = pendingTasks.flatMap { task in
+        var occurrences: [TaskOccurrence] = pendingTasks.flatMap { task -> [TaskOccurrence] in
             if expiresIfMissed(workTypeID: task.workTypeID), isOverdue(task.dueDate, now: now, calendar: calendar) {
-                return [TaskOccurrence]()
+                return []
             }
-            return task.treeIDs.compactMap { treeID -> TaskOccurrence? in
+            if let kind = task.libraryInventoryKind {
+                return [TaskOccurrence(task: task, libraryInventoryKind: kind, isInstant: completesInstantly(task))]
+            }
+            let instant = completesInstantly(task)
+            var rows: [TaskOccurrence] = task.treeIDs.compactMap { treeID in
                 guard isTreeInCare(treeID) else { return nil }
-                return TaskOccurrence(task: task, treeID: treeID, isInstant: completesInstantly(task))
+                return TaskOccurrence(task: task, treeID: treeID, isInstant: instant)
             }
+            rows.append(contentsOf: task.seedBatchIDs.map {
+                TaskOccurrence(task: task, seedBatchID: $0, isInstant: instant)
+            })
+            rows.append(contentsOf: task.yamadoriIDs.map {
+                TaskOccurrence(task: task, yamadoriID: $0, isInstant: instant)
+            })
+            rows.append(contentsOf: task.nurseryPropagationProjectIDs.map {
+                TaskOccurrence(task: task, nurseryPropagationProjectID: $0, isInstant: true)
+            })
+            return rows
         }
 
         let currentMonth = calendar.component(.month, from: now)
@@ -472,25 +642,74 @@ final class TaskService {
     func createTask(
         title: String,
         workTypeID: UUID,
-        treeIDs: [UUID],
+        treeIDs: [UUID] = [],
+        yamadoriIDs: [UUID] = [],
+        seedBatchIDs: [UUID] = [],
+        nurseryPropagationProjectIDs: [UUID] = [],
+        libraryInventoryKind: CareTaskLibraryInventoryKind? = nil,
         dueDate: Date,
-        notes: String = ""
+        notes: String = "",
+        shapingAreaID: String? = nil
     ) throws -> CareTask {
-        guard !treeIDs.isEmpty else { throw TaskServiceError.noTrees }
+        guard !treeIDs.isEmpty
+            || !yamadoriIDs.isEmpty
+            || !seedBatchIDs.isEmpty
+            || !nurseryPropagationProjectIDs.isEmpty
+            || libraryInventoryKind != nil
+        else {
+            throw TaskServiceError.noTargets
+        }
         guard referenceData.workType(id: workTypeID) != nil else { throw TaskServiceError.unknownWorkType }
 
         let task = CareTask(
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),
             workTypeID: workTypeID,
             treeIDs: treeIDs,
+            yamadoriIDs: yamadoriIDs,
+            seedBatchIDs: seedBatchIDs,
+            nurseryPropagationProjectIDs: nurseryPropagationProjectIDs,
+            libraryInventoryKind: libraryInventoryKind,
             dueDate: dueDate,
-            notes: notes.trimmingCharacters(in: .whitespacesAndNewlines)
+            notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
+            shapingAreaID: shapingAreaID
         )
 
         try taskRepository.createTask(task)
         tasks.append(task)
         revision += 1
         return task
+    }
+
+    /// Completes a seed-batch task without writing a Tree WorkRecord.
+    @discardableResult
+    func completeSeedBatchTask(_ task: CareTask) throws -> CareTask {
+        guard task.status == .pending else { throw TaskServiceError.alreadyCompleted }
+        guard !task.seedBatchIDs.isEmpty else { throw TaskServiceError.noTargets }
+        return try markCompleted(task, resultingWorkRecordID: nil)
+    }
+
+    /// Completes a Yamadori-trip task without writing a Tree WorkRecord.
+    @discardableResult
+    func completeYamadoriTask(_ task: CareTask) throws -> CareTask {
+        guard task.status == .pending else { throw TaskServiceError.alreadyCompleted }
+        guard !task.yamadoriIDs.isEmpty else { throw TaskServiceError.noTargets }
+        return try markCompleted(task, resultingWorkRecordID: nil)
+    }
+
+    /// Completes a Nursery Propagation / Field Tree task without writing a Tree WorkRecord.
+    @discardableResult
+    func completeNurseryPropagationTask(_ task: CareTask) throws -> CareTask {
+        guard task.status == .pending else { throw TaskServiceError.alreadyCompleted }
+        guard !task.nurseryPropagationProjectIDs.isEmpty else { throw TaskServiceError.noTargets }
+        return try markCompleted(task, resultingWorkRecordID: nil)
+    }
+
+    /// Completes a library inventory task without writing a Tree WorkRecord.
+    @discardableResult
+    func completeLibraryInventoryTask(_ task: CareTask) throws -> CareTask {
+        guard task.status == .pending else { throw TaskServiceError.alreadyCompleted }
+        guard task.libraryInventoryKind != nil else { throw TaskServiceError.noTargets }
+        return try markCompleted(task, resultingWorkRecordID: nil)
     }
 
     @discardableResult
@@ -591,10 +810,68 @@ final class TaskService {
         return schedule
     }
 
+    @discardableResult
+    func updateSchedule(_ schedule: CareSchedule) throws -> CareSchedule {
+        var updated = schedule
+        updated.modifiedDate = .now
+        try scheduleRepository.updateSchedule(updated)
+        if let index = schedules.firstIndex(where: { $0.id == updated.id }) {
+            schedules[index] = updated
+        } else {
+            throw TaskServiceError.notFound(updated.id)
+        }
+        revision += 1
+        return updated
+    }
+
     func deleteSchedule(id: UUID) throws {
         try scheduleRepository.deleteSchedule(id: id)
         schedules.removeAll { $0.id == id }
         revision += 1
+    }
+
+    /// When a Tree is deleted: unlink it from pending tasks and explicit
+    /// ``CareScheduleTarget/trees`` schedules. Completed / cancelled tasks keep
+    /// their historical `treeIDs`. Location- and genus-targeted schedules need
+    /// no cleanup (they resolve live Trees).
+    func unlinkDeletedTree(_ treeID: UUID) {
+        let pending = tasks.filter { $0.status == .pending && $0.treeIDs.contains(treeID) }
+        for task in pending {
+            var updated = task
+            updated.treeIDs.removeAll { $0 == treeID }
+            if updated.treeIDs.isEmpty
+                && updated.yamadoriIDs.isEmpty
+                && updated.seedBatchIDs.isEmpty
+                && updated.nurseryPropagationProjectIDs.isEmpty
+                && updated.libraryInventoryKind == nil
+            {
+                try? deleteTask(id: task.id)
+            } else {
+                try? updateTask(updated)
+            }
+        }
+
+        let schedulesToUpdate = schedules
+        for schedule in schedulesToUpdate {
+            guard case .trees(var ids) = schedule.target, ids.contains(treeID) else { continue }
+            ids.remove(treeID)
+            if ids.isEmpty {
+                try? deleteSchedule(id: schedule.id)
+            } else {
+                var updated = schedule
+                updated.target = .trees(ids)
+                updated.modifiedDate = .now
+                do {
+                    try scheduleRepository.updateSchedule(updated)
+                    if let index = schedules.firstIndex(where: { $0.id == updated.id }) {
+                        schedules[index] = updated
+                    }
+                    revision += 1
+                } catch {
+                    continue
+                }
+            }
+        }
     }
 
     // MARK: - Occurrence completion (unified)
@@ -603,7 +880,7 @@ final class TaskService {
     /// see `undoCompletion(_:)`.
     struct OccurrenceCompletionResult: Sendable {
         let occurrenceTitle: String
-        let workRecordID: UUID
+        let workRecordID: UUID?
         /// Present only when the occurrence came from a one-off `CareTask` —
         /// its status must be reverted to `.pending` on undo.
         let taskID: UUID?
@@ -622,6 +899,42 @@ final class TaskService {
     @discardableResult
     func completeOccurrenceInstantly(_ occurrence: TaskOccurrence) throws -> OccurrenceCompletionResult {
         switch occurrence.source {
+        case .task(let task) where task.libraryInventoryKind != nil:
+            _ = try completeLibraryInventoryTask(task)
+            return OccurrenceCompletionResult(
+                occurrenceTitle: occurrence.title,
+                workRecordID: nil,
+                taskID: task.id,
+                nextDueDate: nil,
+                nextDueDayPart: nil
+            )
+        case .task(let task) where !task.seedBatchIDs.isEmpty:
+            _ = try completeSeedBatchTask(task)
+            return OccurrenceCompletionResult(
+                occurrenceTitle: occurrence.title,
+                workRecordID: nil,
+                taskID: task.id,
+                nextDueDate: nil,
+                nextDueDayPart: nil
+            )
+        case .task(let task) where !task.yamadoriIDs.isEmpty && task.treeIDs.isEmpty:
+            _ = try completeYamadoriTask(task)
+            return OccurrenceCompletionResult(
+                occurrenceTitle: occurrence.title,
+                workRecordID: nil,
+                taskID: task.id,
+                nextDueDate: nil,
+                nextDueDayPart: nil
+            )
+        case .task(let task) where !task.nurseryPropagationProjectIDs.isEmpty && task.treeIDs.isEmpty:
+            _ = try completeNurseryPropagationTask(task)
+            return OccurrenceCompletionResult(
+                occurrenceTitle: occurrence.title,
+                workRecordID: nil,
+                taskID: task.id,
+                nextDueDate: nil,
+                nextDueDayPart: nil
+            )
         case .task(let task):
             let record = try completeTaskInstantly(task)
             return OccurrenceCompletionResult(
@@ -632,9 +945,10 @@ final class TaskService {
                 nextDueDayPart: nil
             )
         case .schedule(let scheduleID):
-            let record = try completeScheduleOccurrence(scheduleID: scheduleID, treeID: occurrence.treeID)
+            guard let treeID = occurrence.treeID else { throw TaskServiceError.noTargets }
+            let record = try completeScheduleOccurrence(scheduleID: scheduleID, treeID: treeID)
             let preview = schedules.first { $0.id == scheduleID }.flatMap {
-                previewNextOccurrence(for: $0, treeID: occurrence.treeID, calendar: .current, now: .now)
+                previewNextOccurrence(for: $0, treeID: treeID, calendar: .current, now: .now)
             }
             return OccurrenceCompletionResult(
                 occurrenceTitle: occurrence.title,
@@ -651,12 +965,14 @@ final class TaskService {
     /// need nothing else: their "due" state is derived from WorkRecord history,
     /// so deleting the record alone makes the occurrence due again.
     func undoCompletion(_ result: OccurrenceCompletionResult) {
-        try? workService.deleteWork(id: result.workRecordID)
+        if let workRecordID = result.workRecordID {
+            _ = try? workService.deleteWork(id: workRecordID)
+        }
         guard let taskID = result.taskID, var task = tasks.first(where: { $0.id == taskID }) else { return }
         task.status = .pending
         task.completedAt = nil
         task.resultingWorkRecordID = nil
-        try? updateTask(task)
+        _ = try? updateTask(task)
     }
 
     /// Completes one due occurrence of a Schedule for a single tree — always a

@@ -177,6 +177,7 @@ Bonsai World is built from **independent feature modules**. Every module follows
 - Consumes **Reference Data** from Settings; never edits master data inline.  
 - Grows by extending workflows inside the same architecture — not by forking the module.  
 - Defines how it behaves for **Novice**, **Experienced**, and **Expert** (§1.1, §6).
+- Treats display text per **§4.6** — English master; domain logic never keys off translated labels; grower-authored text is never auto-translated.
 
 ### 4.2 Standard module template (mandatory)
 
@@ -215,6 +216,8 @@ Collection → Tree (0…n; many-to-many; does not set Location)
 **Tree Lifetime:** A Tree is a living record with permanent history. See **§4.5**. Deletion is exceptional; lifecycle status covers normal end-of-ownership and end-of-life outcomes.
 
 **Reference Data (global):** Edited only in Settings (Reference Data / Botanical Library). Hierarchical botanical data stays Genus → Species → Cultivar. Empty pickers guide users to Settings.
+
+**Language:** English is the published product language. Future localization follows **§4.6** — do not fork Knowledge or Species Profiles per language, and do not auto-translate grower data.
 
 ### 4.4 Collection philosophy
 
@@ -297,7 +300,7 @@ A Smart Collection is automatically populated based on **rules** defined at crea
 
 Rule evaluation and refresh are domain/service concerns; the grower sees a normal Collection with members that update as the library and care context change. In the UI, Smart Collections appear in the **Smart Collections** list section (§4.4 Collection navigation) — not in a separate navigation column. Attention-oriented Smart Collections also surface on **Dashboard** (§5.1).
 
-**Note:** Smart Collection **“Yamadori”** filters **Trees** whose origin is wild collection — not active **Yamadori Projects** (pre-collection). See **§5.10 Yamadori**.
+**Note:** Smart Collection **“Yamadori”** filters **Trees** whose origin is wild collection — not active **Yamadori trips / Finds**. See **§5.10 Yamadori**.
 
 #### Membership ownership
 
@@ -402,6 +405,39 @@ Relationship to existing fields (when implemented): lifecycle status is the **pr
 |--------|--------|
 | **Delete Tree** | Hidden until a correct accidental/duplicate correction workflow ships. Never the path for Sold / Gifted / Dead / Lost. |
 | **Change lifecycle status** | Normal path for end-of-ownership and end-of-life outcomes *(Planned)*. |
+
+### 4.6 Language and internationalization
+
+**Status:** Approved architecture. **Not implemented** as product localization. English is the only published language.
+
+Bonsai World may later be shown in the grower’s chosen language. **English is the master language** for UI copy, Knowledge, Species Profiles, and translation keys. Do **not** build full i18n while terminology and Knowledge are still moving. Take the forward rules below so later localization does not require rewriting identity or engines.
+
+#### Three content layers
+
+| Layer | Examples | Rule |
+|-------|----------|------|
+| **UI chrome** | Navigation, buttons, empty states, Settings | Future translation keys. Missing key → English. |
+| **Product knowledge** | Bonsai Handbook, Species Profiles, Growing Intelligence advice | Same document / section ID, language variant of the English master. Pipeline: master → AI-assisted translation → review → published. **Never** live machine translation as the source of published Knowledge or Care advice. Missing or stale translation → show English. |
+| **Grower data** | Tree names, nicknames, notes, journal, custom tasks, grower-named Reference Data and inventory | **Never** auto-translate. Display as written. |
+
+#### Species and Knowledge
+
+- **Scientific name** is global and never translated. Botanical identity stays `speciesID` / `cultivarID`, not a display string.
+- **Common names** are per language when that model exists. Do not mix languages in one undifferentiated name list.
+- Care text and Knowledge sections translate **per stable section ID** (for example watering, repotting) — not as disconnected parallel articles.
+- Growing Intelligence must decide with enums / IDs. Advice copy is display text, not a matching key.
+
+#### Forward rules (until i18n ships)
+
+1. New domain logic matches **stable identifiers** (UUID, enum, section ID, action ID) — never English display strings (`"repot"`, `"seaweed"`, task titles).
+2. Keep stable IDs on Knowledge sections, Species Profile sections, and Context Tools so a translation is a language version of the same content.
+3. User Profile may store a language preference; it must not imply the product is localized until chrome and Knowledge honor it.
+4. **Regional Settings** (currency, units, dates) stay independent of language.
+5. Library Import / Export protocols should stay identifier-stable (English headers are acceptable as a file format, not as UI).
+
+#### Timing
+
+Do **not** extract a full String Catalog or translate the product now. Full language support is a later product lift. This section is the preparation contract.
 
 ---
 
@@ -647,7 +683,7 @@ Browse views are **filters** (menu on Media → Images), not separate stores. Tr
 | **Relationships** | Feeds **Trees**; may note source Location; does not replace Locations or Tree identity. |
 | **Future Expansion** | New methods as sub-workflows inside Propagation — not separate apps or schemas. |
 
-**Status:** Planned. Domain must remain representable while hidden. Distinct from **Yamadori** (§5.10) — Propagation is controlled nursery methods; Yamadori is wild-material **projects**.
+**Status:** Partial. **Seeds** workspace: **Seed Work** (batch lifecycle) · Stratification knowledge · Overview/Germination placeholders. Seed batches persist in `Database/SeedBatches.json`; tasks use `CareTask.seedBatchIDs`; Trees link via `sourceSeedBatchID`. Stratification catalog remains botanical source of truth. Cuttings / Air Layer / Grafting still Planned. Distinct from **Yamadori** (§5.10).
 
 ---
 
@@ -655,26 +691,32 @@ Browse views are **filters** (menu on Media → Images), not separate stores. Tr
 
 | Field | Definition |
 |-------|------------|
-| **Purpose** | **Long-term project management** for discovering, evaluating, preparing, and collecting trees from nature. Not a list of Trees — a **Yamadori Project** may exist for years before graduation. Principle: *Observe. Prepare. Collect. Develop.* Rationale: [Product Reviews/Yamadori_Module.md](Product%20Reviews/Yamadori_Module.md). |
-| **Primary Objects** | **YamadoriProject** — status, wild-site GPS, access/permission notes, evaluation (estimated species/age, difficulty, priority), root prep and collection plans, timeline, **`linkedTreeID`** after graduation. Media via **Asset links** (§3.6) — not embedded blobs. |
-| **Primary Workflow** | Discover → register GPS + Assets → observe (seasonal) → evaluate → plan/execute root prep → plan collection → collect → **Graduate to Tree** (Add Tree wizard) → project **archived** as permanent history. |
-| **Navigation** | **Nursery → Yamadori** (Architecture Version 2 §10.2). **Experienced+** (hidden in Novice Essential). List → Project Detail → **Yamadori Tools**. |
-| **Context Tools** | **Global (when shipped):** New Yamadori Project. **Context:** Add Observation; Link Asset; Plan Collection; Log Root Prep; **Graduate to Tree** *(when status allows)*. Edit Mode: Save; Cancel; Reset Changes. |
-| **Detail View** | View-first project: site map pin, timeline, linked Assets (Gallery browse), plans, permission/access, evaluation fields. Graduate opens **Add Tree** pre-fill — botanical identity confirmed at collection, not at discovery. |
-| **Reference Data** | Botanical Library for **estimates** only until graduation; Work Types for linked Workshop records. |
-| **Relationships** | **Assets** (photos, voice, GPS), **Quick Capture** / **Mobile Companion** (field entry), **Gallery** (photo workflows on Assets), **Calendar** (collection/root-prep events), **Workshop** (root prep work records), **Journal** (observations), **Add Tree** (graduation), **Assistant** (read-only project scope). Wild site GPS ≠ grower **Location** (bench assigned at graduation). Smart Collection “Yamadori” = **Trees**, not projects (§4.4). |
-| **Experience Levels** | **Novice:** hidden. **Experienced:** register, observe, Assets, basic evaluate, graduate. **Expert:** full planning, weather log, helpers/equipment, Calendar/Workshop integration, Gallery compare, Assistant. One schema (§6). |
-| **Future Expansion** | Project export/report; map clusters of active sites; permission renewal reminders — same YamadoriProject architecture. |
+| **Purpose** | Field **activity** (trip) management for discovering and collecting wild material, with one or more **Finds** per trip. After collection, material is a **Yamadori Tree** (a real Tree in a nursery-side list) until the grower moves it to **My Trees**. Principle: *Plan. Find. Collect. Nurture. Graduate.* Rationale: [Product Reviews/Yamadori_Module.md](Product%20Reviews/Yamadori_Module.md) · locked workflow: [Product Reviews/Yamadori_Workflow_Rethink.md](Product%20Reviews/Yamadori_Workflow_Rethink.md). |
+| **Primary Objects** | **Yamadori** — the **trip / activity** (date, wild-site GPS, permission/access notes, collection plan & kit checklists, trip notes). **Find** (`YamadoriFind`) — one specimen on a trip: stable code `YAM-YYYY-NNN`, status, species estimate, evaluation, observations, **`linkedTreeID`** from collection onward. **Yamadori Tree** — a **Tree** with `yamadoriNursery = true` and `bonsaiName = YAM-YYYY-NNN` until graduation. Many Finds per Yamadori. |
+| **Primary Workflow** | **Find:** Scout → Planned → **Collected** (creates Yamadori Tree) → **Move to My Trees** (graduation). Alternate exits: Abandoned · Archived (pre-collect → Former Findings). Post-collection care uses **Tree Detail** — not separate Recovery/Established list tabs. |
+| **Navigation** | **Nursery → Yamadori** (one sidebar entry). **Tabs:** Yamadories · Uncollected Findings · Yamadori Trees · Transferred Trees. **Layout:** full-width list above, detail below (same pattern as Garden → Trees). Double-click trip/Find opens a dedicated workspace window. Former sections at list bottom mirror Trees (Former Findings · Former Yamadori Trees). |
+| **Context Tools** | **Global:** New Yamadori (creates trip + first Find). **Context (Find):** Add Observation; Add Image; Advance status; **Mark Collected** *(creates Yamadori Tree)*. **Context (Yamadori Tree):** **Move to My Trees** *(graduation sheet)*. Edit Mode: Save; Cancel. |
+| **Detail View** | **Trip:** identity, wild site, area map, collection plan/checklists, Finds list. **Find:** code, species estimate, status, evaluation, precise map, history. **Yamadori Tree / Transferred:** **Tree Detail** (same as Garden). |
+| **Reference Data** | Botanical Library for estimates; Acquisition Method **Yamadori**; Tree Stage **Yamadori – Newly Collected** on the Yamadori Tree at collection. |
+| **Relationships** | **Images**, **Tasks** (optional Find link), **Locations** (bench Location at collection), **Tree** (`sourceYamadoriID` ↔ Find `linkedTreeID` from collection). Wild GPS ≠ grower Location. Smart Collection “Yamadori” = **Trees** with Acquisition Method Yamadori in **My Trees** (§4.4), not active trips/Finds or nursery Yamadori Trees. |
+| **Experience Levels** | **Novice:** hidden when profiles ship. **Experienced+:** full field workflow. One schema (§6). |
+| **Future Expansion** | Yamadori Site entity; EXIF coords on Find photos; Quick Capture → Find; Calendar events — same trip + Find + Tree objects. |
 
-**Status:** **Architecture approved.** Implementation **Planned**. Domain must remain representable while Nursery route is placeholder.
+**Status:** **Architecture approved.** Implementation **in progress** (four-route navigation + Tree-at-collection).
 
-#### 5.10.1 Yamadori project statuses
+#### 5.10.1 Find statuses
 
-`discovered` · `observing` · `evaluating` · `root_prep_planned` · `root_prep_active` · `collection_planned` · `collection_scheduled` · `collected` *(linked Tree)* · `abandoned` · `access_lost` · `in_situ_lost`
+`scout` · `planned` · `collected` · `transferred` · `abandoned` · `archived`
 
-#### 5.10.2 Graduation rule
+Legacy values `recovery` · `established` may remain on migrated Finds; they are not list tabs.
 
-**Graduate to Tree** creates a **Tree** via **Add Tree** (§5.2) — estimated fields pre-fill; grower confirms botanical identity. Project record is **read-only archive** with `linkedTreeID`. Original project documentation is **never** discarded on graduation.
+Statuses live on the **Find**, not the trip.
+
+#### 5.10.2 Collection and graduation rules
+
+**Mark Collected** creates a **Tree** immediately: `bonsaiName = YAM-YYYY-NNN`, `yamadoriNursery = true`, Acquisition Method = Yamadori, Tree Stage = Yamadori – Newly Collected. Sets `Tree.sourceYamadoriID` and Find `linkedTreeID`.
+
+**Move to My Trees** is manual after collection. It updates the **existing Tree** with a new Bonsai Name (Genus-Species-Cultivar-Year-Number), sets `yamadoriNursery = false`, and marks the Find **Transferred**. The YAM code remains on the Find and in acquisition history — not as the display name in My Trees.
 
 ---
 
@@ -755,7 +797,7 @@ Browse views are **filters** (menu on Media → Images), not separate stores. Tr
 | **Experience Levels** | **Novice:** hidden. **Experienced:** hidden *(optional Dashboard stock glance reads Inventory)*. **Expert:** full module, stock, maintenance, insurance export *(future)*. One schema (§6). |
 | **Future Expansion** | Insurance packs, maintenance reminders, tool lending, purchase planning, Workshop consumption — same InventoryItem architecture. |
 
-**Status:** **Architecture approved.** Implementation **Planned**. Settings **Inventory Preparation** lists remain Reference Data until Items ship.
+**Status:** **Architecture approved.** **Pots** and **Soil** (stock / mixes / knowledge) are shipping as dedicated Inventory routes while the unified InventoryItem catalog remains future work. Settings **Soil Components** is the soil-type database; Inventory → Soil owns quantities. Settings **Inventory Preparation** lists remain Reference Data for other kinds until those Items ship.
 
 #### 5.11.1 Inventory kinds (filters — not separate stores)
 
@@ -874,7 +916,7 @@ Sidebar
 ├── Workspace          (navigation — top, scrollable)
 ├── Context Tools      (actions — bottom anchor, dynamic title)
 └── Tools              (Settings — bottom)
-Content List → Detail View → Inspector (future)
+Content List → Detail View → Right Context Panel / Inspector (future — §11)
 ```
 
 | Area | Responsibility |
@@ -884,7 +926,7 @@ Content List → Detail View → Inspector (future)
 | **Detail View** | What is this? View Mode by default; Edit on demand via Context Tools. For Trees, the embedded Detail is **Tree Overview** (§5.2.1). |
 | **Sidebar — Context Tools** | What can I do here? **Sole action home.** Title reflects workspace (Tree Tools, Collection Tools, …). See **§7.2**. |
 | **Sidebar — Tools** | Settings and library administration entry (§8.1). Not domain work. |
-| **Inspector (future)** | Optional supporting context — never a second Edit or action home. |
+| **Inspector (future)** | Optional supporting context — never a second Edit or action home. Evolves toward the **Right Context Panel** (§11) for On This Page, Related Knowledge, and optional recommendations — **not** an advertisement column. |
 | **Tree Workspace windows** | Same shell: Workspace + **Context Tools** + Tools (§5.2.2–§5.2.4). |
 
 Trees use **two depths**: Overview inside the split view; Workspace in its own window. Both follow View/Edit and Context Tools; both share library synchronization (§5.2.4).
@@ -958,6 +1000,145 @@ Lists, Detail, Editors, Sheets, Dialogs/confirmations, Empty states — as previ
 
 Prefer platform-native controls. Custom controls need a clear usability benefit.
 
+### 7.7 Visual language (Bonsai World)
+
+**Status:** Approved direction (formalizes the Dashboard visual pilot; exact token values in a later deliberate token pass).  
+**Authority:** Specializes [FALO_DESIGN_SYSTEM.md](../../Documentation/FALO_DESIGN_SYSTEM.md). Does not replace Falo principles.
+
+This subsection is the Bonsai World visual specialization. Shell roles (§7.1–§7.6), Experience Levels (§6), and Constitution principles remain unchanged.
+
+#### 7.7.1 Overall character
+
+Bonsai World should feel: calm, professional, mature, refined, natural, focused, premium but understated, distinctly Bonsai World, and native to macOS.
+
+It must **not** feel like: generic SaaS, enterprise administration software, a gardening application, overly decorative UI, heavily green chrome, or visually busy.
+
+#### 7.7.2 Warm neutral foundation
+
+| Surface | Direction |
+|---------|-----------|
+| **Main canvas** | Warm off-white / soft warm neutral — not cold system-gray as the brand canvas. |
+| **Sidebar** | Warmer gray, visibly differentiated from the canvas, restrained and calm. Orientation only — not a dark theme for contrast’s sake. |
+
+Relationship: **Sidebar = navigation / orientation**; **Workspace = primary content**.
+
+Exact colors are World tokens (later pass). The rule is warmth and differentiation, not a specific hex in this Blueprint yet.
+
+#### 7.7.3 Natural but not green
+
+Bonsai World expresses nature through authentic imagery, warm neutrals, restrained organic accents, hierarchy, and calm composition.
+
+It must **not** rely on: green backgrounds or large green surfaces, botanical decoration as chrome, leaf ornaments, wood textures, excessive brown, or “garden app” styling.
+
+Green may appear as a **muted brand or semantic accent**, never as a wash.
+
+#### 7.7.4 Accent usage
+
+The Bonsai World accent is organic, muted, restrained, and purposeful. Prefer it for: active navigation, focus, selected states, semantic indicators, and small emphasis.
+
+Do not fill large UI surfaces with accent color without a strong semantic reason.
+
+#### 7.7.5 Calm information density
+
+Density goal: **information-rich without feeling crowded.**
+
+Whitespace is structural. Do not empty the UI to look minimalist. Avoid marketing minimalism and enterprise density. Prefer **calm density**.
+
+#### 7.7.6 Cards vs lists vs sections
+
+A card (raised surface) must **earn its place**. If removing it improves clarity without losing needed grouping, do not use a card.
+
+| Prefer raised surfaces when | Prefer lists when | Prefer native forms / sections when |
+|-----------------------------|-------------------|-------------------------------------|
+| Dashboard summaries | Browsing trees, history, tasks, collections | Editing data |
+| Grouping contextual overview info | Repeated records / searchable datasets | Entering or configuring records |
+| Attention / compact overview modules | Scanning many similar rows | Structured Settings |
+
+Do **not** wrap every list, form, or dataset in decorative cards. Operational browse/edit screens stay flatter and more native than the Dashboard overview.
+
+#### 7.7.7 Imagery
+
+Imagery serves **meaning**: recognition, understanding, presence, knowledge, connection to the collection.
+
+- **Functional:** tree thumbnails, heroes, yamadori subjects, species imagery, meaningful care photos.  
+- **Knowledge:** authentic photography when it improves understanding.  
+- **Decorative:** rare. Never fill empty space with stock imagery. Never invent photos to decorate a tile.
+
+#### 7.7.8 Status and semantic color
+
+Support at least: **Information**, **Positive**, **Attention**, **Warning**, **Critical**.
+
+Status must **not** depend on color alone. Combine text, icon, shape, and restrained tint as needed. Do not turn every metadata field into a colorful badge. Badges communicate meaningful status or priority only.
+
+Exact semantic token values: later token pass.
+
+#### 7.7.9 Typography
+
+Prefer native macOS / system typography. Role-based hierarchy; restrained display sizing. No custom display font. No oversized marketing type.
+
+Roles (implementation may map to `FaloTypography` / `FaloCardTypography`):
+
+| Role | Use |
+|------|-----|
+| Page title | Place / destination name |
+| Page subtitle | Supporting line under a title (optional) |
+| Section heading | Section within a view |
+| Card / row title | Primary line in a group or list row |
+| Primary value | Emphasized number or key value |
+| Supporting text | Body explanation |
+| Metadata / caption | Secondary detail |
+
+#### 7.7.10 Spacing and rhythm
+
+Use the existing Falo spacing rhythm already in code (`FaloSpacing`: 4 · 8 · 12 · 16 · 20 · 24). Do not invent a parallel scale.
+
+Emphasize: consistent outer margins, predictable section gaps, consistent component padding, readable rows, calm vertical rhythm.
+
+#### 7.7.11 Radius, elevation, surfaces
+
+Restrained corner radii (existing `FaloRadius` scale). Avoid excessive rounding.
+
+Elevation only for hierarchy — one calm raised level, not competing shadows.
+
+Surface ladder: **base canvas → surface → raised surface**. Dashboard may use slightly raised overview surfaces; operational screens stay flatter and more native.
+
+#### 7.7.12 Light and Dark Mode
+
+Falo requires both appearances. For Bonsai World:
+
+- **Light:** warm off-white canvas, warm differentiated sidebar, restrained organic accent.  
+- **Dark:** same hierarchy and restraint; not a simple invert of Light; retain natural character; not green-heavy.
+
+Final dark-mode token values: later token pass. This subsection establishes the principle.
+
+#### 7.7.13 World visual tokens (light)
+
+Implemented in code as `BonsaiWorldColors` / Falo spacing · radius · elevation · typography · icon roles. Dark-mode values: later pass.
+
+| Role | Token | Light value |
+|------|-------|-------------|
+| Canvas | `BonsaiWorldColors.canvas` | `#F7F4EF` |
+| Sidebar | `BonsaiWorldColors.sidebar` | `#E8E2DA` |
+| Surface | `BonsaiWorldColors.surface` | `#FBFAF7` |
+| Raised surface | `BonsaiWorldColors.raisedSurface` | `#FFFEFC` |
+| Primary text | `BonsaiWorldColors.textPrimary` | `#1C1B19` |
+| Secondary text | `BonsaiWorldColors.textSecondary` | `#6B6560` |
+| Tertiary text | `BonsaiWorldColors.textTertiary` | `#8A847C` |
+| Accent | `BonsaiWorldColors.accent` | `#3F5A4C` |
+| Accent subtle | `BonsaiWorldColors.accentSubtle` | accent @ 12% |
+| Border | `BonsaiWorldColors.border` | textPrimary @ 8% |
+| Information | `statusInformation` | `#4A6A8A` |
+| Positive | `statusPositive` | `#3D6B52` |
+| Attention | `statusAttention` | `#C47E3B` |
+| Warning | `statusWarning` | `#B65C2A` |
+| Critical | `statusCritical` | `#A63D3D` |
+
+Spacing 4–24 (+ optional 32), radius 6/10/12/16, and one Level-2 shadow remain Falo-universal.
+
+#### 7.7.14 Non-negotiable (unchanged)
+
+These remain authoritative and are specialized—not replaced—by §7.7: Workflow before Features; Context First; Progressive Disclosure; One Primary Action; Native before Custom; Consistency before Originality; Software Grows with the Artist; Trees at the Heart; cards earn their place; sidebar as orientation map; primary content owns attention.
+
 ---
 
 ## 8. Other modules (template required before build)
@@ -1006,7 +1187,7 @@ Settings
 
 | Settings area | Owns |
 |---------------|------|
-| **User Profile / Regional / Appearance / Notifications** | Person and preferences |
+| **User Profile / Regional / Appearance / Notifications** | Person and preferences. Language preference may be stored on the profile; it does not localize the product until **§4.6** ships. Regional Settings (currency, units, dates) remain independent of language. |
 | **Workspace / Experience Level** | How much of the World is revealed (§6) |
 | **Reference Data / Botanical Library** | Master vocabulary inside the library |
 | **Library Management** | The library **package** as a whole (in/out, integrity, recovery) |
@@ -1027,7 +1208,7 @@ Library Management does **not** replace Reference Data editing or Tree add workf
 
 **Partial.** Shell: `NavigationSplitView`, Falo sidebar (**Workspace · Context Tools · Tools**), title **Bonsai World**. Locations, Collections, and Trees (list → embedded detail, View/Edit, Context Tools *implementation still uses Quick Actions naming in code*) on TreeService / library persistence. Reference Data and Botanical Library in Settings (session). Image import for primary image prepared (**interim in Tree Detail** — **Gallery owns image workflows** §5.5; Gallery module surface Planned). Storage Phase 1 foundation present; Experience Level / Workspace Profile UI not complete. Sidebar order in code may still lag §7.4 / §10 — **§10 / §5 navigation is the product truth**. **The Software Grows with the Artist** (§1.1) and **User Experience Levels** (§6) approved; Settings control not yet implemented. **Library Management** under Settings (§8.1) approved — Import / Export / Backup / Restore / Validate / Diagnostics not yet implemented. **Collection philosophy (§4.4)** — three-pane navigation, sectioned list, system Smart placeholders, default selection — and **Tree Lifetime (§4.5)** approved; Smart filter evaluation not yet implemented. **Tree Overview + Tree Workspace** (§5.2) **approved** as permanent Trees architecture — Overview redesign and Workspace window **partial** (dedicated Workspace window exists; Overview layout redesign not yet implemented).
 
-When the product changes, update **this Blueprint**. When philosophy changes, update the **Constitution**. When shared Falo patterns change, update the **Design System** or **Component Library**. When a **new module** is proposed, complete the **§4.2 template** here before coding.
+When the product changes, update **this Blueprint**. When philosophy changes, update the **Constitution**. When shared Falo patterns change, update the **Design System** or **Component Library**. When a **new module** is proposed, complete the **§4.2 template** here before coding. **Language (§4.6)** — English master; full i18n not shipped; new code must not key logic off display strings. **Commercial content & partner recommendations (§11)** — Future Architecture / **Not Implemented**; do not ship ads or recommendation UI from this section alone.
 
 ---
 
@@ -1070,7 +1251,7 @@ Main navigation order (permanent):
 | **Media** | Digital assets — browse, organize, find | **Images** *(shipped)*; Documents · Notes · Video · Audio *(future routes reserved — §5.12)* |
 | **Locations** | Where trees physically grow | Gardens (physical properties), Locations, Map; future environment (Sun, Shade, Wind, Rain, Humidity, Air Flow, Winter Protection) — no calculations yet |
 | **Workshop** | All practical bonsai work | Work, Calendar, Tasks; future work types (Wiring, Pruning, Repotting, Root Pruning, Watering, Fertilizing, Deadwood, Winter Preparation, Winter Wash) — no new work logic yet |
-| **Nursery** | Development of new bonsai material | Seeds, Cuttings, Air Layers, Grafting, **Yamadori** (§5.10 — wild-material **projects**), Propagation (§5.6), Development |
+| **Nursery** | Development of new bonsai material | Seeds, Cuttings, Air Layers, Grafting. **Yamadori** is its own top-level Workspace module (§5.10). Field-grown stock lives in **Trees** (Location + Acquisition Method Field Tree) — not a separate Propagation module. |
 | **Care** | Daily care and recommendations | Today, Watering, Fertilizing, Placement, Tree Health, Seasonal Care, Winter Care — recommendations from Growing Intelligence later |
 | **Design** | Creative planning and artistic development | Vision, Style, Front Selection, Virtual Design, Branch Plan, Trunk Development, Ramification, Apex, Deadwood, Timeline — no design tools yet |
 | **Inventory** | Physical asset register (single source of truth for owned items) | All Items + kind filters: Pots, Growing Containers, Tools, Turntables & Stands, Wire, Soil & Components, Fertilizers & Chemicals, Consumables, Infrastructure (greenhouse, irrigation, lights, sensors), Studio & Exhibition (cameras), Library (books, reference). **InventoryItem** + **StoragePlace** — §5.11. Stock alerts and lending ship incrementally on same schema. |
@@ -1089,6 +1270,7 @@ Main navigation order (permanent):
 7. **The Software Grows with the Artist** — one product and data model; Novice / Experienced / Expert reveal depth without forking the World (§1.1, §6).
 8. **Library administration in Settings** — Import / Export / Backup / Restore / Validate / Diagnostics under **Library Management** (§8.1); never primary Workspace navigation.
 9. **Trees: two depths** — **Tree Overview** for browse; **Tree Workspace** for deep craft in its own window; one Library, synchronized (§5.2).
+10. **English master, identifiers not labels** — published language is English; later localization follows §4.6. Domain logic and engines must not match on display strings. Grower-authored text is never auto-translated.
 
 ### 10.4 Migration notes (Version 1 → Version 2)
 
@@ -1102,8 +1284,313 @@ Main navigation order (permanent):
 | Work | Workshop → Work |
 | Calendar | Workshop → Calendar |
 | Tasks | Workshop → Tasks |
-| Propagation | Nursery (Seeds … Development) |
+| Propagation | Nursery (Seeds, Cuttings, Air Layers, Grafting) |
 | Journal | Reserved working domain; not a Version 2 top-level module |
 | Settings | Settings (unchanged ownership) |
 
 Code mapping: `AppModule` (top-level) + `AppRoute` (leaf selection). `AppSection` is a compatibility alias for `AppRoute`.
+
+---
+
+## 11. Commercial content & partner recommendations
+
+**Status:** Future Architecture / **Not Implemented**
+
+This section documents principles, future opportunities, and technical considerations so Bonsai World can later introduce relevant, non-disruptive commercial recommendations **without** a fundamental product redesign.
+
+**Explicit non-goals for this Blueprint update:**
+
+- Do **not** implement advertising, affiliate UI, partner placements, or recommendation surfaces from this section alone.
+- Do **not** add ads to existing pages or change existing workflows.
+- Do **not** create ad accounts or ad-network integrations as part of documenting this strategy.
+
+### 11.0 Core principle
+
+Commercial content in Bonsai World must function as a **helpful tool**. It must never function as an **interruption**.
+
+**Primary rule:** *Help before revenue.*
+
+Commercial content should only appear when it provides genuine contextual value. The grower should feel: *This is useful for what I am doing.* Never: *This is advertising that I need to get past.*
+
+**Final product principle:** Commercial content should feel like a helpful recommendation from a trusted bonsai colleague. It should never feel like something standing between the user and their tree.
+
+### 11.1 Product philosophy
+
+Commercial content must support the Bonsai World experience. It may help growers discover relevant products, bonsai suppliers, specialist nurseries, tools, wire, soil, fertilizer, books, courses, and specialist services.
+
+It must **never** interfere with:
+
+- Tree care
+- Knowledge reading
+- Task completion
+- Tree management
+- Calendar workflows
+- Health-related information
+- Forms
+- Data entry
+
+**Core rule:** *Commercial content may support a decision, but never interrupt care.*
+
+### 11.2 Future commercial content model
+
+| Type | Name | Meaning |
+|------|------|---------|
+| **A** | Organic Recommendation | Non-paid; selected because it provides genuine value (e.g. recommended supplier for bonsai wire). |
+| **B** | Affiliate Recommendation | Relevant product or supplier link where Bonsai World may receive a commission from qualifying purchases. Relationship transparent where required. |
+| **C** | Partner Recommendation | Trusted commercial partner recommended in a relevant context (e.g. a specialist European bonsai supplier). |
+| **D** | Sponsored Recommendation | Paid placement. Must always be clearly identified as **Sponsored** or **Partner**. Label visible but not visually disruptive. |
+
+### 11.3 Never use traditional interruptive advertising
+
+The following formats are **not** part of the Bonsai World product strategy:
+
+- Pop-up advertisements
+- Forced full-screen advertisements
+- Interstitial ads
+- Auto-playing video advertisements
+- Flashing banners
+- Animated attention-seeking ads
+- Countdown advertisements
+- Artificial urgency
+- Ads that block content
+- Ads inserted inside forms
+- Ads inserted between workflow steps
+
+The Bonsai World experience must remain calm, focused, and premium.
+
+### 11.4 Future Right Context Panel
+
+Desktop architecture should support a future optional **Right Context Panel**.
+
+This is **not** an advertisement column. It is a **contextual assistance** area. It aligns with the future Inspector / supporting context in §7.1.
+
+**Suggested content priority (highest first):**
+
+1. On This Page  
+2. Related Knowledge  
+3. Related Species Information  
+4. Helpful Tools  
+5. Recommended Products  
+6. Partner Recommendation  
+7. Sponsored Recommendation  
+
+Commercial content must always have **lower priority** than useful Bonsai World content.
+
+**Example structure:**
+
+```text
+RIGHT CONTEXT PANEL
+├── ON THIS PAGE
+│   ├── Preparing the Air Layer
+│   ├── Root Development
+│   └── Separation
+├── RELATED KNOWLEDGE
+│   ├── Root Development
+│   ├── Sphagnum Moss
+│   └── Aftercare
+├── USEFUL FOR THIS TECHNIQUE
+│   ├── Long-fiber Sphagnum
+│   └── Air Layering Materials
+└── PARTNER RECOMMENDATION
+    └── Specialist Bonsai Supplier
+```
+
+If commercial content is removed, the Right Context Panel must still feel **complete and useful**.
+
+### 11.5 Contextual relevance
+
+Commercial recommendations should only be considered when there is a **direct relationship** to the grower’s current context.
+
+| Context | Possible relevant recommendations |
+|---------|-----------------------------------|
+| Air Layering | Sphagnum moss, air-layering pots, wrapping materials, rooting products |
+| Wiring | Aluminium wire, copper wire, wire cutters, bonsai tools |
+| Fertilizing | Bonsai fertilizer, organic fertilizer, fertilizer baskets |
+| Species Profile (e.g. *Pinus sylvestris*) | Species- and activity-relevant items (e.g. copper wire, pine fertilizer, suitable substrate components) |
+
+Do **not** display unrelated products simply to fill commercial space.
+
+### 11.6 Need-based recommendations
+
+The preferred future model is **need-based recommendations**.
+
+Do not push products at users. Support the user when a relevant need exists.
+
+| Prefer | Avoid |
+|--------|--------|
+| *Useful materials for this technique* | *BUY NOW* |
+| Informational and optional | Pressure or urgency |
+| *If you need this, here are relevant options.* | *You should buy this.* |
+
+### 11.7 Commercial content placement rules
+
+**May appear:**
+
+- In the Right Context Panel (§11.4)
+- At the end of relevant Knowledge content
+- In a dedicated Related / Recommended section
+- After a workflow is completed
+- Within future product recommendation areas
+- Within a future Partner Directory (§11.15)
+
+**Must not appear:**
+
+- During form completion
+- During tree care logging
+- During task completion
+- During health or emergency guidance
+- In the middle of Knowledge content
+- Between workflow steps
+- In modal dialogs
+- As automatic overlays
+
+### 11.8 Mobile experience
+
+The Right Context Panel must **not** become a fixed advertisement area on mobile.
+
+On smaller screens, contextual recommendations move into **Related & Useful** sections **below** the primary content. Primary content always comes first. Commercial content must never reduce usability of the main Bonsai World experience on mobile.
+
+### 11.9 User trust
+
+Trust is more important than commercial revenue.
+
+| Principle | Meaning |
+|-----------|---------|
+| **Helpful** | Relevant to the current context |
+| **Transparent** | Sponsored and partner relationships clearly identified |
+| **Optional** | Users never need to interact with recommendations |
+| **Independent** | Commercial partners do not control Bonsai World Knowledge |
+| **Calm** | No aggressive visual treatment |
+| **Limited** | Do not fill pages with commercial content |
+
+### 11.10 User control (future setting)
+
+Future Settings may support recommendation preferences, for example:
+
+- **Helpful Recommendations** — show relevant products and partners when useful  
+- **Knowledge Only** — hide commercial recommendations where possible  
+
+Architecture should support future user-level preferences without major redesign.
+
+**Do not implement this setting now.**
+
+### 11.11 Commercial content density
+
+One useful recommendation is better than multiple advertisements.
+
+**Suggested maximum:** one primary commercial recommendation visible within a contextual area.
+
+Do not create grids of competing advertisements. Do not repeat the same partner across multiple sections on the same page unless the user explicitly navigates to a partner or product area.
+
+### 11.12 Knowledge independence
+
+Bonsai World Knowledge must remain **editorially independent**.
+
+Partners and advertisers must **not** determine:
+
+- Species care recommendations
+- Fertilizer recommendations
+- Tree health advice
+- Propagation methods
+- Styling advice
+- Tool recommendations presented as factual requirements
+
+If a partner is connected to content, the commercial relationship must be **separate** from editorial knowledge.
+
+**Core rule:** *Knowledge remains independent. Recommendations remain optional.*
+
+### 11.13 Future technical architecture
+
+Treat commercial content as **contextual data**, not hardcoded advertisements.
+
+Potential future concepts: Recommendation, Partner, Product, Category, Context, Region, Language, Species, Technique, Activity, Content Placement, Sponsorship Type.
+
+The future system should answer:
+
+> What is useful for this user in this context?
+
+Rather than:
+
+> What advertisement should be displayed?
+
+### 11.14 Future context signals
+
+Potential signals (used carefully and transparently):
+
+- Current Knowledge article
+- Species Profile
+- Bonsai technique
+- Tree activity
+- Season
+- User region
+- Language
+- Product category
+
+Do **not** design future commercial systems around intrusive personal profiling.
+
+**Preferred model:** contextual relevance based on Bonsai World activity — not personal surveillance.
+
+### 11.15 Future Partner Directory
+
+Bonsai World may eventually support a curated **Partner Directory**, separate from the primary daily experience.
+
+Possible categories: Bonsai Nurseries, Bonsai Tools, Pots, Soil, Fertilizer, Wire, Books, Education, Courses, Specialist Services.
+
+Partners may eventually be filtered by country, region, product category, shipping area, and species specialization.
+
+### 11.16 Free vs Premium
+
+Future commercial strategy may support different experiences:
+
+| Edition | May include |
+|---------|-------------|
+| **Free** | Helpful recommendations, affiliate links, partner recommendations, limited sponsored recommendations |
+| **Premium** | Reduced commercial content, no sponsored recommendations, optional recommendations only |
+
+**Important:** Premium users must never lose useful Bonsai World Knowledge. Commercial content must not artificially restrict Knowledge.
+
+### 11.17 Analytics and future measurement
+
+Evaluate future recommendations on relevance, click-through, engagement, conversion where available, repeated usefulness, and user feedback.
+
+Revenue alone is not enough. Also ask: *Did this recommendation help the user?*
+
+Avoid optimizing solely for clicks.
+
+### 11.18 Future revenue model
+
+Potential sources (preferred order of fit):
+
+1. Affiliate recommendations  
+2. Partner placements  
+3. Sponsored contextual recommendations  
+4. Featured partner listings  
+5. Curated supplier directory  
+
+Traditional display advertising is a **lower-priority** model.
+
+**Preferred strategy:** high relevance + high trust + low interruption.
+
+### 11.19 UI design principle
+
+Commercial content must visually belong to Bonsai World and follow the existing design language (§7.7).
+
+Avoid: bright advertising colors, flashing elements, aggressive CTA buttons, oversized product images, and visuals that dominate Knowledge.
+
+**Visual hierarchy (unchanged intent):**
+
+1. User’s tree  
+2. User’s task  
+3. Bonsai World Knowledge  
+4. Helpful contextual information  
+5. Optional commercial recommendation  
+
+### 11.20 Blueprint status
+
+| Item | Status |
+|------|--------|
+| This section (§11) | Future Architecture / Not Implemented |
+| Advertising / recommendation UI | **Not** to be shipped from this documentation update |
+| Existing pages and workflows | **Unchanged** |
+
+Purpose: ensure future development can introduce relevant, non-disruptive commercial recommendations without requiring a fundamental redesign of the product.

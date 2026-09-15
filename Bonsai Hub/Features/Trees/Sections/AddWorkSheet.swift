@@ -2,7 +2,7 @@
 //  AddWorkSheet.swift
 //  Bonsai World
 //
-//  Registers a completed Work entry on one Tree (Tree Detail → Add Activity → Work).
+//  Registers a completed Work entry on one Tree (Context Tools → Add Work).
 //  Batch (multiple trees) and scheduling stay reserved for the future Work module.
 //
 
@@ -17,6 +17,8 @@ struct AddWorkSheet: View {
     let treeID: UUID
     /// Pre-selects a Work Type, e.g. when completing a Task that needs the full form.
     var initialWorkTypeID: UUID?
+    /// Pre-selects a Fertilizer Type when registering fertilizing Work from Care.
+    var initialFertilizerTypeID: UUID?
     /// Links the resulting WorkRecord back to the Task that generated it (Blueprint §5.9).
     var scheduleID: UUID?
     var onSave: (WorkRecord) -> Void = { _ in }
@@ -31,14 +33,17 @@ struct AddWorkSheet: View {
     init(
         treeID: UUID,
         initialWorkTypeID: UUID? = nil,
+        initialFertilizerTypeID: UUID? = nil,
         scheduleID: UUID? = nil,
         onSave: @escaping (WorkRecord) -> Void = { _ in }
     ) {
         self.treeID = treeID
         self.initialWorkTypeID = initialWorkTypeID
+        self.initialFertilizerTypeID = initialFertilizerTypeID
         self.scheduleID = scheduleID
         self.onSave = onSave
         _workTypeID = State(initialValue: initialWorkTypeID)
+        _fertilizerTypeID = State(initialValue: initialFertilizerTypeID)
     }
 
     private var selectedWorkType: WorkType? {
@@ -76,7 +81,7 @@ struct AddWorkSheet: View {
                             Picker("Fertilizer", selection: $fertilizerTypeID) {
                                 Text("Choose…").tag(UUID?.none)
                                 ForEach(referenceData.fertilizerTypes) { fertilizer in
-                                    Text("\(fertilizer.name) — \(fertilizer.classificationSummary)")
+                                    Text("\(fertilizer.displayName) — \(fertilizer.classificationSummary)")
                                         .tag(Optional(fertilizer.id))
                                 }
                             }
@@ -101,7 +106,7 @@ struct AddWorkSheet: View {
                     Section {
                         Text(errorMessage)
                             .font(FaloTypography.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(BonsaiWorldColors.statusCritical)
                     }
                 }
             }

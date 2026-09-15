@@ -69,8 +69,8 @@ final class ReferenceDataService {
         activeSorted(previewData.sizeClasses)
     }
 
-    var treeStatuses: [TreeStatus] {
-        activeSorted(previewData.treeStatuses)
+    var treeStages: [TreeStage] {
+        activeSorted(previewData.treeStages)
     }
 
     var workTypes: [WorkType] {
@@ -80,10 +80,6 @@ final class ReferenceDataService {
             sortOrder: \.sortOrder,
             isActive: \.isActive
         )
-    }
-
-    var developmentStages: [DevelopmentStage] {
-        activeSorted(previewData.developmentStages)
     }
 
     // MARK: - Growing
@@ -107,6 +103,34 @@ final class ReferenceDataService {
 
     var lightConditions: [LightCondition] {
         activeSorted(previewData.lightConditions)
+    }
+
+    // MARK: - Pot Brands & Makers
+
+    var potBrands: [PotBrand] {
+        activeSorted(previewData.potBrands, name: \.name, sortOrder: \.sortOrder, isActive: \.isActive)
+    }
+
+    var potMakers: [PotMaker] {
+        activeSorted(previewData.potMakers, name: \.name, sortOrder: \.sortOrder, isActive: \.isActive)
+    }
+
+    /// Active Makers belonging to a given Brand, for the New Pot / Pot Detail Maker picker.
+    func potMakers(forBrandID brandID: UUID) -> [PotMaker] {
+        potMakers.filter { $0.brandID == brandID }
+    }
+
+    /// Active Makers with no Brand / Kiln — documented independently.
+    var independentPotMakers: [PotMaker] {
+        potMakers.filter { $0.brandID == nil }
+    }
+
+    /// Makers offered when assigning to a Pot: makers of the selected Brand, plus independents.
+    func potMakersSelectable(forBrandID brandID: UUID?) -> [PotMaker] {
+        if let brandID {
+            return potMakers(forBrandID: brandID) + independentPotMakers
+        }
+        return independentPotMakers
     }
 
     // MARK: - Soil
@@ -148,6 +172,10 @@ final class ReferenceDataService {
         activeSorted(previewData.chemicals)
     }
 
+    var consumables: [Consumable] {
+        activeSorted(previewData.consumables)
+    }
+
     // MARK: - Lookups
 
     func genus(id: UUID) -> Genus? { previewData.genus.first { $0.id == id } }
@@ -161,14 +189,16 @@ final class ReferenceDataService {
 
     func style(id: UUID) -> Style? { previewData.styles.first { $0.id == id } }
     func sizeClass(id: UUID) -> SizeClass? { previewData.sizeClasses.first { $0.id == id } }
-    func treeStatus(id: UUID) -> TreeStatus? { previewData.treeStatuses.first { $0.id == id } }
+    func treeStage(id: UUID) -> TreeStage? { previewData.treeStages.first { $0.id == id } }
     func workType(id: UUID) -> WorkType? { previewData.workTypes.first { $0.id == id } }
-    func developmentStage(id: UUID) -> DevelopmentStage? { previewData.developmentStages.first { $0.id == id } }
 
     func location(id: UUID) -> LocationReference? { previewData.locations.first { $0.id == id } }
     func locationType(id: UUID) -> LocationType? { previewData.locationTypes.first { $0.id == id } }
     func potType(id: UUID) -> PotType? { previewData.potTypes.first { $0.id == id } }
     func lightCondition(id: UUID) -> LightCondition? { previewData.lightConditions.first { $0.id == id } }
+
+    func potBrand(id: UUID) -> PotBrand? { previewData.potBrands.first { $0.id == id } }
+    func potMaker(id: UUID) -> PotMaker? { previewData.potMakers.first { $0.id == id } }
 
     func soilComponent(id: UUID) -> SoilComponent? { previewData.soilComponents.first { $0.id == id } }
     func soilMix(id: UUID) -> SoilMix? { previewData.soilMixes.first { $0.id == id } }
@@ -179,6 +209,7 @@ final class ReferenceDataService {
     func tool(id: UUID) -> Tool? { previewData.tools.first { $0.id == id } }
     func wire(id: UUID) -> Wire? { previewData.wire.first { $0.id == id } }
     func chemical(id: UUID) -> Chemical? { previewData.chemicals.first { $0.id == id } }
+    func consumable(id: UUID) -> Consumable? { previewData.consumables.first { $0.id == id } }
 
     // MARK: - Hierarchy
 

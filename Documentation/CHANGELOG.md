@@ -6,6 +6,91 @@ Minimal historical record of **shipped functionality** and **approved decisions*
 
 ---
 
+## 2026-09-13
+
+### Docs
+
+- **Language / i18n (§4.6):** Approved architecture in the Blueprint. English is the only published language. Full localization is a later lift. New code must match stable IDs, not display strings. Knowledge translations (when they exist) are reviewed language versions of the English master — not live machine translation. Grower-authored text is never auto-translated.
+
+## 2026-09-12
+
+### Docs
+
+- **Status sync:** New [STATUS_REPORT_2026-09-12.md](STATUS_REPORT_2026-09-12.md) and [STATUS_AUDIT_2026-09-12.md](STATUS_AUDIT_2026-09-12.md). August STATUS_REPORT and 11 Sep audit marked superseded / historical. [ROADMAP.md](ROADMAP.md) and [START_HERE.md](START_HERE.md) point at the September status pair.
+
+### Species Knowledge linking
+
+- **Permanent profile IDs:** Species Profiles now use frozen ``BotanicalKnowledgeIDs`` (same UUID values as today’s Botanical Library seeds). Renaming a Species/Cultivar in Reference Data no longer breaks Tree Detail → Open Species Profile. New profiles must add a literal ID to ``BotanicalKnowledgeIDs``, not look up by name.
+
+### Data integrity
+
+- **Tree photos:** Tree remains the source of truth. Photo index is rebuilt from Trees on every open. Migration lock moved to `Database/TreePhotoSSOT.json` so a reset or restored old `TreePhotoIndex.json` cannot put deleted photos back on empty trees.
+- **Measurements after Excel import:** Library Management runs measurement reconcile right after import, so height/crown/nebari/trunk history matches tree cards in the same session.
+
+### Shipped / working tree (Context Tools & shell)
+
+- **Context Tools truth pass:** Sidebar actions match real workflows (Nursery create, Media import, stock report, inventory add, Tasks, export, Knowledge/Media creates, etc.). Misleading Coming Soon stubs removed where a path exists. Visible “Quick Actions” → **Context Tools**.
+- **Creates out of window toolbars:** Workspace create/report/edit entry points live in Context Tools (or in-page Save/Edit), not the macOS window toolbar on module roots. Sheets keep Cancel/Save toolbars.
+- **Pinned Context Tools panel:** Context / Image tools sit below Workspace + Library lists (not inside the scrolling List). Collapsible section; aligned icon/text column (shared leading chevron slot). Add Tree expands in place (Blank Tree / Duplicate Tree Info) — no SwiftUI `Menu` chevron mismatch.
+- **Sidebar Library group:** Media and Knowledge grouped as Library under Workspace (Dashboard → Inventory).
+
+### Shipped / working tree (Seeds & Experience)
+
+- **Seeds tabs:** Nursery → Seeds is **Seed Work** + **Overview** only. Stratification tips + link to Knowledge → Seed Stratification; full guide owned by Knowledge. Soil mixes can be tagged for Seeds context.
+- **Experience planning matrix:** Settings → Experience shows a planning table (Workspace / Library / Media package rows). Planning only — not persisted and not gating the sidebar.
+
+### Nursery Propagation honesty
+
+- **Propagation module:** Cuttings, Air Layers, Grafting, and Field Tree are grouped under sidebar **Propagation** (subpages). Nursery keeps Seeds and Yamadori. Workspace title is **Propagation**; UI states clearly that all four kinds share one tracker (stages and codes differ only).
+- **Field Tree rename:** Former Propagation **Development** is now **Field Tree** — trees planted in the ground to grow, then collected. Stages unchanged; stored kind `development` migrates to `fieldTree` on load.
+
+### Navigation (grower model)
+
+- **Yamadori** is its own Workspace top-level module (not under Nursery).
+- **Nursery** holds Seeds, Cuttings, Air Layers, Grafting. Top-level **Propagation** removed.
+- **Field Tree module hidden:** field-grown material belongs in **Trees** (Location + Acquisition Method Field Tree). Existing Field Tree project records are kept for manual migration (not auto-deleted).
+
+### Care honesty
+
+- **Tracking vs engine:** Care pages show an honesty line. Watering and Fertilizing state that a recommendation engine is active. Today, Repotting, Placement, Health, Seasonal Care, and Winter Care state Task/Work tracking only (no Care recommendation engine). Today, Placement, and Winter Care are visible in the Care sidebar again (content depth later).
+
+### Field Tree (historical same-day slice — superseded)
+
+- Earlier Propagation Field Tree identity slice and Task linking remain in code/data for any leftover projects; product home is now **Trees**. Spec: [Product Reviews/Field_Tree_Module.md](Product%20Reviews/Field_Tree_Module.md).
+
+---
+
+## 2026-09-04
+
+### Approved / In progress
+
+- **Bonsai World visual language documented:** Design System Audit → documentation catch-up. Falo Design System refined (warm/cool neutrals, no green wash, card vs list/form, Context Tools naming). Product Blueprint **§7.7** formalizes Bonsai World visual specialization (warm canvas/sidebar, natural but not green, calm density, imagery, semantic status, typography/spacing/elevation principles). Component Library notes raised-surface / stat / status-badge candidates. **No production UI code in this step.** Next: deliberate World token pass, then Dashboard alignment.
+
+## 2026-09-03
+
+### Approved / In progress
+
+- **Dashboard visual language (pilot):** Falo tokens for canvas, surface, accent, type, radius, and shadow. Dashboard layout follows the visual reference (greeting, live metrics, attention, today’s tasks, weather alerts, knowledge links, recent work). No dummy numbers. Other modules unchanged.
+- **Soil module (Inventory):** One sidebar item **Soil** (Stock · Mixes · Knowledge). Settings → Soil Components remains the type catalog; Inventory records bag-based stock in `Database/SoilStock.json` (estimated vs actual, stocktake history, no auto-deduct). Mixes stay user recipes (100% validation, volume calculator, stock availability check). Knowledge teaches substrate principles, not universal recipes. Tasks for stocktake are not generated yet.
+
+- **Seed Work Mode:** Nursery → Seeds → **Seed Work** tracks seed batches through stratification → sowing → germination → seedlings → Create Trees (N at once). 7-day check tasks via existing Task system (`seedBatchIDs`). Trees keep `sourceSeedBatchID`. Metrics: germination, survival, seed→seedling, seed→tree. Stratification catalog unchanged as botanical source of truth.
+- **Seed Stratification knowledge foundation:** Nursery → **Seeds** tabs Overview · Stratification · Germination. Knowledge → **Seed Stratification** shares the knowledge view. Initial **~43-species** range-based catalog in `SeedStratificationCatalogService` (Settings → Bonsai Knowledge → Seed Stratification is the single source of truth). Species selector reads the same catalog. Blueprint §5.6 updated.
+- **Yamadori workspace tabs:** Nursery → **Yamadori** is one sidebar entry with four tabs: **Yamadories**, **Uncollected Findings**, **Yamadori Trees**, **Transferred Trees**. Layout matches Trees: full-width list above, detail below (`VSplitView`). Double-click trip/Find opens a dedicated workspace window. Clicking a Find opens it at its last home (Uncollected / Yamadori Trees / Transferred). Former Findings and Former Yamadori Trees sections at list bottom mirror Trees. Locked in [Product Reviews/Yamadori_Workflow_Rethink.md](Product%20Reviews/Yamadori_Workflow_Rethink.md).
+- **Tree at collection:** **Mark Collected** creates a Yamadori Tree (`YAM-YYYY-NNN`, `yamadoriNursery = true`). **Move to My Trees** graduates it with a normal Bonsai Name. Supersedes “Collected does not create a Tree.” Blueprint §5.10 updated.
+
+---
+
+## 2026-09-02
+
+### Approved / Shipped
+
+- **Yamadori trip + Find:** Nursery → Yamadori lists **trips** first. A Yamadori is the field **activity**; each trip has one or more **Finds** (status Scout → … → Transfer). Codes `YAM-YYYY-NNN` live on Finds. Transfer links `Tree.sourceYamadoriID` to the Find. Existing fat Yamadori records migrate to trip + Find on load. Blueprint §5.10 updated.
+- **Yamadori maps:** Trip **Wild Site** has an area map (click to place pin in Edit). Each **Find** has its own precise coordinates + map (manual now; EXIF-from-photo later).
+- **Species Library pilot (Acer buergerianum):** Knowledge → Species Library with search + A–Z profiles. First profile: Trident Maple (Draft). Tree Detail shows a compact Species card with **Open Species Profile** when a Knowledge profile exists for the tree’s species. Botanical Library identity stays separate from Knowledge content.
+- **Yamadori module foundation (v1):** Nursery → Yamadori. Domain `Yamadori` with statuses Scout → Planned → Collected → Recovery → Established → Transferred (+ Abandoned / Archived). Stable codes `YAM-YYYY-NNN`. Collected does **not** create a Tree; manual **Transfer to Tree** after Established creates a new Tree (Acquisition Method = Yamadori, Tree Stage = Yamadori – Newly Collected) and keeps the Yamadori as history. Blueprint §5.10 updated (Recovery-before-Tree).
+
+---
+
 ## 2026-08-29
 
 ### Shipped

@@ -15,6 +15,17 @@ enum GalleryBrowseFilter: String, CaseIterable, Identifiable, Hashable, Sendable
     case all
     case primary
     case latest
+    case referenceImages
+    case uncollectedFindings
+    case yamadoriTrees
+    case pots
+    case profilePhoto
+    case wire
+    case tools
+    case chemicals
+    case consumables
+    case fertilizers
+    case soil
 
     // MARK: - Reserved (enable when filter logic ships)
 
@@ -23,8 +34,6 @@ enum GalleryBrowseFilter: String, CaseIterable, Identifiable, Hashable, Sendable
     case byCollection
     case bySpecies
     case byLocation
-    case byPot
-    case byTool
     case byYamadori
     case unattached
     case beforeAfter
@@ -34,10 +43,11 @@ enum GalleryBrowseFilter: String, CaseIterable, Identifiable, Hashable, Sendable
     /// Whether this filter is active in the menu and GalleryService.
     var isImplemented: Bool {
         switch self {
-        case .all, .primary, .latest:
+        case .all, .primary, .latest, .referenceImages, .uncollectedFindings, .yamadoriTrees,
+             .pots, .profilePhoto, .wire, .tools, .chemicals, .consumables, .fertilizers, .soil:
             true
         case .featured, .byTree, .byCollection, .bySpecies, .byLocation,
-             .byPot, .byTool, .byYamadori, .unattached, .beforeAfter:
+             .byYamadori, .unattached, .beforeAfter:
             false
         }
     }
@@ -47,13 +57,22 @@ enum GalleryBrowseFilter: String, CaseIterable, Identifiable, Hashable, Sendable
         case .all: "All Images"
         case .primary: "Primary Images"
         case .latest: "Latest Images"
+        case .referenceImages: "Reference Images"
+        case .uncollectedFindings: "Uncollected Findings"
+        case .yamadoriTrees: "Yamadori Trees"
+        case .pots: "Pots"
+        case .profilePhoto: "Profile Photo"
+        case .wire: "Wire"
+        case .tools: "Tools"
+        case .chemicals: "Chemicals"
+        case .consumables: "Consumables"
+        case .fertilizers: "Fertilizers"
+        case .soil: "Soil"
         case .featured: "Featured Images"
         case .byTree: "By Tree"
         case .byCollection: "By Collection"
         case .bySpecies: "By Species"
         case .byLocation: "By Location"
-        case .byPot: "By Pot"
-        case .byTool: "By Tool"
         case .byYamadori: "By Yamadori"
         case .unattached: "Unattached"
         case .beforeAfter: "Before / After"
@@ -65,13 +84,22 @@ enum GalleryBrowseFilter: String, CaseIterable, Identifiable, Hashable, Sendable
         case .all: "photo.on.rectangle.angled"
         case .primary: "star.fill"
         case .latest: "clock"
+        case .referenceImages: "photo.artframe"
+        case .uncollectedFindings: "leaf"
+        case .yamadoriTrees: "tree"
+        case .pots: "shippingbox"
+        case .profilePhoto: "person.crop.circle"
+        case .wire: "circle.hexagongrid"
+        case .tools: "wrench.and.screwdriver"
+        case .chemicals: "testtube.2"
+        case .consumables: "shippingbox"
+        case .fertilizers: "leaf.circle"
+        case .soil: "square.stack.3d.up"
         case .featured: "sparkles"
         case .byTree: "leaf"
         case .byCollection: "square.grid.2x2"
         case .bySpecies: "tree"
         case .byLocation: "mappin.and.ellipse"
-        case .byPot: "cup.and.saucer"
-        case .byTool: "wrench.and.screwdriver"
         case .byYamadori: "mountain.2"
         case .unattached: "photo.badge.plus"
         case .beforeAfter: "arrow.left.and.right"
@@ -83,13 +111,22 @@ enum GalleryBrowseFilter: String, CaseIterable, Identifiable, Hashable, Sendable
         case .all: "No Images Yet"
         case .primary: "No Primary Images"
         case .latest: "No Recent Images"
+        case .referenceImages: "No Reference Images"
+        case .uncollectedFindings: "No Uncollected Finding Images"
+        case .yamadoriTrees: "No Yamadori Tree Images"
+        case .pots: "No Pot Images"
+        case .profilePhoto: "No Profile Photo"
+        case .wire: "No Wire Images"
+        case .tools: "No Tool Images"
+        case .chemicals: "No Chemical Images"
+        case .consumables: "No Consumable Images"
+        case .fertilizers: "No Fertilizer Images"
+        case .soil: "No Soil Images"
         case .featured: "No Featured Images"
         case .byTree: "No Tree Images"
         case .byCollection: "No Collection Images"
         case .bySpecies: "No Species Images"
         case .byLocation: "No Location Images"
-        case .byPot: "No Pot Images"
-        case .byTool: "No Tool Images"
         case .byYamadori: "No Yamadori Images"
         case .unattached: "No Unattached Images"
         case .beforeAfter: "No Before / After Pairs"
@@ -104,6 +141,28 @@ enum GalleryBrowseFilter: String, CaseIterable, Identifiable, Hashable, Sendable
             "Set a Primary photo on a tree to see it in this view."
         case .latest:
             "Recently captured or imported photos will appear here."
+        case .referenceImages:
+            "Images added on Shaping → Vision appear here. They are not tree photos."
+        case .uncollectedFindings:
+            "Photos on Uncollected Findings appear here."
+        case .yamadoriTrees:
+            "Photos on Yamadori Trees appear here."
+        case .pots:
+            "Photos on Inventory → Pots appear here."
+        case .profilePhoto:
+            "Your profile photo from Settings appears here."
+        case .soil:
+            "Photos on Inventory → Soil → Stock appear here."
+        case .wire:
+            "Photos on Inventory → Wire appear here."
+        case .tools:
+            "Photos on Inventory → Tools appear here."
+        case .chemicals:
+            "Photos on Inventory → Chemicals appear here."
+        case .consumables:
+            "Photos on Inventory → Consumables appear here."
+        case .fertilizers:
+            "Photos on Inventory → Fertilizers appear here."
         case .featured:
             "Featured photos will appear here when that workflow ships."
         case .byTree:
@@ -114,10 +173,6 @@ enum GalleryBrowseFilter: String, CaseIterable, Identifiable, Hashable, Sendable
             "Browse photos grouped by species."
         case .byLocation:
             "Browse photos from trees at a location."
-        case .byPot:
-            "Browse photos linked to inventory pots."
-        case .byTool:
-            "Browse photos linked to inventory tools."
         case .byYamadori:
             "Browse photos from Yamadori projects."
         case .unattached:
@@ -135,11 +190,12 @@ enum GalleryBrowseFilter: String, CaseIterable, Identifiable, Hashable, Sendable
     /// Experience Level gating for future filters (e.g. Featured at Experienced+).
     func isAvailable(at level: GalleryExperienceLevel) -> Bool {
         switch self {
-        case .all, .primary, .latest:
+        case .all, .primary, .latest, .referenceImages, .uncollectedFindings, .yamadoriTrees,
+             .pots, .profilePhoto, .wire, .tools, .chemicals, .consumables, .fertilizers, .soil:
             true
         case .featured:
             level != .novice
-        case .byTree, .byCollection, .bySpecies, .byLocation, .byPot, .byTool,
+        case .byTree, .byCollection, .bySpecies, .byLocation,
              .byYamadori, .unattached, .beforeAfter:
             false
         }

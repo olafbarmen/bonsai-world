@@ -47,24 +47,28 @@ struct BotanicalLibraryView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HSplitView {
-                genusColumn
-                    .frame(minWidth: 140, idealWidth: 160)
-
-                speciesColumn
-                    .frame(minWidth: 140, idealWidth: 160)
-
-                cultivarColumn
-                    .frame(minWidth: 140, idealWidth: 180)
-
-                detailPanel
-                    .frame(minWidth: 200, idealWidth: 240)
+            // Keep columns in the safe area below the navigation toolbar.
+            // Horizontal ScrollView is OK when the content has an explicit maxHeight
+            // from this VStack. Do NOT wrap in GeometryReader or leave ScrollView
+            // height unconstrained — that expands under the toolbar and clips
+            // column headers plus the first list rows.
+            ScrollView(.horizontal, showsIndicators: true) {
+                columnsSplit
+                    .frame(
+                        minWidth: BotanicalLibraryLayout.columnsMinWidth,
+                        maxHeight: .infinity,
+                        alignment: .top
+                    )
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
             Divider()
             footerBar
         }
-        .navigationTitle("Botanical Library")
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .safeAreaPadding(.top)
+        .background(BonsaiWorldColors.canvas)
+        .bonsaiWorkspaceNavigationTitle("Botanical Library")
         .sheet(item: $editorDraft) { draft in
             BotanicalEditorSheet(draft: draft)
         }
@@ -115,6 +119,38 @@ struct BotanicalLibraryView: View {
 
     // MARK: - Columns
 
+    private enum BotanicalLibraryLayout {
+        static let genusMin: CGFloat = 140
+        static let genusIdeal: CGFloat = 160
+        static let speciesMin: CGFloat = 140
+        static let speciesIdeal: CGFloat = 160
+        static let cultivarMin: CGFloat = 140
+        static let cultivarIdeal: CGFloat = 180
+        static let detailMin: CGFloat = 200
+        static let detailIdeal: CGFloat = 240
+
+        /// Floor width for horizontal scrolling when the window is narrower than all columns.
+        static var columnsMinWidth: CGFloat {
+            genusMin + speciesMin + cultivarMin + detailMin
+        }
+    }
+
+    private var columnsSplit: some View {
+        HSplitView {
+            genusColumn
+                .frame(minWidth: BotanicalLibraryLayout.genusMin, idealWidth: BotanicalLibraryLayout.genusIdeal)
+
+            speciesColumn
+                .frame(minWidth: BotanicalLibraryLayout.speciesMin, idealWidth: BotanicalLibraryLayout.speciesIdeal)
+
+            cultivarColumn
+                .frame(minWidth: BotanicalLibraryLayout.cultivarMin, idealWidth: BotanicalLibraryLayout.cultivarIdeal)
+
+            detailPanel
+                .frame(minWidth: BotanicalLibraryLayout.detailMin, idealWidth: BotanicalLibraryLayout.detailIdeal)
+        }
+    }
+
     private var genusColumn: some View {
         VStack(spacing: 0) {
             columnHeader("Genus")
@@ -130,10 +166,17 @@ struct BotanicalLibraryView: View {
                         )
                     }
                     .tag(Optional(genus.id))
+                    .listRowBackground(
+                        SidebarRowBackground(
+                            isSelected: context.selectedGenusID == genus.id,
+                            baseFill: BonsaiWorldColors.canvas
+                        )
+                    )
                     .contextMenu { rowContextMenu(for: BotanicalSelection(id: genus.id, kind: .genus)) }
                 }
             }
-            .faloScrollSurface()
+            .faloWarmContentList()
+            .contentMargins(.top, 0, for: .scrollContent)
             .overlay {
                 if genera.isEmpty {
                     ContentUnavailableView(
@@ -161,10 +204,17 @@ struct BotanicalLibraryView: View {
                         )
                     }
                     .tag(Optional(item.id))
+                    .listRowBackground(
+                        SidebarRowBackground(
+                            isSelected: context.selectedSpeciesID == item.id,
+                            baseFill: BonsaiWorldColors.canvas
+                        )
+                    )
                     .contextMenu { rowContextMenu(for: BotanicalSelection(id: item.id, kind: .species)) }
                 }
             }
-            .faloScrollSurface()
+            .faloWarmContentList()
+            .contentMargins(.top, 0, for: .scrollContent)
             .overlay {
                 if context.selectedGenusID == nil {
                     ContentUnavailableView(
@@ -199,10 +249,17 @@ struct BotanicalLibraryView: View {
                         )
                     }
                     .tag(Optional(item.id))
+                    .listRowBackground(
+                        SidebarRowBackground(
+                            isSelected: context.selectedCultivarID == item.id,
+                            baseFill: BonsaiWorldColors.canvas
+                        )
+                    )
                     .contextMenu { rowContextMenu(for: BotanicalSelection(id: item.id, kind: .cultivar)) }
                 }
             }
-            .faloScrollSurface()
+            .faloWarmContentList()
+            .contentMargins(.top, 0, for: .scrollContent)
             .overlay {
                 if context.selectedSpeciesID == nil {
                     ContentUnavailableView(

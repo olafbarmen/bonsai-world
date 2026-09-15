@@ -65,6 +65,6 @@ extension FeaturedEmptyState where Actions == EmptyView {
     FeaturedEmptyState(
         title: "No Collections yet",
         systemImage: "square.stack.3d.up",
-        description: "Use Quick Actions → New Collection to create a group."
+        description: "Use Context Tools → New Collection to create a group."
     )
 }

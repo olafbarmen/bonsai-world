@@ -54,7 +54,7 @@ struct CollectionsList: View {
                 }
             }
         }
-        .faloScrollSurface()
+        .faloWarmContentList()
         .onAppear {
             expandSectionIfNeeded(for: selection)
         }
@@ -77,7 +77,7 @@ struct CollectionsList: View {
         Text(title)
             .font(FaloTypography.body)
             .fontWeight(.semibold)
-            .foregroundStyle(.primary)
+            .foregroundStyle(BonsaiWorldColors.textPrimary)
             .textCase(.none)
     }
 
@@ -87,9 +87,16 @@ struct CollectionsList: View {
             name: collection.name,
             description: collection.description,
             treeCount: treeCount(collection),
-            systemImage: collection.icon ?? "square.stack.3d.up"
+            systemImage: collection.icon ?? "square.stack.3d.up",
+            isSelected: selection == collection.id
         )
         .tag(collection.id)
+        .listRowBackground(
+            SidebarRowBackground(
+                isSelected: selection == collection.id,
+                baseFill: BonsaiWorldColors.canvas
+            )
+        )
     }
 }
 
@@ -98,12 +105,13 @@ struct CollectionListRow: View {
     let description: String
     let treeCount: Int
     var systemImage: String = "square.stack.3d.up"
+    var isSelected: Bool = false
 
     var body: some View {
         HStack(alignment: .top, spacing: FaloSpacing.medium) {
             Image(systemName: systemImage)
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(isSelected ? BonsaiWorldColors.accent : BonsaiWorldColors.textSecondary)
                 .symbolRenderingMode(.hierarchical)
                 .frame(width: 22, height: 22, alignment: .center)
                 .padding(.top, 2)
@@ -111,18 +119,18 @@ struct CollectionListRow: View {
             VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
                 Text(name)
                     .font(FaloTypography.body)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(BonsaiWorldColors.textPrimary)
 
                 if !description.isEmpty {
                     Text(description)
                         .font(FaloTypography.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(BonsaiWorldColors.textSecondary)
                         .lineLimit(2)
                 }
 
                 Text(treeCount == 1 ? "1 Tree" : "\(treeCount) Trees")
                     .font(FaloTypography.caption)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(BonsaiWorldColors.textTertiary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

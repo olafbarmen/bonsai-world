@@ -2,7 +2,7 @@
 //  AppSettings.swift
 //  Bonsai World
 //
-//  Regional / display preferences only.
+//  Regional / display preferences (including Appearance theme).
 //  Gardens and addresses live in UserProfileStore — never here.
 //
 
@@ -19,6 +19,9 @@ final class AppSettings {
     private static let dateFormatKey = "falo.appSettings.dateFormat"
     private static let timeFormatKey = "falo.appSettings.timeFormat"
     private static let firstDayOfWeekKey = "falo.appSettings.firstDayOfWeek"
+    private static let themeKey = "falo.appSettings.theme"
+    private static let socialEnabledKey = "falo.appSettings.isSocialEnabled"
+    private static let experienceEditionKey = "falo.appSettings.experienceEdition"
 
     var currency: AppCurrency {
         didSet {
@@ -62,13 +65,42 @@ final class AppSettings {
         }
     }
 
+    /// Appearance theme — Light (default) or Dark (hybrid sidebar / canvas).
+    var theme: AppTheme {
+        didSet {
+            guard theme != oldValue else { return }
+            UserDefaults.standard.set(theme.rawValue, forKey: Self.themeKey)
+            BonsaiWorldColors.apply(theme)
+        }
+    }
+
+    /// When false, Trees are not offered for Social sharing (share levels are ignored).
+    var isSocialEnabled: Bool {
+        didSet {
+            guard isSocialEnabled != oldValue else { return }
+            UserDefaults.standard.set(isSocialEnabled, forKey: Self.socialEnabledKey)
+        }
+    }
+
+    /// Need-based edition: Essentials / Practice / Complete (presentation only).
+    var experienceEdition: ExperienceEdition {
+        didSet {
+            guard experienceEdition != oldValue else { return }
+            UserDefaults.standard.set(experienceEdition.rawValue, forKey: Self.experienceEditionKey)
+            ExperienceEditionStore.apply(experienceEdition)
+        }
+    }
+
     init(
         currency: AppCurrency? = nil,
         measurementSystem: MeasurementSystem? = nil,
         temperatureUnit: TemperatureUnit? = nil,
         dateFormat: AppDateFormat? = nil,
         timeFormat: AppTimeFormat? = nil,
-        firstDayOfWeek: FirstDayOfWeek? = nil
+        firstDayOfWeek: FirstDayOfWeek? = nil,
+        theme: AppTheme? = nil,
+        isSocialEnabled: Bool? = nil,
+        experienceEdition: ExperienceEdition? = nil
     ) {
         self.currency = currency
             ?? UserDefaults.standard.string(forKey: Self.currencyKey).flatMap(AppCurrency.init)
@@ -88,5 +120,20 @@ final class AppSettings {
         self.firstDayOfWeek = firstDayOfWeek
             ?? UserDefaults.standard.string(forKey: Self.firstDayOfWeekKey).flatMap(FirstDayOfWeek.init)
             ?? .monday
+        self.theme = theme
+            ?? UserDefaults.standard.string(forKey: Self.themeKey).flatMap(AppTheme.init)
+            ?? .light
+        if let isSocialEnabled {
+            self.isSocialEnabled = isSocialEnabled
+        } else if UserDefaults.standard.object(forKey: Self.socialEnabledKey) != nil {
+            self.isSocialEnabled = UserDefaults.standard.bool(forKey: Self.socialEnabledKey)
+        } else {
+            self.isSocialEnabled = false
+        }
+        self.experienceEdition = experienceEdition
+            ?? UserDefaults.standard.string(forKey: Self.experienceEditionKey).flatMap(ExperienceEdition.init)
+            ?? .complete
+        BonsaiWorldColors.apply(self.theme)
+        ExperienceEditionStore.apply(self.experienceEdition)
     }
 }

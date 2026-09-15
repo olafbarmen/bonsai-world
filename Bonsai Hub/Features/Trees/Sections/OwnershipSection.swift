@@ -26,6 +26,9 @@ struct OwnershipSection: View {
     let acquisitionMethods: [DetailPickerOption]
     let disposalMethods: [DetailPickerOption]
     var isEditing: Bool
+    /// Overview View Mode uses quieter Dashboard-aligned disclosure chrome.
+    var disclosureChrome: ExpandableSectionChrome = .detail
+    var fillsRowHeight: Bool = false
 
     @State private var isExpanded = false
 
@@ -97,6 +100,8 @@ struct OwnershipSection: View {
             title: "Ownership",
             status: ownershipStatus,
             summaryRows: summaryRows,
+            chrome: disclosureChrome,
+            fillsRowHeight: fillsRowHeight,
             isExpanded: $isExpanded
         ) {
             acquisitionBlock
@@ -224,6 +229,7 @@ struct OwnershipSection: View {
 
 // MARK: - Field helpers
 
+@MainActor
 @ViewBuilder
 private func ownershipOptionalDateRow(label: String, date: Binding<Date?>) -> some View {
     VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {

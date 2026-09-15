@@ -2,9 +2,8 @@
 //  SchedulesListSheet.swift
 //  Bonsai World
 //
-//  Manage recurring CareSchedules — pause/resume or delete. Editing a
-//  schedule's cadence isn't supported yet; delete and recreate via
-//  AddTaskSheet's "Repeats" toggle instead.
+//  Manage recurring CareSchedules — open a row to Edit details; pause/resume
+//  or delete from the list.
 //
 
 import SwiftUI
@@ -12,6 +11,8 @@ import SwiftUI
 struct SchedulesListSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(TaskService.self) private var taskService
+
+    @State private var editSubject: EditTaskSheet.Subject?
 
     private var schedules: [CareSchedule] {
         taskService.schedules.sorted { $0.title.localizedCompare($1.title) == .orderedAscending }
@@ -33,11 +34,14 @@ struct SchedulesListSheet: View {
                                 schedule: schedule,
                                 workTypeName: taskService.workType(id: schedule.workTypeID)?.name ?? "Task",
                                 targetSummary: taskService.targetDescription(schedule.target),
+                                onOpen: {
+                                    editSubject = .schedule(schedule)
+                                },
                                 onToggleActive: { isActive in
-                                    try? taskService.setSchedule(schedule.id, isActive: isActive)
+                                    _ = try? taskService.setSchedule(schedule.id, isActive: isActive)
                                 },
                                 onDelete: {
-                                    try? taskService.deleteSchedule(id: schedule.id)
+                                    _ = try? taskService.deleteSchedule(id: schedule.id)
                                 }
                             )
                         }
@@ -48,6 +52,11 @@ struct SchedulesListSheet: View {
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
+                }
+            }
+            .sheet(item: $editSubject) { subject in
+                EditTaskSheet(subject: subject) {
+                    editSubject = nil
                 }
             }
         }

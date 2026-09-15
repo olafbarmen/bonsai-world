@@ -147,10 +147,31 @@ final class PreviewData {
         replaced.speciesID = previous.speciesID
         replaced.cultivarID = previous.cultivarID
         replaced.botanicalName = previous.botanicalName
-        replaced.bonsaiName = previous.bonsaiName
+        if previous.yamadoriNursery, !tree.yamadoriNursery {
+            replaced.bonsaiName = tree.bonsaiName.trimmingCharacters(in: .whitespacesAndNewlines)
+            replaced.yamadoriNursery = false
+        } else {
+            replaced.bonsaiName = previous.bonsaiName
+            replaced.yamadoriNursery = previous.yamadoriNursery
+        }
         replaced.modifiedDate = .now
         trees[index] = replaced
         return replaced
+    }
+
+    /// Catalog repair — botanical IDs may change to match Botanical Name.
+    @discardableResult
+    func repairBotanicalIdentity(_ tree: Tree) -> Tree {
+        guard let index = trees.firstIndex(where: { $0.id == tree.id }) else {
+            return insertTree(tree)
+        }
+        var repaired = trees[index]
+        repaired.genusID = tree.genusID
+        repaired.speciesID = tree.speciesID
+        repaired.cultivarID = tree.cultivarID
+        repaired.modifiedDate = .now
+        trees[index] = repaired
+        return repaired
     }
 
     /// Removes a Tree and cleans Collection membership (session only).

@@ -18,16 +18,19 @@ enum AppModule: String, CaseIterable, Identifiable, Hashable, Sendable {
     case shaping
     case care
     case nursery
+    case yamadori
     case inventory
     case media
     case knowledge
     case settings
 
     // Legacy module identities — routes may still reference these; not shown in the sidebar.
+    case propagation
     case locations
     case workshop
     case design
     case economy
+    case social
 
     var id: Self { self }
 
@@ -39,14 +42,17 @@ enum AppModule: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .shaping: "Shaping"
         case .care: "Care"
         case .nursery: "Nursery"
+        case .yamadori: "Yamadori"
         case .inventory: "Inventory"
         case .media: "Media"
         case .knowledge: "Knowledge"
         case .settings: "Settings"
+        case .propagation: "Propagation"
         case .locations: "Locations"
         case .workshop: "Workshop"
         case .design: "Design"
         case .economy: "Economy"
+        case .social: "Social"
         }
     }
 
@@ -58,14 +64,17 @@ enum AppModule: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .shaping: "pencil.and.outline"
         case .care: "drop"
         case .nursery: "leaf.circle"
+        case .yamadori: "mountain.2"
         case .inventory: "shippingbox"
         case .media: "photo.on.rectangle.angled"
         case .knowledge: "book"
         case .settings: "gearshape"
+        case .propagation: "arrow.triangle.branch"
         case .locations: "mappin.and.ellipse"
         case .workshop: "wrench.and.screwdriver"
         case .design: "pencil.and.outline"
         case .economy: "sterlingsign.circle"
+        case .social: "person.2"
         }
     }
 
@@ -75,9 +84,9 @@ enum AppModule: String, CaseIterable, Identifiable, Hashable, Sendable {
             .dashboard,
             .tasks,
             .garden,
-            .shaping,
             .care,
             .nursery,
+            .yamadori,
             .inventory
         ]
     }
@@ -92,8 +101,9 @@ enum AppModule: String, CaseIterable, Identifiable, Hashable, Sendable {
         primaryWorkspaceModules + libraryWorkspaceModules
     }
 
+    /// Modules under Tools in the sidebar. Settings opens from the profile footer only.
     static var toolsModules: [AppModule] {
-        [.settings]
+        []
     }
 
     /// Child routes shown under this module in the sidebar (shipped routes only).
@@ -158,7 +168,7 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
     case nurseryAirLayers
     case nurseryGrafting
     case nurseryYamadori
-    case nurseryDevelopment
+    case nurseryFieldTree
 
     // Care
     case careToday
@@ -170,7 +180,10 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
     case careSeasonal
     case careWinter
 
-    // Shaping (formerly Design)
+    // Shaping — Tree Detail segment only (not a sidebar module).
+    case shaping
+
+    // Shaping subpages (reserved — used inside Tree Detail later)
     case designVision
     case designStyle
     case designFrontSelection
@@ -192,13 +205,16 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
     case inventoryTools
     case inventoryChemicals
     case inventoryConsumables
+    case inventoryStockReport
 
     // Knowledge
     case knowledgeQuickGuides
     case knowledgeHandbook
+    case knowledgePotGuidelines
     case knowledgeSpeciesLibrary
     case knowledgeSoilGuides
     case knowledgeFertilizerGuides
+    case knowledgeSeedStratification
     case knowledgeVideos
     case knowledgeCourses
     case knowledgeFAQ
@@ -214,10 +230,26 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
     case economyInventoryValue
     case economyReports
 
+    // Social (own module — hidden until communication features ship)
+    case socialContacts
+    case socialLinks
+    case socialSharedTrees
+
     // Settings
     case settings
 
     var id: Self { self }
+
+    init(tasksHorizon: TasksHorizon) {
+        switch tasksHorizon {
+        case .overdue: self = .tasksOverdue
+        case .today: self = .tasksToday
+        case .thisWeek: self = .tasksThisWeek
+        case .thisMonth: self = .tasksThisMonth
+        case .thisYear: self = .tasksThisYear
+        case .nextYear: self = .tasksNextYear
+        }
+    }
 
     /// Whether this route is listed in the sidebar today.
     var isShippedInNavigation: Bool {
@@ -226,6 +258,8 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
             true
         case .mediaNotes, .mediaAudio:
             false
+        case .inventorySoilComponents, .inventorySoilMixes:
+            false
         case .locationsGardens, .locationsMap:
             false
         case .workshopWork, .workshopCalendar, .workshopTasks:
@@ -233,10 +267,44 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .economyPurchases, .economySales, .economyExpenses, .economyIncome,
              .economyTreeValue, .economyPotValue, .economyInventoryValue, .economyReports:
             false
-        case .careToday, .carePlacement, .careWinter:
+        case .socialContacts, .socialLinks, .socialSharedTrees:
+            false
+        case .nurseryFieldTree:
+            // Field-grown material is a Tree (Location + Acquisition Method). Module hidden; data kept (A3).
+            false
+        case .knowledgeSoilGuides:
+            // Soil & Substrate lives inside Bonsai Handbook — no sidebar destination.
+            false
+        case .knowledgePotGuidelines:
+            // Pots & Containers lives inside Bonsai Handbook — not a sidebar Knowledge page.
+            false
+        case .knowledgeVideos, .knowledgeCourses, .knowledgeFAQ, .knowledgeExternalLinks:
+            // Placeholder Knowledge destinations — keep routes, hide until content ships.
+            false
+        case .knowledgeQuickGuides:
+            // Handbook is the reading surface. Keep the route; hide the sidebar item.
+            false
+        case .shaping:
+            // Shaping lives on Tree Detail — not a sidebar module.
+            false
+        case .designVision, .designStyle, .designFrontSelection, .designVirtual,
+             .designBranchPlan, .designTrunkDevelopment, .designRamification,
+             .designApex, .designDeadwood, .designTimeline:
             false
         default:
             true
+        }
+    }
+
+    /// Hidden routes still openable from Search while the module is under development.
+    var isSearchableWhileHidden: Bool {
+        switch self {
+        case .socialContacts, .socialLinks, .socialSharedTrees:
+            true
+        case .nurseryFieldTree:
+            true
+        default:
+            false
         }
     }
 
@@ -273,7 +341,7 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .nurseryAirLayers: "Air Layers"
         case .nurseryGrafting: "Grafting"
         case .nurseryYamadori: "Yamadori"
-        case .nurseryDevelopment: "Development"
+        case .nurseryFieldTree: "Field Tree"
 
         case .careToday: "Today"
         case .careWatering: "Watering"
@@ -283,6 +351,8 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .careTreeHealth: "Health"
         case .careSeasonal: "Seasonal Care"
         case .careWinter: "Winter Care"
+
+        case .shaping: "Shaping"
 
         case .designVision: "Vision"
         case .designStyle: "Style"
@@ -304,12 +374,15 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .inventoryTools: "Tools"
         case .inventoryChemicals: "Chemicals"
         case .inventoryConsumables: "Consumables"
+        case .inventoryStockReport: "Stock Report"
 
         case .knowledgeQuickGuides: "Quick Guides"
         case .knowledgeHandbook: "Bonsai Handbook"
+        case .knowledgePotGuidelines: "Pots & Containers"
         case .knowledgeSpeciesLibrary: "Species Library"
-        case .knowledgeSoilGuides: "Soil Guides"
+        case .knowledgeSoilGuides: "Soil & Substrate"
         case .knowledgeFertilizerGuides: "Fertilizer Guides"
+        case .knowledgeSeedStratification: "Seed Stratification"
         case .knowledgeVideos: "Video Tutorials"
         case .knowledgeCourses: "Courses"
         case .knowledgeFAQ: "FAQ"
@@ -323,6 +396,10 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .economyPotValue: "Pot Value"
         case .economyInventoryValue: "Inventory Value"
         case .economyReports: "Reports"
+
+        case .socialContacts: "Contacts"
+        case .socialLinks: "Links"
+        case .socialSharedTrees: "Shared Trees"
 
         case .settings: "Settings"
         }
@@ -340,22 +417,26 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
              .locationsGardens, .locationsPlaces, .locationsMap: .garden
         case .mediaImages, .mediaDocuments, .mediaNotes, .mediaVideo, .mediaAudio: .media
         case .workshopWork, .workshopCalendar, .workshopTasks: .workshop
-        case .nurserySeeds, .nurseryCuttings, .nurseryAirLayers,
-             .nurseryGrafting, .nurseryYamadori, .nurseryDevelopment: .nursery
+        case .nurserySeeds, .nurseryCuttings, .nurseryAirLayers, .nurseryGrafting: .nursery
+        case .nurseryYamadori: .yamadori
+        case .nurseryFieldTree: .propagation
         case .careToday, .careWatering, .careFertilizing, .careRepotting, .carePlacement,
              .careTreeHealth, .careSeasonal, .careWinter: .care
+        case .shaping: .shaping
         case .designVision, .designStyle, .designFrontSelection, .designVirtual,
              .designBranchPlan, .designTrunkDevelopment, .designRamification,
              .designApex, .designDeadwood, .designTimeline: .shaping
         case .inventoryPots, .inventorySoil, .inventorySoilComponents, .inventorySoilMixes,
              .inventoryFertilizers, .inventoryWire, .inventoryTools,
-             .inventoryChemicals, .inventoryConsumables: .inventory
-        case .knowledgeQuickGuides, .knowledgeHandbook, .knowledgeSpeciesLibrary,
-             .knowledgeSoilGuides, .knowledgeFertilizerGuides, .knowledgeVideos,
-             .knowledgeCourses, .knowledgeFAQ, .knowledgeExternalLinks: .knowledge
+             .inventoryChemicals, .inventoryConsumables, .inventoryStockReport: .inventory
+        case .knowledgeQuickGuides, .knowledgeHandbook, .knowledgePotGuidelines,
+             .knowledgeSpeciesLibrary, .knowledgeSoilGuides, .knowledgeFertilizerGuides,
+             .knowledgeSeedStratification,
+             .knowledgeVideos, .knowledgeCourses, .knowledgeFAQ, .knowledgeExternalLinks: .knowledge
         case .economyPurchases, .economySales, .economyExpenses, .economyIncome,
              .economyTreeValue, .economyPotValue, .economyInventoryValue,
              .economyReports: .economy
+        case .socialContacts, .socialLinks, .socialSharedTrees: .social
         case .settings: .settings
         }
     }
@@ -374,11 +455,7 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .garden:
             [.gardenTrees, .gardenCollections, .locationsPlaces]
         case .shaping:
-            [
-                .designVision, .designStyle, .designFrontSelection, .designVirtual,
-                .designBranchPlan, .designTrunkDevelopment, .designRamification,
-                .designApex, .designDeadwood, .designTimeline
-            ]
+            [.shaping]
         case .care:
             [
                 .careWatering, .careFertilizing, .careRepotting,
@@ -387,22 +464,28 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
             ]
         case .nursery:
             [
-                .nurserySeeds, .nurseryCuttings, .nurseryAirLayers,
-                .nurseryGrafting, .nurseryYamadori, .nurseryDevelopment
+                .nurserySeeds,
+                .nurseryCuttings, .nurseryAirLayers
             ]
+        case .yamadori:
+            [.nurseryYamadori]
+        case .propagation:
+            // Legacy — Field Tree projects may still open via Search (A3). Not in sidebar.
+            [.nurseryFieldTree]
         case .inventory:
             [
                 .inventoryPots, .inventorySoil, .inventorySoilComponents, .inventorySoilMixes,
                 .inventoryFertilizers, .inventoryWire, .inventoryTools,
-                .inventoryChemicals, .inventoryConsumables
+                .inventoryChemicals, .inventoryConsumables, .inventoryStockReport
             ]
         case .media:
             [.mediaImages, .mediaVideo, .mediaDocuments, .mediaNotes, .mediaAudio]
         case .knowledge:
             [
-                .knowledgeQuickGuides, .knowledgeHandbook, .knowledgeSpeciesLibrary,
-                .knowledgeSoilGuides, .knowledgeFertilizerGuides, .knowledgeVideos,
-                .knowledgeCourses, .knowledgeFAQ, .knowledgeExternalLinks
+                .knowledgeQuickGuides, .knowledgeHandbook,
+                .knowledgeSpeciesLibrary, .knowledgeFertilizerGuides,
+                .knowledgeSeedStratification,
+                .knowledgeVideos, .knowledgeCourses, .knowledgeFAQ, .knowledgeExternalLinks
             ]
         case .settings:
             [.settings]
@@ -417,6 +500,8 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
                 .economyPurchases, .economySales, .economyExpenses, .economyIncome,
                 .economyTreeValue, .economyPotValue, .economyInventoryValue, .economyReports
             ]
+        case .social:
+            [.socialSharedTrees, .socialContacts, .socialLinks]
         }
     }
 
@@ -428,6 +513,10 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
     static func isGardenLocationRoute(_ route: AppRoute?) -> Bool {
         guard let route else { return false }
         return gardenLocationRoutes.contains(route)
+    }
+
+    var isYamadoriRoute: Bool {
+        self == .nurseryYamadori
     }
 }
 

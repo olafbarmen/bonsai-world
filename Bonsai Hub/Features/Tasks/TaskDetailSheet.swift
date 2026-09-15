@@ -5,9 +5,9 @@
 //  Full detail for one TaskOccurrence — tapped from the Tasks workspace or a
 //  Tree's "Upcoming Tasks" card. Shows the complete instructions (not
 //  truncated the way a list row is), what it applies to, its cadence when
-//  recurring, and a shortcut to the Tree it's for. View-only for now — no
-//  edit/delete yet; Complete reuses the same instant/form-required path as
-//  the row it was opened from.
+//  recurring, and a shortcut to the Tree it's for. Edit / Delete open from
+//  here (core fields only). Complete reuses the same instant/form-required
+//  path as the row it was opened from.
 //
 
 import SwiftUI
@@ -21,7 +21,13 @@ struct TaskDetailSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(TaskService.self) private var taskService
     @Environment(TreeService.self) private var treeService
+    @Environment(SeedBatchService.self) private var seedBatchService
+    @Environment(YamadoriService.self) private var yamadoriService
+    @Environment(NurseryPropagationService.self) private var nurseryPropagationService
     @Environment(AppState.self) private var appState
+
+    @State private var editSubject: EditTaskSheet.Subject?
+    @State private var confirmDelete = false
 
     private var workType: WorkType? {
         taskService.workType(id: occurrence.workTypeID)
@@ -34,7 +40,7 @@ struct TaskDetailSheet: View {
 
     private var oneOffTask: CareTask? {
         guard case .task(let task) = occurrence.source else { return nil }
-        return task
+        return taskService.tasks.first { $0.id == task.id } ?? task
     }
 
     private var notes: String {
@@ -43,17 +49,37 @@ struct TaskDetailSheet: View {
     }
 
     private var tree: Tree? {
-        treeService.getTree(id: occurrence.treeID)
+        guard let treeID = occurrence.treeID else { return nil }
+        return treeService.getTree(id: treeID)
+    }
+
+    private var seedBatch: SeedBatch? {
+        guard let seedBatchID = occurrence.seedBatchID else { return nil }
+        return seedBatchService.batch(id: seedBatchID)
+    }
+
+    private var yamadoriTrip: Yamadori? {
+        guard let yamadoriID = occurrence.yamadoriID else { return nil }
+        return yamadoriService.getYamadori(id: yamadoriID)
+    }
+
+    private var fieldTreeProject: NurseryPropagationProject? {
+        guard let id = occurrence.nurseryPropagationProjectID else { return nil }
+        return nurseryPropagationService.project(id: id)
     }
 
     /// Other trees this same one-off Task also covers, if any — a Task can
     /// target several trees at once even though this occurrence is for one.
     private var otherTreeNames: [String] {
-        guard let oneOffTask, oneOffTask.treeIDs.count > 1 else { return [] }
+        guard let oneOffTask, let treeID = occurrence.treeID, oneOffTask.treeIDs.count > 1 else { return [] }
         return oneOffTask.treeIDs
-            .filter { $0 != occurrence.treeID }
+            .filter { $0 != treeID }
             .compactMap { treeService.getTree(id: $0)?.bonsaiName }
             .sorted()
+    }
+
+    private var canEditOrDelete: Bool {
+        oneOffTask != nil || schedule != nil
     }
 
     var body: some View {
@@ -79,14 +105,77 @@ struct TaskDetailSheet: View {
                 }
 
                 Section("Applies to") {
-                    HStack {
-                        Text(tree?.bonsaiName ?? "Unknown tree")
-                        Spacer()
-                        Button("Open Tree") {
-                            dismiss()
-                            appState.showTreeFromMap(treeID: occurrence.treeID)
+                    if occurrence.libraryInventoryKind == .soilStocktake {
+                        HStack {
+                            Text("Soil stock")
+                            Spacer()
+                            Button("Open Stocktake") {
+                                dismiss()
+                                appState.presentSoilStocktake()
+                            }
+                            .buttonStyle(.borderless)
                         }
-                        .buttonStyle(.borderless)
+                    } else if occurrence.seedBatchID != nil {
+                        HStack {
+                            if let seedBatch {
+                                Text("\(seedBatch.botanicalName) · \(seedBatch.batchCode)")
+                            } else {
+                                Text("Seed Batch")
+                            }
+                            Spacer()
+                            if let seedBatchID = occurrence.seedBatchID {
+                                Button("Open Seed Batch") {
+                                    dismiss()
+                                    appState.showSeedBatch(batchID: seedBatchID)
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    } else if occurrence.yamadoriID != nil {
+                        HStack {
+                            if let yamadoriTrip {
+                                let name = yamadoriTrip.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                                Text(name.isEmpty ? "Yamadori" : name)
+                            } else {
+                                Text("Yamadori")
+                            }
+                            Spacer()
+                            if let yamadoriID = occurrence.yamadoriID {
+                                Button("Open Yamadori") {
+                                    dismiss()
+                                    appState.showYamadoriTrip(tripID: yamadoriID)
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    } else if occurrence.nurseryPropagationProjectID != nil {
+                        HStack {
+                            if let fieldTreeProject {
+                                Text("\(fieldTreeProject.botanicalName) · \(fieldTreeProject.projectCode)")
+                            } else {
+                                Text("Field Tree")
+                            }
+                            Spacer()
+                            if let projectID = occurrence.nurseryPropagationProjectID {
+                                Button("Open Field Tree") {
+                                    dismiss()
+                                    appState.showFieldTree(projectID: projectID)
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
+                    } else {
+                        HStack {
+                            Text(tree?.bonsaiName ?? "Unknown tree")
+                            Spacer()
+                            if let treeID = occurrence.treeID {
+                                Button("Open Tree") {
+                                    dismiss()
+                                    appState.showTreeFromMap(treeID: treeID)
+                                }
+                                .buttonStyle(.borderless)
+                            }
+                        }
                     }
                     if !otherTreeNames.isEmpty {
                         Text("Also applies to \(otherTreeNames.joined(separator: ", ")) — completing this finishes it for all of them at once.")
@@ -137,6 +226,16 @@ struct TaskDetailSheet: View {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Close") { dismiss() }
                 }
+                if canEditOrDelete {
+                    ToolbarItem(placement: .automatic) {
+                        Button("Edit") { presentEdit() }
+                    }
+                    ToolbarItem(placement: .destructiveAction) {
+                        Button("Delete", role: .destructive) {
+                            confirmDelete = true
+                        }
+                    }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button(occurrence.isInstant ? "Complete" : "Complete…") {
                         onComplete()
@@ -145,7 +244,56 @@ struct TaskDetailSheet: View {
                     .buttonStyle(.borderedProminent)
                 }
             }
+            .confirmationDialog(
+                schedule != nil ? "Delete this schedule?" : "Delete this task?",
+                isPresented: $confirmDelete,
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) { deleteSubject() }
+                Button("Cancel", role: .cancel) {}
+            } message: {
+                Text(
+                    schedule != nil
+                        ? "Future recurring occurrences will stop. Past Work stays in history."
+                        : "This planned task will be removed. Past Work stays in history."
+                )
+            }
+            .sheet(item: $editSubject) { subject in
+                EditTaskSheet(subject: subject) {
+                    dismiss()
+                }
+            }
         }
         .frame(minWidth: 460, minHeight: 480)
+    }
+
+    private func presentEdit() {
+        if let schedule {
+            editSubject = .schedule(schedule)
+        } else if let oneOffTask {
+            editSubject = .task(oneOffTask)
+        }
+    }
+
+    private func deleteSubject() {
+        do {
+            if let schedule {
+                try taskService.deleteSchedule(id: schedule.id)
+            } else if let oneOffTask {
+                try taskService.deleteTask(id: oneOffTask.id)
+            }
+            dismiss()
+        } catch {
+            // Keep the sheet open; grower can retry or close.
+        }
+    }
+}
+
+extension EditTaskSheet.Subject: Identifiable {
+    var id: UUID {
+        switch self {
+        case .task(let task): task.id
+        case .schedule(let schedule): schedule.id
+        }
     }
 }

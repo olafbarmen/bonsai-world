@@ -21,6 +21,28 @@ enum TreePresentation {
         return "Untitled Tree"
     }
 
+    /// Immutable registry identity (`GEN-SPE-CUL-YYYY-NNN`) — primary in pot assignment and similar pickers.
+    static func registryName(for tree: Tree) -> String {
+        let bonsai = tree.bonsaiName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !bonsai.isEmpty { return bonsai }
+        return title(for: tree)
+    }
+
+    /// Secondary line under ``registryName`` — botanical name when present.
+    static func registrySubtitle(for tree: Tree) -> String? {
+        let botanical = tree.botanicalName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return botanical.isEmpty ? nil : botanical
+    }
+
+    /// Single-line pot/list label: registry name, then botanical when both exist.
+    static func registryLabel(for tree: Tree) -> String {
+        let name = registryName(for: tree)
+        if let subtitle = registrySubtitle(for: tree), subtitle != name {
+            return "\(name) · \(subtitle)"
+        }
+        return name
+    }
+
     /// Optional nickname when set.
     static func nicknameIfPresent(for tree: Tree) -> String? {
         let trimmed = tree.nickname.trimmingCharacters(in: .whitespacesAndNewlines)

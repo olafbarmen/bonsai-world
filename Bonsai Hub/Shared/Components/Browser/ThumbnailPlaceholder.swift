@@ -26,12 +26,12 @@ struct ThumbnailPlaceholder: View {
 
     var body: some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.primary.opacity(0.06))
+            RoundedRectangle(cornerRadius: FaloRadius.small, style: .continuous)
+                .fill(BonsaiWorldColors.sidebar)
 
             Image(systemName: systemImage)
                 .font(.system(size: min(width, height) * 0.36, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(BonsaiWorldColors.textTertiary)
                 .symbolRenderingMode(.hierarchical)
         }
         .frame(width: width, height: height)

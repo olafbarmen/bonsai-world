@@ -2,10 +2,9 @@
 //  TreeImageViewerView.swift
 //  Bonsai World
 //
-//  Dedicated Tree Image Viewer window — display crop, fit-to-window.
+//  Dedicated Tree Image Viewer window — display crop, fit-to-window, zoom and pan.
 //  Original file is never shown here; Crop in Media → Images is the original canvas.
 //  ESC / Close dismisses; selection is owned by the opener (Tree Detail).
-//  Ready for future zoom, pan, next/previous, slideshow, compare, history.
 //
 
 import AppKit
@@ -18,6 +17,9 @@ struct TreeImageViewerView: View {
     @State private var context: TreeImageViewerContext
     @State private var displayImage: Image?
     @State private var isLoading = true
+    @State private var zoomMultiplier: CGFloat = 1.0
+    @State private var accumulatedZoom: CGFloat = 1.0
+    @State private var zoomResetTrigger = UUID()
 
     init(context: TreeImageViewerContext) {
         _context = State(initialValue: context)
@@ -28,24 +30,16 @@ struct TreeImageViewerView: View {
             Color.black.opacity(0.92)
                 .ignoresSafeArea()
 
-            if let displayImage {
-                displayImage
-                    .resizable()
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .padding(FaloSpacing.large)
-            } else if isLoading {
-                ProgressView()
-                    .controlSize(.large)
-                    .tint(.white)
-            } else {
-                ContentUnavailableView(
-                    "Image Unavailable",
-                    systemImage: "photo",
-                    description: Text("The image could not be loaded.")
-                )
-                .foregroundStyle(.white)
-            }
+            ZoomableImageCanvas(
+                displayImage: displayImage,
+                isLoading: isLoading,
+                loadFailed: !isLoading && displayImage == nil,
+                style: .viewer,
+                contentPadding: FaloSpacing.large,
+                resetTrigger: zoomResetTrigger,
+                zoomMultiplier: $zoomMultiplier,
+                accumulatedZoom: $accumulatedZoom
+            )
         }
         .frame(minWidth: 640, minHeight: 480)
         .toolbar {
@@ -56,12 +50,42 @@ struct TreeImageViewerView: View {
                 .keyboardShortcut(.cancelAction)
                 .help("Close image viewer")
             }
+
+            ToolbarItemGroup(placement: .primaryAction) {
+                Button {
+                    ZoomableImageCanvas.zoomOut(&zoomMultiplier, &accumulatedZoom)
+                } label: {
+                    Image(systemName: "minus.magnifyingglass")
+                }
+                .help("Zoom out")
+                .keyboardShortcut("-", modifiers: .command)
+                .disabled(displayImage == nil || accumulatedZoom <= 1.0)
+
+                Button {
+                    ZoomableImageCanvas.reset(&zoomMultiplier, &accumulatedZoom)
+                } label: {
+                    Text(zoomPercentageLabel)
+                        .monospacedDigit()
+                }
+                .help("Reset zoom")
+                .keyboardShortcut("0", modifiers: .command)
+                .disabled(displayImage == nil || accumulatedZoom == 1.0)
+
+                Button {
+                    ZoomableImageCanvas.zoomIn(&zoomMultiplier, &accumulatedZoom)
+                } label: {
+                    Image(systemName: "plus.magnifyingglass")
+                }
+                .help("Zoom in")
+                .keyboardShortcut("=", modifiers: .command)
+                .disabled(displayImage == nil || accumulatedZoom >= 8.0)
+            }
         }
         .navigationTitle(navigationTitle)
         .onExitCommand {
             dismiss()
         }
-        .task(id: "\(context.selectedImageID.uuidString)-\(imageService.presentationRevision)") {
+        .task(id: "\(context.selectedImageID.uuidString)-\(context.displayContext.rawValue)-\(imageService.presentationRevision)") {
             await loadSelectedImage()
         }
     }
@@ -73,13 +97,22 @@ struct TreeImageViewerView: View {
         return "Image"
     }
 
+    private var zoomPercentageLabel: String {
+        "\(Int((accumulatedZoom * 100).rounded()))%"
+    }
+
     private func loadSelectedImage() async {
         isLoading = true
         displayImage = nil
+        ZoomableImageCanvas.reset(&zoomMultiplier, &accumulatedZoom)
+        zoomResetTrigger = UUID()
         defer { isLoading = false }
 
         do {
-            let nsImage = try await imageService.loadDisplayNSImage(for: context.selectedImageID, context: .treeThumbnail)
+            let nsImage = try await imageService.loadDisplayNSImage(
+                for: context.selectedImageID,
+                context: context.displayContext
+            )
             displayImage = Image(nsImage: nsImage)
         } catch {
             displayImage = nil

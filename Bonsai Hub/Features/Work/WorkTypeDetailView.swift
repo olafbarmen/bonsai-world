@@ -70,7 +70,7 @@ struct WorkTypeDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.windowBackground)
+        .faloWorkspaceCanvas()
     }
 
     private func behaviourRow(_ label: String, _ value: Bool) -> some View {

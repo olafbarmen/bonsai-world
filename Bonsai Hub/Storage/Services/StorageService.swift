@@ -18,6 +18,8 @@ final class StorageService {
     static let shared = StorageService()
 
     private static let lastLibraryBookmarkKey = "bonsai.world.lastLibraryBookmark"
+    private static let recentLibrariesKey = "bonsai.world.recentLibraries"
+    private static let maxRecentLibraries = 8
 
     /// Active provider. Always a `StorageProvider` existential — never expose concrete types to Features.
     private(set) var provider: any StorageProvider
@@ -25,19 +27,37 @@ final class StorageService {
     /// Current library location (for Settings). Changing this rebuilds the local provider in Phase 1.
     private(set) var libraryLocationConfiguration: LibraryLocationConfiguration
 
+    /// Recently opened libraries (newest first), for Switch Library.
+    private(set) var recentLibraries: [RecentLibraryEntry] = []
+
     private init() {
         let configuration = LibraryLocationConfiguration.defaultLocal
         self.libraryLocationConfiguration = configuration
         self.provider = LocalStorageProvider.makeDefault()
+        self.recentLibraries = Self.loadRecentLibraries()
     }
 
     /// Testing / explicit bootstrap. Prefer `shared` in production.
     init(provider: any StorageProvider) {
         self.provider = provider
         self.libraryLocationConfiguration = provider.libraryLocation
+        self.recentLibraries = Self.loadRecentLibraries()
     }
 
     // MARK: - Library location
+
+    /// Default Internal SSD path display (First Launch proposal).
+    static var defaultLibraryPathDisplay: String {
+        (LocalStorageProvider.defaultLibraryRootURL().path as NSString).abbreviatingWithTildeInPath
+    }
+
+    /// Current open library path for Settings guidance.
+    var libraryPackagePathDisplay: String {
+        guard let root = libraryPackageRootURL else {
+            return "No library path available"
+        }
+        return (root.path as NSString).abbreviatingWithTildeInPath
+    }
 
     /// Applies a library location. Phase 1: local kinds only.
     func applyLibraryLocation(_ configuration: LibraryLocationConfiguration) throws {
@@ -55,9 +75,16 @@ final class StorageService {
             throw StorageError.providerUnavailable(configuration.kind)
         }
 
-        provider = LocalStorageProvider(rootURL: rootURL, libraryLocation: configuration)
-        libraryLocationConfiguration = configuration
-        persistLastLibraryBookmark(configuration.bookmarkData)
+        let bookmark: Data
+        if let existing = configuration.bookmarkData {
+            bookmark = existing
+        } else {
+            bookmark = try Self.makeBookmark(for: rootURL)
+        }
+        let resolved = LibraryLocationConfiguration(kind: configuration.kind, bookmarkData: bookmark)
+        provider = LocalStorageProvider(rootURL: rootURL, libraryLocation: resolved)
+        libraryLocationConfiguration = resolved
+        rememberOpenedLibrary(url: rootURL, bookmarkData: bookmark)
     }
 
     /// Points storage at an on-disk library root and stores a security-scoped bookmark.
@@ -65,15 +92,11 @@ final class StorageService {
         guard kind.isPhase1Local else {
             throw StorageError.providerUnavailable(kind)
         }
-        let bookmark = try url.bookmarkData(
-            options: [.withSecurityScope],
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
-        )
+        let bookmark = try Self.makeBookmark(for: url)
         let configuration = LibraryLocationConfiguration(kind: kind, bookmarkData: bookmark)
         provider = LocalStorageProvider(rootURL: url, libraryLocation: configuration)
         libraryLocationConfiguration = configuration
-        persistLastLibraryBookmark(bookmark)
+        rememberOpenedLibrary(url: url, bookmarkData: bookmark)
     }
 
     /// Restores the last used library bookmark, if any. Returns `false` when none or stale.
@@ -87,6 +110,7 @@ final class StorageService {
             let configuration = LibraryLocationConfiguration(kind: .customFolder, bookmarkData: bookmark)
             provider = LocalStorageProvider(rootURL: url, libraryLocation: configuration)
             libraryLocationConfiguration = configuration
+            rememberOpenedLibrary(url: url, bookmarkData: bookmark)
             return true
         } catch {
             return false
@@ -98,6 +122,25 @@ final class StorageService {
         let configuration = LibraryLocationConfiguration.defaultLocal
         provider = LocalStorageProvider.makeDefault()
         libraryLocationConfiguration = configuration
+    }
+
+    /// Recent libraries excluding the currently open package (for Switch Library).
+    var recentLibrariesForSwitch: [RecentLibraryEntry] {
+        let currentPath = libraryPackageRootURL?.path
+        return recentLibraries.filter { entry in
+            guard let currentPath else { return true }
+            return entry.id != currentPath
+        }
+    }
+
+    /// Resolves a recent entry to a usable folder URL.
+    func resolveRecentLibraryURL(_ entry: RecentLibraryEntry) throws -> URL {
+        try Self.resolveBookmarkURL(entry.bookmarkData)
+    }
+
+    /// Package root on disk — local Phase 1 provider only.
+    var libraryPackageRootURL: URL? {
+        (provider as? LocalStorageProvider)?.packageRootURL
     }
 
     var selectableLibraryLocationKinds: [LibraryLocationKind] {
@@ -169,10 +212,38 @@ final class StorageService {
 
     // MARK: - Private
 
-    private func persistLastLibraryBookmark(_ bookmark: Data?) {
-        if let bookmark {
-            UserDefaults.standard.set(bookmark, forKey: Self.lastLibraryBookmarkKey)
+    private func rememberOpenedLibrary(url: URL, bookmarkData: Data) {
+        UserDefaults.standard.set(bookmarkData, forKey: Self.lastLibraryBookmarkKey)
+
+        var next = recentLibraries.filter { $0.id != url.path }
+        next.insert(RecentLibraryEntry.make(url: url, bookmarkData: bookmarkData), at: 0)
+        if next.count > Self.maxRecentLibraries {
+            next = Array(next.prefix(Self.maxRecentLibraries))
         }
+        recentLibraries = next
+        Self.saveRecentLibraries(next)
+    }
+
+    private static func makeBookmark(for url: URL) throws -> Data {
+        try url.bookmarkData(
+            options: [.withSecurityScope],
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        )
+    }
+
+    private static func loadRecentLibraries() -> [RecentLibraryEntry] {
+        guard let data = UserDefaults.standard.data(forKey: recentLibrariesKey),
+              let decoded = try? JSONDecoder().decode([RecentLibraryEntry].self, from: data)
+        else {
+            return []
+        }
+        return decoded
+    }
+
+    private static func saveRecentLibraries(_ entries: [RecentLibraryEntry]) {
+        guard let data = try? JSONEncoder().encode(entries) else { return }
+        UserDefaults.standard.set(data, forKey: recentLibrariesKey)
     }
 
     private static func resolveBookmarkURL(_ bookmarkData: Data?) throws -> URL {

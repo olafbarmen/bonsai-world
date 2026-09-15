@@ -4,7 +4,7 @@
 //
 //  Dashboard My Trees aggregation (Blueprint §5.1 — whole-library counts).
 //  Pure, stateless functions over Trees + Reference Data — Dashboard aggregates
-//  read-only signals; it never owns Tree, Genus, Species, TreeStatus, or
+//  read-only signals; it never owns Tree, Genus, Species, TreeStage, or
 //  AcquisitionMethod records. Views call these functions; they never compute
 //  counts or classify status themselves (Constitution §14 — one owner per rule).
 //
@@ -23,35 +23,51 @@ enum DashboardCollectionSummary {
         let count: Int
     }
 
-    /// Tree Status names counted as "Finished Bonsai" (exact, case-insensitive match —
-    /// confirmed with the grower against the real Status taxonomy, not guessed).
-    private static let finishedStatusNames = ["bonsai", "ferdig bonsai", "finished bonsai", "finished"]
-    /// Tree Status names counted as "Development Trees".
-    private static let developmentStatusNames = ["prebonsai", "under utvikling", "in development", "development"]
+    /// Tree Stage names counted as finished / mature trees.
+    private static let finishedStageNames = [
+        "refinement", "exhibition", "ferdig bonsai", "finished bonsai", "finished",
+    ]
+    /// Tree Stage names counted as development trees.
+    static let developmentStageNames = [
+        "seedling", "cutting", "nursery stock", "pre-bonsai", "prebonsai",
+        "in training", "under utvikling", "in development", "development",
+    ]
     /// Acquisition Method name counted as Yamadori origin (Blueprint §4.4).
     private static let yamadoriAcquisitionNames = ["yamadori"]
 
-    /// Column 1 — In Care / Finished / Development / Yamadori / Without Status,
+    /// Stage IDs that count as Development — same rule as the Dashboard metric.
+    static func developmentStageIDs(in treeStages: [TreeStage]) -> Set<UUID> {
+        matchingIDs(in: treeStages, exactNames: developmentStageNames)
+    }
+
+    /// Whether a tree is in care and tagged with a Development Tree Stage.
+    static func isDevelopmentTree(_ tree: Tree, developmentStageIDs: Set<UUID>) -> Bool {
+        guard tree.isInCare else { return false }
+        guard let stageID = tree.treeStageID else { return false }
+        return developmentStageIDs.contains(stageID)
+    }
+
+    /// Column 1 — In Care / Finished / Development / Yamadori / Without Stage,
     /// then Died / Sold (always) and other disposal outcomes when count > 0.
     /// Care buckets count only trees still in care (no disposal method).
     static func heroMetrics(
         trees: [Tree],
-        treeStatuses: [TreeStatus],
+        treeStages: [TreeStage],
         acquisitionMethods: [AcquisitionMethod],
         disposalMethods: [DisposalMethod]
     ) -> [Metric] {
         let inCare = trees.filter(\.isInCare)
-        let activeStatusIDs = Set(treeStatuses.map(\.id))
-        let finishedStatusIDs = matchingIDs(in: treeStatuses, exactNames: finishedStatusNames)
-        let developmentStatusIDs = matchingIDs(in: treeStatuses, exactNames: developmentStatusNames)
+        let activeStageIDs = Set(treeStages.map(\.id))
+        let finishedStageIDs = matchingIDs(in: treeStages, exactNames: finishedStageNames)
+        let developmentStageIDs = matchingIDs(in: treeStages, exactNames: developmentStageNames)
         let yamadoriMethodIDs = matchingIDs(in: acquisitionMethods, exactNames: yamadoriAcquisitionNames)
 
-        let finishedCount = inCare.count { $0.treeStatusID.map(finishedStatusIDs.contains) == true }
-        let developmentCount = inCare.count { $0.treeStatusID.map(developmentStatusIDs.contains) == true }
+        let finishedCount = inCare.count { $0.treeStageID.map(finishedStageIDs.contains) == true }
+        let developmentCount = inCare.count { $0.treeStageID.map(developmentStageIDs.contains) == true }
         let yamadoriCount = inCare.count { $0.acquisitionMethodID.map(yamadoriMethodIDs.contains) == true }
-        let withoutStatusCount = inCare.count { tree in
-            guard let statusID = tree.treeStatusID else { return true }
-            return !activeStatusIDs.contains(statusID)
+        let withoutStageCount = inCare.count { tree in
+            guard let stageID = tree.treeStageID else { return true }
+            return !activeStageIDs.contains(stageID)
         }
 
         var metrics: [Metric] = [
@@ -59,7 +75,7 @@ enum DashboardCollectionSummary {
             Metric(id: "finished", label: "Finished Bonsai", count: finishedCount),
             Metric(id: "development", label: "Development Trees", count: developmentCount),
             Metric(id: "yamadori", label: "Yamadori", count: yamadoriCount),
-            Metric(id: "withoutStatus", label: "Without Status", count: withoutStatusCount)
+            Metric(id: "withoutStage", label: "Without Stage", count: withoutStageCount),
         ]
 
         metrics.append(contentsOf: disposalOutcomeMetrics(trees: trees, disposalMethods: disposalMethods))
@@ -115,6 +131,32 @@ enum DashboardCollectionSummary {
             }
             .prefix(limit)
             .map { $0 }
+    }
+
+    // MARK: - Library gaps (Dashboard Library → Garden Trees filters)
+
+    /// Same photo rule as Needs Photos / Trees ``withoutPhoto`` — ``Tree/lacksPhoto``.
+    static func lacksPhoto(_ tree: Tree) -> Bool {
+        tree.lacksPhoto
+    }
+
+    /// Missing Tree Stage assignment (Library “Without status”).
+    static func lacksTreeStage(_ tree: Tree) -> Bool {
+        tree.treeStageID == nil
+    }
+
+    /// Missing Species reference (Library “Without species”).
+    static func lacksSpecies(_ tree: Tree) -> Bool {
+        tree.speciesID == nil
+    }
+
+    /// In-care Garden trees — same base as Garden → Trees list (excludes Yamadori nursery).
+    static func gardenTreesInCare(from trees: [Tree]) -> [Tree] {
+        trees.filter { $0.isInCare && !$0.yamadoriNursery }
+    }
+
+    static func libraryGapCount(in trees: [Tree], matching predicate: (Tree) -> Bool) -> Int {
+        gardenTreesInCare(from: trees).count(where: predicate)
     }
 
     // MARK: - Private

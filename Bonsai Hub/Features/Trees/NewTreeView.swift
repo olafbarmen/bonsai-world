@@ -38,7 +38,7 @@ struct NewTreeView: View {
 
     @State private var styleID: UUID?
     @State private var sizeClassID: UUID?
-    @State private var treeStatusID: UUID?
+    @State private var treeStageID: UUID?
 
     // MARK: - Growing
 
@@ -147,7 +147,7 @@ struct NewTreeView: View {
                                 if treeService.isBonsaiNameInUse(bonsaiName) {
                                     Text("That Bonsai Name is already used.")
                                         .font(FaloTypography.caption)
-                                        .foregroundStyle(.red)
+                                        .foregroundStyle(BonsaiWorldColors.statusCritical)
                                 }
                             }
                         } else {
@@ -189,10 +189,10 @@ struct NewTreeView: View {
                     )
 
                     referencePicker(
-                        title: "Tree Status",
-                        selection: $treeStatusID,
-                        placeholder: "Select Tree Status",
-                        items: referenceData.treeStatuses
+                        title: "Tree Stage",
+                        selection: $treeStageID,
+                        placeholder: "Select Tree Stage",
+                        items: referenceData.treeStages
                     )
                 }
 
@@ -298,7 +298,7 @@ struct NewTreeView: View {
             }
             .formStyle(.grouped)
             .faloScrollSurface()
-            .navigationTitle(mode.treeEditorTitle(botanicalName: botanicalName))
+            .navigationTitle(mode.treeEditorTitle(bonsaiName: bonsaiName))
             .toolbar {
                 TreeDetailToolbar(
                     onCancel: handleCancel,
@@ -477,7 +477,7 @@ struct NewTreeView: View {
             cultivarID: cultivarID,
             styleID: styleID,
             sizeClassID: sizeClassID,
-            treeStatusID: treeStatusID,
+            treeStageID: treeStageID,
             locationID: locationID,
             soilMixID: soilMixID,
             potTypeID: potTypeID,

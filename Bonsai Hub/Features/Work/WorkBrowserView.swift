@@ -29,7 +29,7 @@ struct WorkBrowserView: View {
                     Section {
                         Text("Perform care and styling from Work. Trees only show the resulting history.")
                             .font(FaloTypography.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(BonsaiWorldColors.textSecondary)
                             .listRowBackground(Color.clear)
                     }
 
@@ -40,17 +40,23 @@ struct WorkBrowserView: View {
                                 ForEach(types) { workType in
                                     WorkTypeBrowserRow(workType: workType)
                                         .tag(workType.id)
+                                        .listRowBackground(
+                                            SidebarRowBackground(
+                                                isSelected: appState.selectedWorkTypeID == workType.id,
+                                                baseFill: BonsaiWorldColors.canvas
+                                            )
+                                        )
                                 }
                             }
                         }
                     }
                 }
                 .listStyle(.sidebar)
-                .faloScrollSurface()
+                .faloWarmContentList()
             }
         }
-        .background(.windowBackground)
-        .navigationTitle("Work")
+        .faloWorkspaceCanvas()
+        .bonsaiWorkspaceNavigationTitle("Work")
         .navigationSplitViewColumnWidth(min: 280, ideal: 360, max: 480)
     }
 }

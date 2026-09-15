@@ -10,8 +10,11 @@ import SwiftUI
 
 enum ImageInspectorLayout {
     static let cardHeight: CGFloat = 210
+    /// 5:6 well — height derived from ``GalleryLayout/imageAspectRatio``.
     static let thumbnailWidth: CGFloat = 105
-    static let thumbnailHeight: CGFloat = 140
+    static var thumbnailHeight: CGFloat {
+        GalleryLayout.portraitSize(width: thumbnailWidth).height
+    }
     static let thumbnailToColumnSpacing: CGFloat = FaloSpacing.xxLarge
     static let columnSpacing: CGFloat = FaloSpacing.xxLarge + FaloSpacing.small
 }
@@ -20,6 +23,7 @@ struct ImageInspectorPanel: View {
     let entry: GalleryEntry?
     let collections: [Collection]
     var onCrop: (() -> Void)? = nil
+    var onDelete: (() -> Void)? = nil
 
     private var cardShape: RoundedRectangle {
         RoundedRectangle(cornerRadius: GalleryLayout.cardCornerRadius, style: .continuous)
@@ -36,7 +40,7 @@ struct ImageInspectorPanel: View {
         .frame(maxWidth: .infinity)
         .frame(height: ImageInspectorLayout.cardHeight)
         .padding(GalleryLayout.metadataPadding)
-        .background(.background, in: cardShape)
+        .background(BonsaiWorldColors.raisedSurface, in: cardShape)
         .overlay {
             cardShape
                 .strokeBorder(FaloColors.borderSubtle, lineWidth: 1)
@@ -57,6 +61,12 @@ struct ImageInspectorPanel: View {
                         .buttonStyle(.bordered)
                         .controlSize(.small)
                         .help("Crop the display of this photo. The original file is not changed.")
+                }
+                if let onDelete {
+                    Button("Delete Image", systemImage: "trash", role: .destructive, action: onDelete)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help("Remove this image from the library")
                 }
             }
 
@@ -122,16 +132,20 @@ struct ImageInspectorPanel: View {
     // MARK: - Thumbnail (GalleryImageTile presentationWell rules)
 
     private func thumbnailWell(for entry: GalleryEntry) -> some View {
-        ZStack {
-            Color.primary.opacity(0.03)
-
-            GalleryThumbnailImage(imageID: entry.id)
-                .padding(GalleryLayout.imageWellPadding)
-        }
-        .padding(GalleryLayout.presentationWellInset)
-        .frame(width: ImageInspectorLayout.thumbnailWidth, height: ImageInspectorLayout.thumbnailHeight)
-        .clipped()
-        .accessibilityLabel("Thumbnail of \(entry.photoName)")
+        Color.clear
+            .aspectRatio(GalleryLayout.imageAspectRatio, contentMode: .fit)
+            .frame(width: ImageInspectorLayout.thumbnailWidth)
+            .overlay {
+                ZStack {
+                    Color.primary.opacity(0.03)
+                    GalleryThumbnailImage(imageID: entry.id)
+                        .padding(GalleryLayout.imageWellPadding)
+                }
+                .padding(GalleryLayout.presentationWellInset)
+            }
+            .frame(width: ImageInspectorLayout.thumbnailWidth, height: ImageInspectorLayout.thumbnailHeight)
+            .clipped()
+            .accessibilityLabel("Thumbnail of \(entry.photoName)")
     }
 
     // MARK: - Metadata

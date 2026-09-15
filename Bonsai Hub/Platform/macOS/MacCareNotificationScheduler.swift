@@ -8,7 +8,7 @@
 //
 
 import Foundation
-import UserNotifications
+@preconcurrency import UserNotifications
 
 @MainActor
 final class MacCareNotificationScheduler: CareNotificationScheduling {
@@ -22,7 +22,9 @@ final class MacCareNotificationScheduler: CareNotificationScheduling {
     }
 
     func apply(_ requests: [CareNotificationRequest]) {
-        Task { await applyAsync(requests) }
+        Task { @MainActor in
+            await applyAsync(requests)
+        }
     }
 
     private func applyAsync(_ requests: [CareNotificationRequest]) async {

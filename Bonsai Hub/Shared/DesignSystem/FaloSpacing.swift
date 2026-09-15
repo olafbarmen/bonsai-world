@@ -15,4 +15,6 @@ enum FaloSpacing {
     static let large: CGFloat = 16
     static let xLarge: CGFloat = 20
     static let xxLarge: CGFloat = 24
+    /// Optional large section break — use sparingly.
+    static let xxxLarge: CGFloat = 32
 }

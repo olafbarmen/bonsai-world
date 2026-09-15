@@ -20,7 +20,7 @@ struct TreeAutoSaveBanner: View {
             case .saved:
                 label("Saved", systemImage: "checkmark.circle", tint: .secondary)
             case .failed:
-                label("Unable to save changes", systemImage: "exclamationmark.triangle.fill", tint: .orange)
+                label("Unable to save changes", systemImage: "exclamationmark.triangle.fill", tint: BonsaiWorldColors.statusWarning)
             }
         }
         .animation(.easeInOut(duration: 0.2), value: status)

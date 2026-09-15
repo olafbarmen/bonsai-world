@@ -65,7 +65,7 @@ struct RegionalSettingsView: View {
         }
         .formStyle(.grouped)
         .faloScrollSurface()
-        .navigationTitle("Regional Settings")
+        .bonsaiWorkspaceNavigationTitle("Regional Settings")
     }
 }
 

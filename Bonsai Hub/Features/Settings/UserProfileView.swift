@@ -6,31 +6,53 @@
 //  Default Garden is the geographic root for Maps / Weather / AI.
 //
 
+import AppKit
 import SwiftUI
 
 struct UserProfileView: View {
     @Environment(UserProfileStore.self) private var profile
+    @Environment(ImageImportService.self) private var imageImportService
+    @Environment(ImageService.self) private var imageService
 
     @State private var gardenEditor: Garden?
     @State private var gardenPendingDelete: Garden?
+    @State private var isChangingProfilePhoto = false
 
     var body: some View {
         @Bindable var profile = profile
 
         Form {
             Section {
+                profilePhotoRow
+            } header: {
+                Text("Profile Photo")
+            } footer: {
+                Text("Shown in the sidebar. Choose a photo from your Mac, or remove it to use the default avatar.")
+                    .font(FaloTypography.caption)
+            }
+
+            Section {
                 TextField("Name", text: $profile.name)
+                    .onChange(of: profile.name) { _, _ in
+                        profile.noteProfileFieldsChanged()
+                    }
                 TextField("Email", text: $profile.email)
                     .textContentType(.emailAddress)
+                    .onChange(of: profile.email) { _, _ in
+                        profile.noteProfileFieldsChanged()
+                    }
                 Picker("Language", selection: $profile.language) {
                     ForEach(AppLanguage.allCases) { language in
                         Text(language.menuTitle).tag(language)
                     }
                 }
+                .onChange(of: profile.language) { _, _ in
+                    profile.noteProfileFieldsChanged()
+                }
             } header: {
                 Text("General")
             } footer: {
-                Text("Email is optional.")
+                Text("Email is optional. Name and photo are saved in your library and included in ZIP backups.")
                     .font(FaloTypography.caption)
             }
 
@@ -51,7 +73,7 @@ struct UserProfileView: View {
         }
         .formStyle(.grouped)
         .faloScrollSurface()
-        .navigationTitle("User Profile")
+        .bonsaiWorkspaceNavigationTitle("User Profile")
         .sheet(item: $gardenEditor) { garden in
             GardenEditorSheet(garden: garden)
                 .environment(profile)
@@ -76,6 +98,61 @@ struct UserProfileView: View {
         } message: {
             Text("Locations linked to this Garden keep their coordinates, but you must reassign them to another Garden.")
         }
+        .onDisappear {
+            profile.flushProfileToOpenLibrary()
+        }
+    }
+
+    private var profilePhotoRow: some View {
+        HStack(spacing: FaloSpacing.medium) {
+            UserProfilePhotoMark(
+                imageID: profile.profileImageID,
+                imageService: imageService,
+                size: 48
+            )
+
+            VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+                Button(profile.profileImageID == nil ? "Choose Profile Photo…" : "Change Profile Photo…") {
+                    Task { await changeProfilePhoto() }
+                }
+                .disabled(isChangingProfilePhoto)
+
+                if profile.profileImageID != nil {
+                    Button("Remove Photo", role: .destructive) {
+                        Task { await removeProfilePhoto() }
+                    }
+                    .disabled(isChangingProfilePhoto)
+                }
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, FaloSpacing.xSmall)
+    }
+
+    private func changeProfilePhoto() async {
+        isChangingProfilePhoto = true
+        defer { isChangingProfilePhoto = false }
+        do {
+            let asset = try await imageImportService.importProfileImageFromFinder()
+            let previousID = profile.profileImageID
+            profile.profileImageID = asset.id
+            profile.noteProfileFieldsChanged()
+            if let previousID, previousID != asset.id {
+                try? await imageService.deletePhoto(id: previousID)
+            }
+        } catch is ImageImportError {
+            // Cancelled or unsupported — leave current photo.
+        } catch {
+            // Leave current photo on unexpected failure.
+        }
+    }
+
+    private func removeProfilePhoto() async {
+        guard let id = profile.profileImageID else { return }
+        profile.profileImageID = nil
+        profile.noteProfileFieldsChanged()
+        try? await imageService.deletePhoto(id: id)
     }
 
     private func gardenRow(_ garden: Garden) -> some View {
@@ -142,7 +219,59 @@ struct UserProfileView: View {
     }
 }
 
+/// Circular profile mark for Settings preview — same ImageService path as the sidebar.
+private struct UserProfilePhotoMark: View {
+    var imageID: UUID?
+    let imageService: ImageService
+    var size: CGFloat
+
+    @State private var thumbnail: NSImage?
+
+    var body: some View {
+        let _ = imageService.presentationRevision
+        Group {
+            if let thumbnail {
+                Image(nsImage: thumbnail)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.system(size: size * 0.92, weight: .regular))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(BonsaiWorldColors.accent.opacity(0.75))
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .accessibilityHidden(true)
+        .task(id: "\(imageID?.uuidString ?? "")-\(size)-\(imageService.presentationRevision)") {
+            await loadThumbnail()
+        }
+    }
+
+    private func loadThumbnail() async {
+        guard let imageID else {
+            thumbnail = nil
+            return
+        }
+        let maxPixel = Int(size * 2.5)
+        do {
+            thumbnail = try await imageService.loadDisplayNSImage(
+                for: imageID,
+                context: .treeThumbnail,
+                maxPixelSize: max(96, maxPixel)
+            )
+        } catch {
+            thumbnail = nil
+        }
+    }
+}
+
 #Preview {
+    let storage = StorageService.shared
+    let catalog = ImagePreviewData()
     UserProfileView()
         .environment(UserProfileStore())
+        .environment(ImageService(storage: storage, previewData: catalog))
+        .environment(ImageImportService(storage: storage, imageCatalog: catalog))
 }

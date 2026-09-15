@@ -49,7 +49,7 @@ struct GardenEditorSheet: View {
                 if let validationMessage {
                     Section {
                         Text(validationMessage)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(BonsaiWorldColors.statusAttention)
                     }
                 }
             }

@@ -24,13 +24,17 @@ struct SoilMixPart: Identifiable, Codable, Hashable, Sendable {
 }
 
 /// A reusable soil recipe. Built-in and user-defined mixes are the same type.
-struct SoilMix: Identifiable, Codable, Hashable, Sendable {
+struct SoilMix: Identifiable, Hashable, Sendable {
     var id: UUID
     var name: String
     /// Optional notes about the recipe.
     var mixDescription: String
     /// Optional guidance (e.g. deciduous, pines, shohin).
     var intendedUse: String
+    /// Contextual fit — Yamadori is a condition, never a species.
+    var contextTags: [SoilMixContextTag]
+    /// Optional genus applicability (not a substitute for condition/context).
+    var genusIDs: [UUID]
     var parts: [SoilMixPart]
     var sortOrder: Int
     var isActive: Bool
@@ -40,6 +44,8 @@ struct SoilMix: Identifiable, Codable, Hashable, Sendable {
         name: String,
         mixDescription: String = "",
         intendedUse: String = "",
+        contextTags: [SoilMixContextTag] = [],
+        genusIDs: [UUID] = [],
         parts: [SoilMixPart] = [],
         sortOrder: Int,
         isActive: Bool = true
@@ -48,6 +54,8 @@ struct SoilMix: Identifiable, Codable, Hashable, Sendable {
         self.name = name
         self.mixDescription = mixDescription
         self.intendedUse = intendedUse
+        self.contextTags = contextTags
+        self.genusIDs = genusIDs
         self.parts = parts
         self.sortOrder = sortOrder
         self.isActive = isActive
@@ -88,6 +96,38 @@ struct SoilMix: Identifiable, Codable, Hashable, Sendable {
     }
 }
 
+extension SoilMix: Codable {
+    enum CodingKeys: String, CodingKey {
+        case id, name, mixDescription, intendedUse, contextTags, genusIDs, parts, sortOrder, isActive
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        mixDescription = try c.decodeIfPresent(String.self, forKey: .mixDescription) ?? ""
+        intendedUse = try c.decodeIfPresent(String.self, forKey: .intendedUse) ?? ""
+        contextTags = try c.decodeIfPresent([SoilMixContextTag].self, forKey: .contextTags) ?? []
+        genusIDs = try c.decodeIfPresent([UUID].self, forKey: .genusIDs) ?? []
+        parts = try c.decodeIfPresent([SoilMixPart].self, forKey: .parts) ?? []
+        sortOrder = try c.decode(Int.self, forKey: .sortOrder)
+        isActive = try c.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(name, forKey: .name)
+        try c.encode(mixDescription, forKey: .mixDescription)
+        try c.encode(intendedUse, forKey: .intendedUse)
+        try c.encode(contextTags, forKey: .contextTags)
+        try c.encode(genusIDs, forKey: .genusIDs)
+        try c.encode(parts, forKey: .parts)
+        try c.encode(sortOrder, forKey: .sortOrder)
+        try c.encode(isActive, forKey: .isActive)
+    }
+}
+
 /// Editor draft for Add / Edit Soil Mix (composition + 100% validation).
 struct SoilMixDraft: Identifiable, Hashable, Sendable {
     var id: UUID
@@ -95,6 +135,8 @@ struct SoilMixDraft: Identifiable, Hashable, Sendable {
     var name: String
     var mixDescription: String
     var intendedUse: String
+    var contextTags: [SoilMixContextTag]
+    var genusIDs: [UUID]
     var sortOrder: Int
     var isActive: Bool
     var parts: [SoilMixPartDraft]
@@ -118,6 +160,8 @@ struct SoilMixDraft: Identifiable, Hashable, Sendable {
             name: "",
             mixDescription: "",
             intendedUse: "",
+            contextTags: [],
+            genusIDs: [],
             sortOrder: sortOrder,
             isActive: true,
             parts: []
@@ -131,6 +175,8 @@ struct SoilMixDraft: Identifiable, Hashable, Sendable {
             name: mix.name,
             mixDescription: mix.mixDescription,
             intendedUse: mix.intendedUse,
+            contextTags: mix.contextTags,
+            genusIDs: mix.genusIDs,
             sortOrder: mix.sortOrder,
             isActive: mix.isActive,
             parts: mix.parts.map {

@@ -16,6 +16,8 @@ struct CropWorkspaceCanvasView: View {
     var hidesCropOverlay: Bool = false
     /// When set, resize handles keep this normalized width/height ratio.
     var lockedNormalizedAspect: CGFloat? = nil
+    var rotationDegrees: Int = 0
+    var isMirroredHorizontally: Bool = false
 
     @Environment(ImageService.self) private var imageService
 
@@ -59,7 +61,7 @@ struct CropWorkspaceCanvasView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .task(id: imageID) {
+        .task(id: "\(imageID.uuidString)-\(rotationDegrees)-\(isMirroredHorizontally)") {
             await loadImage()
         }
     }
@@ -232,8 +234,12 @@ struct CropWorkspaceCanvasView: View {
                 didFail = true
                 return
             }
-            imagePixelSize = pixelSize(of: nsImage)
-            displayImage = Image(nsImage: nsImage)
+            var oriented = ImagePresentationCropping.rotated(nsImage, degrees: rotationDegrees)
+            if isMirroredHorizontally {
+                oriented = ImagePresentationCropping.mirroredHorizontally(oriented)
+            }
+            imagePixelSize = pixelSize(of: oriented)
+            displayImage = Image(nsImage: oriented)
         } catch {
             didFail = true
         }

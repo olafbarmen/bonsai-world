@@ -10,6 +10,7 @@ import SwiftUI
 
 struct SoilMixEditorSheet: View {
     @Environment(ReferenceDataManager.self) private var manager
+    @Environment(ReferenceDataService.self) private var referenceData
     @Environment(\.dismiss) private var dismiss
 
     let initialDraft: SoilMixDraft
@@ -62,6 +63,50 @@ struct SoilMixEditorSheet: View {
                 }
 
                 Section {
+                    ForEach(SoilMixContextTag.allCases) { tag in
+                        Toggle(tag.title, isOn: Binding(
+                            get: { draft.contextTags.contains(tag) },
+                            set: { isOn in
+                                if isOn {
+                                    if !draft.contextTags.contains(tag) {
+                                        draft.contextTags.append(tag)
+                                    }
+                                } else {
+                                    draft.contextTags.removeAll { $0 == tag }
+                                }
+                            }
+                        ))
+                    }
+                } header: {
+                    Text("Context")
+                } footer: {
+                    Text("Yamadori is a condition, not a species. Seeds marks mixes for stratification and sowing. Tag the situations this recipe is meant for.")
+                }
+
+                if !referenceData.genus.isEmpty {
+                    Section {
+                        ForEach(referenceData.genus) { genus in
+                            Toggle(genus.name, isOn: Binding(
+                                get: { draft.genusIDs.contains(genus.id) },
+                                set: { isOn in
+                                    if isOn {
+                                        if !draft.genusIDs.contains(genus.id) {
+                                            draft.genusIDs.append(genus.id)
+                                        }
+                                    } else {
+                                        draft.genusIDs.removeAll { $0 == genus.id }
+                                    }
+                                }
+                            ))
+                        }
+                    } header: {
+                        Text("Genus (optional)")
+                    } footer: {
+                        Text("Optional. A mix can fit Acer yamadori and Pinus yamadori because Yamadori is context, not a species.")
+                    }
+                }
+
+                Section {
                     ForEach($draft.parts) { $part in
                         HStack(alignment: .firstTextBaseline, spacing: FaloSpacing.small) {
                             Picker("Component", selection: $part.componentID) {
@@ -105,11 +150,11 @@ struct SoilMixEditorSheet: View {
                     VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
                         Text("Total: \(draft.totalPercentage)%")
                             .font(FaloTypography.body)
-                            .foregroundStyle(draft.totalPercentage == 100 ? Color.primary : Color.orange)
+                            .foregroundStyle(draft.totalPercentage == 100 ? Color.primary : BonsaiWorldColors.statusAttention)
 
                         if let percentageWarning {
                             Text(percentageWarning)
-                                .foregroundStyle(.orange)
+                                .foregroundStyle(BonsaiWorldColors.statusAttention)
                         }
                     }
                     .padding(.top, FaloSpacing.xSmall)

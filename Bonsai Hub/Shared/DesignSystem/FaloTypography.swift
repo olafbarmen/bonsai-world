@@ -8,10 +8,35 @@
 import SwiftUI
 
 /// Semantic type roles aligned with the Falo Design System.
+/// Native macOS system fonts only — no custom typefaces.
 enum FaloTypography {
-    static let headline: Font = .headline
+    /// Page title (module chrome) — not marketing display.
+    static let pageTitle: Font = .title2
+    /// Supporting line under a page title.
+    static let pageSubtitle: Font = .body
+    /// Section heading within a page.
+    static let sectionHeading: Font = .headline
+    /// Card or list row title.
+    static let cardRowTitle: Font = .system(size: 13, weight: .semibold, design: .default)
+    /// Primary numeric / metric value (≤ ~28pt).
+    static let primaryValue: Font = .system(size: 28, weight: .semibold, design: .default)
     static let body: Font = .body
+    /// Supporting / secondary body.
+    static let supporting: Font = .body
+    /// Caption / metadata.
     static let caption: Font = .caption
+
+    /// Alias — section headings in denser chrome.
+    static let headline: Font = sectionHeading
+
+    /// Dashboard greeting and other page-level welcomes only — not a general page title.
+    static let greeting: Font = .system(size: 28, weight: .semibold, design: .default)
+
+    /// Large metric on a stat tile (alias of primaryValue).
+    static var displayNumber: Font { primaryValue }
+
+    /// Label under a display number.
+    static let displayLabel: Font = .system(size: 13, weight: .medium, design: .default)
 }
 
 // MARK: - Falo Card Typography Standard v1

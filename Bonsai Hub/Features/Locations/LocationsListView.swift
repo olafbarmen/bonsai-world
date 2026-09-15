@@ -169,7 +169,7 @@ struct LocationsListView: View {
                 .frame(minHeight: 180)
                 .frame(maxHeight: .infinity)
         }
-        .navigationTitle("Locations")
+        .bonsaiWorkspaceNavigationTitle("Locations")
         .navigationSplitViewColumnWidth(min: 280, ideal: 360, max: 480)
         .onChange(of: appState.selectedLocationID) { _, newID in
             selectedMapTreeID = nil
@@ -259,14 +259,18 @@ struct LocationsListView: View {
             }
             .padding(FaloSpacing.medium)
 
-            mapChrome
+            mapChrome(
+                selectedGardenID: Binding(
+                    get: { appState.selectedGardenID },
+                    set: { appState.selectedGardenID = $0 }
+                )
+            )
         }
-        .background(.windowBackground)
+        .faloWorkspaceCanvas()
     }
 
-    private var mapChrome: some View {
-        @Bindable var appState = appState
-        return VStack(alignment: .leading, spacing: FaloSpacing.small) {
+    private func mapChrome(selectedGardenID: Binding<UUID?>) -> some View {
+        VStack(alignment: .leading, spacing: FaloSpacing.small) {
             HStack(spacing: FaloSpacing.medium) {
                 Picker("Map View", selection: $mapStyle) {
                     ForEach(LocationMapStyle.allCases) { style in
@@ -294,7 +298,7 @@ struct LocationsListView: View {
                 layerMenu
 
                 if profile.activeGardens.count > 1 {
-                    Picker("Garden", selection: $appState.selectedGardenID) {
+                    Picker("Garden", selection: selectedGardenID) {
                         ForEach(profile.activeGardens) { garden in
                             Text(garden.name).tag(Optional(garden.id))
                         }
@@ -319,7 +323,7 @@ struct LocationsListView: View {
         }
         .padding(.horizontal, FaloSpacing.medium)
         .padding(.vertical, FaloSpacing.small)
-        .background(.windowBackground)
+        .faloWorkspaceCanvas()
     }
 
     private var layerMenu: some View {
@@ -357,22 +361,34 @@ struct LocationsListView: View {
                 HStack(spacing: FaloSpacing.small) {
                     if location.hasGeographicPosition {
                         Image(systemName: "mappin.circle.fill")
-                            .foregroundStyle(.blue)
+                            .foregroundStyle(BonsaiWorldColors.statusInformation)
                             .help("Has map position")
                     }
                     Text(visibleTrees(at: location.id).count, format: .number)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(BonsaiWorldColors.textSecondary)
                 }
             } label: {
                 Text(location.name)
+                    .foregroundStyle(BonsaiWorldColors.textPrimary)
             }
             .tag(location.id)
+            .listRowBackground(
+                SidebarRowBackground(
+                    isSelected: selection.wrappedValue == location.id,
+                    baseFill: BonsaiWorldColors.canvas
+                )
+            )
+            .contextMenu {
+                Button("Edit Location") {
+                    appState.selectedLocationID = location.id
+                    appState.presentEditLocation(id: location.id)
+                }
+                Button("New Location") {
+                    appState.presentNewLocation()
+                }
+            }
         }
-        .faloScrollSurface()
-        .background {
-            RoundedRectangle(cornerRadius: FaloRadius.hero, style: .continuous)
-                .fill(Color.primary.opacity(0.03))
-        }
+        .faloWarmContentList()
         .overlay {
             if locations.isEmpty {
                 ContentUnavailableView(
@@ -381,7 +397,7 @@ struct LocationsListView: View {
                     description: Text(
                         browsedGarden == nil
                             ? "Add a Garden in Settings → User Profile first."
-                            : "Use Quick Actions → New Location to add one for \(browsedGarden?.name ?? "this Garden")."
+                            : "Use Context Tools → New Location to add one for \(browsedGarden?.name ?? "this Garden")."
                     )
                 )
             }
@@ -390,7 +406,7 @@ struct LocationsListView: View {
         // so the Locations list reads as a peer module surface, not a bare system list.
         .overlay {
             RoundedRectangle(cornerRadius: FaloRadius.hero, style: .continuous)
-                .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                .strokeBorder(BonsaiWorldColors.border, lineWidth: 1)
         }
         .clipShape(RoundedRectangle(cornerRadius: FaloRadius.hero, style: .continuous))
         .padding(FaloSpacing.medium)

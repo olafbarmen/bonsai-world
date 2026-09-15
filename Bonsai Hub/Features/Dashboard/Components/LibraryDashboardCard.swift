@@ -2,56 +2,52 @@
 //  LibraryDashboardCard.swift
 //  Bonsai World
 //
-//  Dashboard Library — live record gaps (photo, status, species). Read-only.
+//  Dashboard Library — live record gaps (photo, Tree Stage, species).
+//  Counts and filters share ``DashboardCollectionSummary`` predicates with Garden → Trees.
 //
 
 import SwiftUI
 
 struct LibraryDashboardCard: View {
     var prominence: DashboardCardProminence = .secondary
+    var fillsRowHeight: Bool = false
 
     @Environment(TreeService.self) private var treeService
     @Environment(AppState.self) private var appState
 
-    private var trees: [Tree] { treeService.treesInCare }
-
-    private var withoutPhoto: Int {
-        trees.count { $0.primaryImageID == nil && $0.imageIDs.isEmpty }
-    }
-
-    private var withoutStatus: Int {
-        trees.count { $0.treeStatusID == nil }
-    }
-
-    private var withoutSpecies: Int {
-        trees.count { $0.speciesID == nil }
-    }
-
-    private var gaps: [(title: String, count: Int)] {
-        [
-            ("Without a photo", withoutPhoto),
-            ("Without status", withoutStatus),
-            ("Without species", withoutSpecies)
+    private var gaps: [(title: String, count: Int, filter: TreesOverviewFilter)] {
+        let trees = treeService.trees
+        return [
+            (
+                "Without a photo",
+                DashboardCollectionSummary.libraryGapCount(in: trees, matching: DashboardCollectionSummary.lacksPhoto),
+                .withoutPhoto
+            ),
+            (
+                "Without status",
+                DashboardCollectionSummary.libraryGapCount(in: trees, matching: DashboardCollectionSummary.lacksTreeStage),
+                .withoutStatus
+            ),
+            (
+                "Without species",
+                DashboardCollectionSummary.libraryGapCount(in: trees, matching: DashboardCollectionSummary.lacksSpecies),
+                .withoutSpecies
+            )
         ]
-        .filter { $0.count > 0 }
     }
 
     var body: some View {
-        DashboardCard(id: .library, prominence: prominence, compact: true) {
-            if gaps.isEmpty {
-                DashboardEmptyMessage(text: "Library is complete.")
-            } else {
-                VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
-                    ForEach(gaps, id: \.title) { gap in
-                        DashboardCardTapButton {
-                            appState.selectSection(.gardenTrees)
-                        } label: {
-                            DashboardMetricRow(
-                                title: gap.title,
-                                value: "\(gap.count)",
-                                compact: true
-                            )
-                        }
+        DashboardCard(id: .library, prominence: prominence, fillsRowHeight: fillsRowHeight, compact: true) {
+            VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+                ForEach(gaps, id: \.filter) { gap in
+                    DashboardCardTapButton {
+                        appState.openGardenTrees(filter: gap.filter)
+                    } label: {
+                        DashboardMetricRow(
+                            title: gap.title,
+                            value: "\(gap.count)",
+                            compact: true
+                        )
                     }
                 }
             }

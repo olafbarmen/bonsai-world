@@ -9,7 +9,8 @@
 //    Views → TreeService → TreeRepository / CollectionRepository
 //
 //  Botanical identity (Genus / Species / Cultivar / Botanical Name / Bonsai Name) and Tree ID
-//  are immutable after create.
+//  are immutable after create in the editor. Catalog repair may realign genus / species /
+//  cultivar IDs to the stored Botanical Name when Lists order changes.
 //
 //  Collection membership is owned by Collection records (``Collection/treeIDs``) — not Tree.
 //
@@ -43,14 +44,43 @@ final class TreeService {
         self.photoIndex = photoIndex
         self.bonsaiNameSequences = bonsaiNameSequences
         var loaded = repository.getAllTrees()
-        photoIndex?.apply(to: &loaded)
-        // Keep photo bindings in the session catalog only. Persisting here would
-        // rewrite every Tree on launch (and can run during a view-update cycle
-        // when the library-backed TreeService is installed).
+        // Tree is SSOT for photos. Index may fill empty trees once (legacy), then
+        // is rebuilt as a derived mirror and locked — never overwrites Trees again.
+        if let photoIndex {
+            let migratedIDs = Set(photoIndex.migrateMissingPhotosIfNeeded(into: &loaded))
+            if !migratedIDs.isEmpty {
+                for tree in loaded where migratedIDs.contains(tree.id) {
+                    _ = try? repository.updateTree(tree)
+                }
+                loaded = repository.getAllTrees()
+            }
+            photoIndex.rebuildFromTreesAsSourceOfTruth(loaded)
+        }
         self.trees = loaded
         self.collections = collectionRepository.getAllCollections()
         ensureSystemSmartCollections()
         bonsaiNameSequences?.reconcile(with: self.trees)
+    }
+
+    /// Aligns genus / species / cultivar IDs with Botanical Name.
+    /// Botanical Name and Bonsai Name stay unchanged. Safe to call on every library open.
+    func repairBotanicalIdentity(genera: [Genus], species: [Species], cultivars: [Cultivar]) {
+        let catalog = TreeBotanicalIdentityRepair.Catalog(
+            genera: genera,
+            species: species,
+            cultivars: cultivars
+        )
+        let repaired = trees.compactMap { TreeBotanicalIdentityRepair.repaired($0, catalog: catalog) }
+        guard !repaired.isEmpty else { return }
+
+        do {
+            try repository.repairBotanicalIdentities(repaired)
+        } catch {
+            return
+        }
+
+        trees = repository.getAllTrees()
+        bonsaiNameSequences?.reconcile(with: trees)
     }
 
     // MARK: - Reads
@@ -103,7 +133,7 @@ final class TreeService {
             return trees.filter { liveMembers.needsRepotting.contains($0.id) }
         }
         if SystemSmartCollections.isNeedsPhotos(collectionID) {
-            return treesInCare.filter { $0.primaryImageID == nil && $0.imageIDs.isEmpty }
+            return treesInCare.filter(\.lacksPhoto)
         }
         if let outcome = SystemSmartCollections.lifecycleOutcome(for: collectionID) {
             let methodIDs = Set(disposalMethods.filter { $0.outcome == outcome }.map(\.id))
@@ -234,10 +264,12 @@ final class TreeService {
     }
 
     /// Adds trees to a collection by ID only. Skips existing members.
-    func addTreesToCollection(treeIDs: [UUID], collectionID: UUID) {
+    /// Throws ``CollectionServiceError/carePolicyConflict`` when a tree already
+    /// belongs to a different Care-policy Collection.
+    func addTreesToCollection(treeIDs: [UUID], collectionID: UUID) throws {
         let unique = Array(Set(treeIDs))
         for treeID in unique where !isMember(treeID: treeID, collectionID: collectionID) {
-            try? addTree(treeID, to: collectionID)
+            try addTree(treeID, to: collectionID)
         }
     }
 
@@ -267,10 +299,20 @@ final class TreeService {
     func setFavoriteTree(_ treeID: UUID, isFavorite: Bool) {
         let collectionID = SystemSmartCollections.StableID.favoriteTrees
         if isFavorite {
-            addTreesToCollection(treeIDs: [treeID], collectionID: collectionID)
+            try? addTreesToCollection(treeIDs: [treeID], collectionID: collectionID)
         } else {
             removeTreeFromCollection(treeID: treeID, collectionID: collectionID)
         }
+    }
+
+    /// Sets or clears which Pot a Tree is currently using. Only ``PotService`` should
+    /// call this — it owns keeping the matching ``Pot/linkedTreeID`` and status in sync.
+    /// A no-op when `treeID` is unknown (the Tree may have been deleted).
+    func setCurrentPotID(_ potID: UUID?, forTreeID treeID: UUID) {
+        guard var tree = getTree(id: treeID) else { return }
+        guard tree.currentPotID != potID else { return }
+        tree.currentPotID = potID
+        _ = try? updateTree(tree)
     }
 
     /// Creates an empty Collection (membership starts empty).
@@ -319,15 +361,66 @@ final class TreeService {
         return updated
     }
 
+    /// Deletes a Manual Collection. Trees stay in the library; care-policy links are cleared.
+    func deleteCollection(id: UUID) throws {
+        guard let collection = collectionRepository.getCollection(id: id) else {
+            throw CollectionRepositoryError.notFound(id)
+        }
+        guard collection.isManual else {
+            throw CollectionServiceError.systemCollectionLocked
+        }
+        clearCarePolicyCollection(id)
+        try collectionRepository.deleteCollection(id: id)
+        refreshCollections()
+    }
+
     /// Applies a Detail metadata draft. Membership is not part of the draft.
     func applyCollectionDetailDraft(id: UUID, draft: CollectionDetailDraft) throws {
-        _ = try updateCollectionMetadata(
-            id: id,
-            name: draft.name,
-            description: draft.description,
-            color: draft.color,
-            icon: draft.icon
-        )
+        guard var collection = collectionRepository.getCollection(id: id) else {
+            throw CollectionRepositoryError.notFound(id)
+        }
+        let trimmedName = draft.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            throw CollectionServiceError.nameRequired
+        }
+
+        let wasCarePolicy = collection.isCarePolicyCollection
+        let willBeCarePolicy = collection.isManual && draft.isCarePolicyCollection
+
+        if willBeCarePolicy {
+            for treeID in collection.treeIDs {
+                try ensureCarePolicyAssignable(treeID: treeID, collectionID: id)
+            }
+        }
+
+        collection.name = trimmedName
+        collection.description = draft.description.trimmingCharacters(in: .whitespacesAndNewlines)
+        collection.color = draft.color
+        collection.icon = draft.icon
+        collection.isCarePolicyCollection = willBeCarePolicy
+        collection.wateringMode = draft.wateringMode
+        collection.autoTimesPerDay = TreeWateringPolicyResolver.clampedTimes(draft.autoTimesPerDay)
+        collection.heatWatchEnabled = draft.heatWatchEnabled
+
+        let updated = try collectionRepository.updateCollection(collection)
+        refreshCollections()
+
+        if updated.isCarePolicyCollection {
+            try assignCarePolicyToMembers(collectionID: updated.id)
+        } else if wasCarePolicy {
+            clearCarePolicyCollection(updated.id)
+        }
+    }
+
+    /// Effective watering policy for a tree (override → Care-policy Collection → Silent default).
+    func effectiveWateringPolicy(for treeID: UUID) -> EffectiveWateringPolicy {
+        guard let tree = getTree(id: treeID) else { return .default }
+        return TreeWateringPolicyResolver.effective(for: tree) { collection(id: $0) }
+    }
+
+    func carePolicyCollections() -> [Collection] {
+        collections.filter { $0.isManual && $0.isCarePolicyCollection }
+            .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     }
 
     // MARK: - Writes
@@ -366,7 +459,7 @@ final class TreeService {
             cultivarID: draft.cultivarID,
             styleID: draft.styleID,
             sizeClassID: draft.sizeClassID,
-            treeStatusID: draft.treeStatusID,
+            treeStageID: draft.treeStageID,
             locationID: locationID,
             soilMixID: draft.soilMixID,
             potTypeID: draft.potTypeID,
@@ -449,6 +542,45 @@ final class TreeService {
         return saved
     }
 
+    /// Graduates a Yamadori nursery tree to My Trees — the one allowed Bonsai Name change after create.
+    @discardableResult
+    func graduateYamadoriTree(_ tree: Tree) throws -> Tree {
+        guard let existing = repository.getTree(id: tree.id) else {
+            throw TreeRepositoryError.notFound(tree.id)
+        }
+        guard existing.yamadoriNursery else {
+            throw TreeServiceError.botanicalIdentityLocked
+        }
+
+        let trimmedName = tree.bonsaiName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedName.isEmpty else {
+            throw TreeServiceError.bonsaiNameRequired
+        }
+        if isBonsaiNameInUse(trimmedName, excluding: tree.id) {
+            throw TreeServiceError.bonsaiNameAlreadyUsed
+        }
+
+        var updated = tree
+        updated.id = existing.id
+        updated.genusID = existing.genusID
+        updated.speciesID = existing.speciesID
+        updated.cultivarID = existing.cultivarID
+        updated.botanicalName = existing.botanicalName
+        updated.bonsaiName = trimmedName
+        updated.yamadoriNursery = false
+        updated.modifiedDate = .now
+
+        let saved = try repository.updateTree(updated)
+        photoIndex?.saveBinding(
+            treeID: saved.id,
+            primaryImageID: saved.primaryImageID,
+            imageIDs: saved.imageIDs
+        )
+        bonsaiNameSequences?.noteTree(saved)
+        reload()
+        return saved
+    }
+
     /// Copies botanics, placement, pot, and acquisition onto a new Tree.
     /// New id and Bonsai Name (next sequence). Photos, measurements, notes, and disposal are not copied.
     @discardableResult
@@ -494,8 +626,10 @@ final class TreeService {
             cultivarID: source.cultivarID,
             styleID: source.styleID,
             sizeClassID: source.sizeClassID,
-            treeStatusID: source.treeStatusID,
+            treeStageID: source.treeStageID,
             healthStatus: source.healthStatus,
+            fertilizerHealth: source.fertilizerHealth,
+            fertilizerKindOverride: source.fertilizerKindOverride,
             locationID: source.locationID,
             soilMixID: source.soilMixID,
             potTypeID: source.potTypeID,
@@ -531,9 +665,13 @@ final class TreeService {
         return try updateTree(tree)
     }
 
+    /// Removes the Tree, cleans manual Collection membership, and drops the
+    /// photo-index binding. Does not delete gallery image assets, Work history,
+    /// Pots, or Tasks — callers orchestrate those unlink / preserve steps.
     func deleteTree(id: UUID) throws {
         try repository.deleteTree(id: id)
         removeTreeFromAllCollections(treeID: id)
+        photoIndex?.removeBinding(treeID: id)
         reload()
         refreshCollections()
         bonsaiNameSequences?.reconcile(with: trees)
@@ -549,10 +687,146 @@ final class TreeService {
         try updateTree(tree)
     }
 
+    func updateVision(treeID: UUID, vision: TreeVision) throws {
+        guard var tree = getTree(id: treeID) else {
+            throw TreeRepositoryError.notFound(treeID)
+        }
+        var visionToSave = vision
+        if let legacyTargetStyleID = visionToSave.targetStyleID {
+            if tree.styleID == nil {
+                tree.styleID = legacyTargetStyleID
+            }
+            visionToSave.targetStyleID = nil
+        }
+        tree.vision = visionToSave
+        try updateTree(tree)
+    }
+
+    // MARK: - Shaping
+
+    /// Ensures legacy Vision characteristics are migrated into Shaping areas once.
+    @discardableResult
+    func ensureShapingMigrated(treeID: UUID) throws -> TreeShaping {
+        guard var tree = getTree(id: treeID) else {
+            throw TreeRepositoryError.notFound(treeID)
+        }
+        var shaping = tree.shaping ?? TreeShaping.empty
+        guard !shaping.didMigrateVision else {
+            return shaping
+        }
+        if let vision = tree.vision {
+            var migratedVision = vision
+            migratedVision.migrateLegacyCharacteristicsIfNeeded()
+            let hasShapingContentToMigrate =
+                !migratedVision.trunkCharacteristic.text.isEmpty
+                || !migratedVision.branchCharacteristic.text.isEmpty
+                || !migratedVision.apexCharacteristic.text.isEmpty
+                || !migratedVision.nebariCharacteristic.text.isEmpty
+                || !migratedVision.additionalCharacteristics.isEmpty
+                || !migratedVision.developmentDirection.isEmpty
+                || !migratedVision.notes.isEmpty
+                || !migratedVision.trunkMovement.isEmpty
+                || !migratedVision.taper.isEmpty
+                || !migratedVision.branchStructure.isEmpty
+                || !migratedVision.overallSilhouette.isEmpty
+                || !migratedVision.nebari.isEmpty
+                || !migratedVision.characteristics.isEmpty
+
+            if hasShapingContentToMigrate {
+                shaping.migrateFromVision(migratedVision)
+            }
+            var slimVision = migratedVision
+            slimVision.prepareForSave()
+            tree.vision = slimVision
+        }
+        shaping.didMigrateVision = true
+        tree.shaping = shaping
+        try updateTree(tree)
+        return shaping
+    }
+
+    func shaping(for treeID: UUID) -> TreeShaping {
+        (try? ensureShapingMigrated(treeID: treeID)) ?? .empty
+    }
+
+    func updateShaping(treeID: UUID, shaping: TreeShaping) throws {
+        guard var tree = getTree(id: treeID) else {
+            throw TreeRepositoryError.notFound(treeID)
+        }
+        tree.shaping = shaping
+        try updateTree(tree)
+    }
+
+    func updateShapingArea(treeID: UUID, area: ShapingAreaID, record: ShapingAreaRecord) throws {
+        guard var tree = getTree(id: treeID) else {
+            throw TreeRepositoryError.notFound(treeID)
+        }
+        var shaping = tree.shaping ?? TreeShaping.empty
+        shaping.setRecord(record, for: area)
+        tree.shaping = shaping
+        try updateTree(tree)
+    }
+
+    @discardableResult
+    func appendShapingHistory(
+        treeID: UUID,
+        area: ShapingAreaID,
+        entry: ShapingHistoryEntry
+    ) throws -> ShapingHistoryEntry {
+        guard var tree = getTree(id: treeID) else {
+            throw TreeRepositoryError.notFound(treeID)
+        }
+        var shaping = tree.shaping ?? TreeShaping.empty
+        var record = shaping.record(for: area)
+        record.history.append(entry)
+        shaping.setRecord(record, for: area)
+        tree.shaping = shaping
+        try updateTree(tree)
+        return entry
+    }
+
+    func linkShapingHistoryWorkRecord(
+        treeID: UUID,
+        area: ShapingAreaID,
+        historyEntryID: UUID,
+        workRecordID: UUID
+    ) throws {
+        guard var tree = getTree(id: treeID) else {
+            throw TreeRepositoryError.notFound(treeID)
+        }
+        var shaping = tree.shaping ?? TreeShaping.empty
+        var record = shaping.record(for: area)
+        guard let index = record.history.firstIndex(where: { $0.id == historyEntryID }) else { return }
+        record.history[index].linkedWorkRecordID = workRecordID
+        shaping.setRecord(record, for: area)
+        tree.shaping = shaping
+        try updateTree(tree)
+    }
+
+    /// Image IDs used as Vision or Shaping reference images — never tree gallery / Primary.
+    func referenceImageIDs(for tree: Tree) -> Set<UUID> {
+        var ids = Set(tree.vision?.referenceImageIDs ?? [])
+        if let shaping = tree.shaping {
+            for record in shaping.areas.values {
+                ids.formUnion(record.referenceImageIDs)
+            }
+        }
+        return ids
+    }
+
+    func referenceImageIDs() -> Set<UUID> {
+        Set(trees.flatMap { Array(referenceImageIDs(for: $0)) })
+    }
+
+    func isReferenceImage(_ imageID: UUID) -> Bool {
+        referenceImageIDs().contains(imageID)
+    }
+
     func setPrimaryImage(treeID: UUID, imageID: UUID) throws {
         guard var tree = getTree(id: treeID) else {
             throw TreeRepositoryError.notFound(treeID)
         }
+        guard !isReferenceImage(imageID) else { return }
         tree.primaryImageID = imageID
         if !tree.imageIDs.contains(imageID) {
             tree.imageIDs.insert(imageID, at: 0)
@@ -597,6 +871,38 @@ final class TreeService {
         try updateTree(tree)
     }
 
+    /// Seeds empty measurement history from Tree fields, then aligns Tree dims
+    /// to the latest history record. History is SSOT for Height / Crown / Nebari / Trunk.
+    func reconcileMeasurementDimensions(using history: TreeMeasurementHistoryStore) {
+        var anyChanged = false
+        for tree in trees {
+            _ = history.ensureMigrated(from: tree)
+            guard let latest = history.latest(for: tree.id) else { continue }
+            let matches =
+                tree.heightMillimetres == latest.heightMillimetres
+                && tree.crownWidthMillimetres == latest.crownWidthMillimetres
+                && tree.nebariWidthMillimetres == latest.nebariWidthMillimetres
+                && tree.trunkDiameterMillimetres == latest.trunkDiameterMillimetres
+            guard !matches else { continue }
+            var updated = tree
+            updated.heightMillimetres = latest.heightMillimetres
+            updated.crownWidthMillimetres = latest.crownWidthMillimetres
+            updated.nebariWidthMillimetres = latest.nebariWidthMillimetres
+            updated.trunkDiameterMillimetres = latest.trunkDiameterMillimetres
+            updated.modifiedDate = .now
+            _ = try? repository.updateTree(updated)
+            photoIndex?.saveBinding(
+                treeID: updated.id,
+                primaryImageID: updated.primaryImageID,
+                imageIDs: updated.imageIDs
+            )
+            anyChanged = true
+        }
+        if anyChanged {
+            reload()
+        }
+    }
+
     func setNotes(id: UUID, notes: String) throws {
         guard var tree = getTree(id: id) else {
             throw TreeRepositoryError.notFound(id)
@@ -634,7 +940,7 @@ final class TreeService {
             cultivarID: cultivarID,
             styleID: existing.styleID,
             sizeClassID: existing.sizeClassID,
-            treeStatusID: existing.treeStatusID,
+            treeStageID: existing.treeStageID,
             healthStatus: existing.healthStatus,
             locationID: existing.locationID,
             soilMixID: existing.soilMixID,
@@ -659,6 +965,8 @@ final class TreeService {
             disposalPrice: existing.disposalPrice,
             disposalNotes: existing.disposalNotes,
             notes: existing.notes,
+            knownHistory: existing.knownHistory,
+            vision: existing.vision,
             primaryImageID: existing.primaryImageID,
             imageIDs: existing.imageIDs,
             projectIDs: existing.projectIDs,
@@ -682,18 +990,19 @@ final class TreeService {
         tree.nickname = draft.nickname
         tree.styleID = draft.styleID
         tree.sizeClassID = draft.sizeClassID
-        tree.treeStatusID = draft.treeStatusID
+        tree.treeStageID = draft.treeStageID
         tree.healthStatus = draft.healthStatus
+        tree.fertilizerHealth = draft.fertilizerHealth
+        tree.fertilizerKindOverride = draft.fertilizerKindOverride
         if let locationID = draft.locationID {
             tree.locationID = locationID
         }
         tree.lightConditionID = draft.lightConditionID
         tree.soilMixID = draft.soilMixID
         tree.potTypeID = draft.potTypeID
-        tree.heightMillimetres = draft.heightMillimetres
-        tree.crownWidthMillimetres = draft.crownWidthMillimetres
-        tree.nebariWidthMillimetres = draft.nebariWidthMillimetres
-        tree.trunkDiameterMillimetres = draft.trunkDiameterMillimetres
+        // Height / Crown / Nebari / Trunk are measurement history events only.
+        // Edit Tree must not write them from the draft — use Add Measurement →
+        // ``applyLatestMeasurement``.
         tree.potLengthMillimetres = draft.potLengthMillimetres
         tree.potWidthMillimetres = draft.potWidthMillimetres
         tree.potHeightMillimetres = draft.potHeightMillimetres
@@ -712,12 +1021,21 @@ final class TreeService {
         tree.disposalNotes = draft.disposalNotes
 
         tree.notes = draft.notes
+        tree.knownHistory = draft.knownHistory
+        tree.carePolicyCollectionID = draft.carePolicyCollectionID
+        tree.wateringModeOverride = draft.wateringModeOverride
+        tree.autoTimesPerDayOverride = draft.autoTimesPerDayOverride.map(TreeWateringPolicyResolver.clampedTimes)
 
-        tree.primaryImageID = draft.primaryImageID
+        let referenceIDs = referenceImageIDs(for: tree)
+        var gallery = draft.imageIDs.filter { !referenceIDs.contains($0) }
+        var primaryImageID = draft.primaryImageID
+        if let primary = primaryImageID, referenceIDs.contains(primary) {
+            primaryImageID = nil
+        }
+        tree.primaryImageID = primaryImageID
 
         // Prefer explicit gallery order from the draft; ensure primary is included.
-        var gallery = draft.imageIDs
-        if let primaryImageID = draft.primaryImageID, !gallery.contains(primaryImageID) {
+        if let primaryImageID, !gallery.contains(primaryImageID) {
             gallery.insert(primaryImageID, at: 0)
         }
         tree.imageIDs = gallery
@@ -774,9 +1092,18 @@ final class TreeService {
             throw TreeRepositoryError.notFound(treeID)
         }
         guard !collection.treeIDs.contains(treeID) else { return }
+
+        if collection.isCarePolicyCollection {
+            try ensureCarePolicyAssignable(treeID: treeID, collectionID: collectionID)
+        }
+
         collection.treeIDs.append(treeID)
         _ = try collectionRepository.updateCollection(collection)
         refreshCollections()
+
+        if collection.isCarePolicyCollection {
+            try setCarePolicyCollectionID(treeID: treeID, collectionID: collectionID)
+        }
     }
 
     private func removeTree(_ treeID: UUID, from collectionID: UUID) throws {
@@ -787,6 +1114,48 @@ final class TreeService {
         collection.treeIDs.removeAll { $0 == treeID }
         _ = try collectionRepository.updateCollection(collection)
         refreshCollections()
+
+        if let tree = getTree(id: treeID), tree.carePolicyCollectionID == collectionID {
+            try setCarePolicyCollectionID(treeID: treeID, collectionID: nil)
+        }
+    }
+
+    private func ensureCarePolicyAssignable(treeID: UUID, collectionID: UUID) throws {
+        guard let tree = getTree(id: treeID) else {
+            throw TreeRepositoryError.notFound(treeID)
+        }
+        guard let existingID = tree.carePolicyCollectionID, existingID != collectionID else { return }
+        guard let existing = collection(id: existingID), existing.isCarePolicyCollection else { return }
+        guard existing.treeIDs.contains(treeID) else { return }
+        throw CollectionServiceError.carePolicyConflict(
+            treeTitle: TreePresentation.title(for: tree),
+            existingCollectionName: existing.name
+        )
+    }
+
+    private func assignCarePolicyToMembers(collectionID: UUID) throws {
+        guard let collection = collection(id: collectionID), collection.isCarePolicyCollection else { return }
+        for treeID in collection.treeIDs {
+            try ensureCarePolicyAssignable(treeID: treeID, collectionID: collectionID)
+            try setCarePolicyCollectionID(treeID: treeID, collectionID: collectionID)
+        }
+    }
+
+    private func clearCarePolicyCollection(_ collectionID: UUID) {
+        for tree in trees where tree.carePolicyCollectionID == collectionID {
+            try? setCarePolicyCollectionID(treeID: tree.id, collectionID: nil)
+        }
+    }
+
+    private func setCarePolicyCollectionID(treeID: UUID, collectionID: UUID?) throws {
+        guard var tree = getTree(id: treeID) else {
+            throw TreeRepositoryError.notFound(treeID)
+        }
+        guard tree.carePolicyCollectionID != collectionID else { return }
+        tree.carePolicyCollectionID = collectionID
+        tree.modifiedDate = .now
+        _ = try repository.updateTree(tree)
+        reload()
     }
 
     private func removeTreeFromAllCollections(treeID: UUID) {

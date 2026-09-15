@@ -29,13 +29,16 @@ These may exist for process and history. They must not redefine product truth:
 | Kind | Examples |
 |------|----------|
 | Direction | `ROADMAP.md` (themes only) |
-| History | `CHANGELOG.md` (shipped work / decision log) |
+| Current status | `STATUS_REPORT_2026-09-12.md` · `STATUS_AUDIT_2026-09-12.md` (maturity map for testers; not product law) |
+| History | `CHANGELOG.md` (shipped work / decision log); older `STATUS_REPORT_*` / `STATUS_AUDIT_*` |
 | Sprint plans | `Documentation/Roadmap/*` |
 | Technical appendices | `Documentation/Architecture/*` (e.g. detailed storage notes) |
 | Reviews | `Documentation/Reviews/*` (architecture, UI, workflow) |
 | Ideas | `Documentation/Project/00_Idea_Parking_Lot.md` |
 
 If an appendix or review invents a rule, **fold the rule into the five** and keep the appendix historical.
+
+**Do not treat August 2026 status docs as current** — prefer the September 2026 status report and audit.
 
 ---
 
@@ -47,7 +50,7 @@ If an appendix or review invents a rule, **fold the rule into the five** and kee
 4. **FALO_DESIGN_SYSTEM** (when designing or changing UI)  
 5. **FALO_COMPONENT_LIBRARY** (when reusing or proposing shared components)  
 
-Optional: Roadmap (direction), Changelog (what shipped), Architecture appendices (deep storage), Reviews (quality feedback).
+Optional: current Status Report / Audit (maturity), Roadmap (direction), Changelog (what shipped), Architecture appendices (deep storage), Reviews (quality feedback).
 
 ---
 

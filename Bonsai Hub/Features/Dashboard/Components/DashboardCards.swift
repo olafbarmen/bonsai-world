@@ -2,54 +2,18 @@
 //  DashboardCards.swift
 //  Bonsai World
 //
-//  Dashboard cards that are not wired yet — heading stays, body marks the gap.
-//  Live cards live in their own files (Tasks, Weather, Alerts, …).
+//  Compatibility aliases for older Dashboard layout catalogs.
+//  Live cards live in their own files.
 //
 
 import SwiftUI
 
-struct TodaysCareDashboardCard: View {
-    var prominence: DashboardCardProminence = .primary
-    var cockpitAligned: Bool = false
-
-    var body: some View {
-        DashboardCard(
-            id: .todaysCare,
-            prominence: prominence,
-            fillsRowHeight: cockpitAligned,
-            compact: cockpitAligned
-        ) {
-            DashboardNoFunctionYet()
-        }
-    }
-}
-
+/// Alias — live Dashboard uses ``InventoryAlertsDashboardCard``.
 struct InventoryStatusDashboardCard: View {
     var prominence: DashboardCardProminence = .secondary
+    var fillsRowHeight: Bool = false
 
     var body: some View {
-        DashboardCard(id: .inventoryStatus, prominence: prominence) {
-            DashboardNoFunctionYet()
-        }
-    }
-}
-
-struct RepottingDashboardCard: View {
-    var prominence: DashboardCardProminence = .secondary
-
-    var body: some View {
-        DashboardCard(id: .repotting, prominence: prominence) {
-            DashboardNoFunctionYet()
-        }
-    }
-}
-
-struct QuickStatisticsDashboardCard: View {
-    var prominence: DashboardCardProminence = .secondary
-
-    var body: some View {
-        DashboardCard(id: .quickStatistics, prominence: prominence) {
-            DashboardNoFunctionYet()
-        }
+        InventoryAlertsDashboardCard(prominence: prominence, fillsRowHeight: fillsRowHeight)
     }
 }

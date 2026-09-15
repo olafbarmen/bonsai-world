@@ -18,6 +18,7 @@ playground.xcworkspace
 # Build / tooling noise
 *.log
 .derivedData-build.log
+build/
 
 # Swift Package Manager
 .build/

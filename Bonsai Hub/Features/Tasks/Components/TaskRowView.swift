@@ -19,6 +19,8 @@ struct TaskRowView: View {
     let onComplete: () -> Void
     var onOpenDetail: () -> Void = {}
 
+    @Environment(AppState.self) private var appState
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: FaloSpacing.medium) {
             VStack(alignment: .leading, spacing: 2) {
@@ -53,6 +55,33 @@ struct TaskRowView: View {
             .controlSize(.small)
         }
         .padding(.vertical, FaloSpacing.small)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button(occurrence.isInstant ? "Complete" : "Complete…") {
+                onComplete()
+            }
+            if let treeID = occurrence.treeID {
+                Button("Open Tree") {
+                    appState.showTreeFromMap(treeID: treeID)
+                }
+            } else if let seedBatchID = occurrence.seedBatchID {
+                Button("Open Seed Batch") {
+                    appState.showSeedBatch(batchID: seedBatchID)
+                }
+            } else if let yamadoriID = occurrence.yamadoriID {
+                Button("Open Yamadori") {
+                    appState.showYamadoriTrip(tripID: yamadoriID)
+                }
+            } else if let projectID = occurrence.nurseryPropagationProjectID {
+                Button("Open Field Tree") {
+                    appState.showFieldTree(projectID: projectID)
+                }
+            } else if occurrence.libraryInventoryKind == .soilStocktake {
+                Button("Open Soil Stocktake") {
+                    appState.presentSoilStocktake()
+                }
+            }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel(occurrence.title)
     }

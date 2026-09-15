@@ -1,5 +1,7 @@
 # Bonsai World — Project Status Report
 
+> **Superseded by [STATUS_REPORT_2026-09-12.md](STATUS_REPORT_2026-09-12.md).** This 30 Aug briefing is **historical**. Many modules listed below as placeholders (Care, Nursery, Inventory, Knowledge, Library Management, Context Tools rename, Gallery rotate) are live as of September 2026. Do not use this file as the current maturity map.
+
 **Date:** 30 August 2026  
 **Product name (user-facing):** Bonsai World  
 **Engineering name (Xcode / folders):** Bonsai Hub  

@@ -33,7 +33,7 @@ struct CollectionMembershipSheet: View {
                             if memberIDs.contains(collection.id) {
                                 Image(systemName: "checkmark")
                                     .font(.body.weight(.semibold))
-                                    .foregroundStyle(.tint)
+                                    .foregroundStyle(BonsaiWorldColors.accent)
                                     .accessibilityLabel("Member")
                             }
                         }

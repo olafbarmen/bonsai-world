@@ -2,10 +2,7 @@
 //  FertilizerTypeEditorSheet.swift
 //  Bonsai World
 //
-//  Add / Edit Fertilizer Type — one entry per product the grower actually uses.
-//  Name carries product/brand identity (e.g. "BioGold Original"); Form, Release,
-//  and Origin are independent classifications so future fertilizing rules per
-//  Tree can match on any axis without being locked to flat combinations.
+//  Add / Edit Fertilizer Type — Brand + Name, N / P / K, and classifications.
 //
 
 import SwiftUI
@@ -39,9 +36,9 @@ struct FertilizerTypeEditorSheet: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("Name", text: $draft.name, prompt: Text("e.g. BioGold Original"))
+                    TextField("Brand", text: $draft.brand, prompt: Text("e.g. BioGold"))
 
-                    TextField("NPK", text: $draft.npk, prompt: Text("e.g. 6-3-6"))
+                    TextField("Name", text: $draft.name, prompt: Text("e.g. Original"))
 
                     TextField("Sort Order", value: $draft.sortOrder, format: .number)
 
@@ -49,7 +46,18 @@ struct FertilizerTypeEditorSheet: View {
                 } header: {
                     Text("General")
                 } footer: {
-                    Text("Name is the product as you know it — it can carry the brand, e.g. “BioGold Original”.")
+                    Text("Brand is optional. Lists show Brand + Name when both are set.")
+                }
+
+                Section {
+                    TextField("N", value: $draft.nitrogen, format: .number.precision(.fractionLength(0...2)))
+                    TextField("P", value: $draft.phosphorus, format: .number.precision(.fractionLength(0...2)))
+                    TextField("K", value: $draft.potassium, format: .number.precision(.fractionLength(0...2)))
+                } header: {
+                    Text("NPK")
+                } footer: {
+                    let label = draft.npk
+                    Text(label.isEmpty ? "Leave blank if unknown." : "Stored as \(label).")
                 }
 
                 Section {
@@ -88,6 +96,7 @@ struct FertilizerTypeEditorSheet: View {
                         guard canSave else { return }
                         var toSave = draft
                         toSave.name = trimmedName
+                        toSave.brand = draft.brand.trimmingCharacters(in: .whitespacesAndNewlines)
                         if let saved = manager.saveFertilizerType(toSave) {
                             onSave(saved)
                             dismiss()
@@ -97,6 +106,6 @@ struct FertilizerTypeEditorSheet: View {
                 }
             }
         }
-        .frame(minWidth: 440, minHeight: 420)
+        .frame(minWidth: 440, minHeight: 480)
     }
 }

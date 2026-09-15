@@ -2,7 +2,7 @@
 //  WorkType.swift
 //  Bonsai World
 //
-//  Reference Data — Work Types (care, health, seasonal, propagation, styling).
+//  Reference Data — Work Types (maintenance, health, seasonal, shaping, propagation, styling).
 //  Owned exclusively by Reference Data. The Work module consumes these types;
 //  Trees only display generated Work History that references a Work Type id.
 //
@@ -14,6 +14,7 @@ enum WorkTypeCategory: String, CaseIterable, Codable, Identifiable, Hashable, Se
     case maintenance
     case health
     case seasonal
+    case shaping
     case propagation
     case styling
     case other
@@ -25,6 +26,7 @@ enum WorkTypeCategory: String, CaseIterable, Codable, Identifiable, Hashable, Se
         case .maintenance: "Maintenance"
         case .health: "Health"
         case .seasonal: "Seasonal"
+        case .shaping: "Shaping"
         case .propagation: "Propagation"
         case .styling: "Styling"
         case .other: "Other"
@@ -36,9 +38,10 @@ enum WorkTypeCategory: String, CaseIterable, Codable, Identifiable, Hashable, Se
         case .maintenance: 0
         case .health: 1
         case .seasonal: 2
-        case .propagation: 3
-        case .styling: 4
-        case .other: 5
+        case .shaping: 3
+        case .propagation: 4
+        case .styling: 5
+        case .other: 6
         }
     }
 }

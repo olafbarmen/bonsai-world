@@ -77,6 +77,17 @@ struct Collection: Identifiable, Codable, Hashable, Sendable {
     /// Smart Collection rules and presentation options. `nil` for manual collections. Unused until Smart Collections ship.
     var smartDefinition: SmartCollectionDefinition?
 
+    // MARK: - Care / Watering policy (manual Collections)
+
+    /// When true, this Manual Collection defines watering policy for members.
+    /// A Tree may have only one Care-policy Collection (``Tree/carePolicyCollectionID``).
+    var isCarePolicyCollection: Bool
+    var wateringMode: WateringMode
+    /// Times per day when ``wateringMode`` is ``WateringMode/auto`` (1…3).
+    var autoTimesPerDay: Int
+    /// Stored for a future high-temp watch slice — not evaluated yet.
+    var heatWatchEnabled: Bool
+
     init(
         id: UUID = UUID(),
         name: String,
@@ -85,7 +96,11 @@ struct Collection: Identifiable, Codable, Hashable, Sendable {
         color: String? = nil,
         icon: String? = nil,
         treeIDs: [UUID] = [],
-        smartDefinition: SmartCollectionDefinition? = nil
+        smartDefinition: SmartCollectionDefinition? = nil,
+        isCarePolicyCollection: Bool = false,
+        wateringMode: WateringMode = .silent,
+        autoTimesPerDay: Int = 1,
+        heatWatchEnabled: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -95,10 +110,15 @@ struct Collection: Identifiable, Codable, Hashable, Sendable {
         self.icon = icon
         self.treeIDs = treeIDs
         self.smartDefinition = smartDefinition
+        self.isCarePolicyCollection = isCarePolicyCollection
+        self.wateringMode = wateringMode
+        self.autoTimesPerDay = TreeWateringPolicyResolver.clampedTimes(autoTimesPerDay)
+        self.heatWatchEnabled = heatWatchEnabled
     }
 
     enum CodingKeys: String, CodingKey {
         case id, name, description, type, color, icon, treeIDs, smartDefinition
+        case isCarePolicyCollection, wateringMode, autoTimesPerDay, heatWatchEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -111,6 +131,12 @@ struct Collection: Identifiable, Codable, Hashable, Sendable {
         icon = try container.decodeIfPresent(String.self, forKey: .icon)
         treeIDs = try container.decodeIfPresent([UUID].self, forKey: .treeIDs) ?? []
         smartDefinition = try container.decodeIfPresent(SmartCollectionDefinition.self, forKey: .smartDefinition)
+        isCarePolicyCollection = try container.decodeIfPresent(Bool.self, forKey: .isCarePolicyCollection) ?? false
+        wateringMode = try container.decodeIfPresent(WateringMode.self, forKey: .wateringMode) ?? .silent
+        autoTimesPerDay = TreeWateringPolicyResolver.clampedTimes(
+            try container.decodeIfPresent(Int.self, forKey: .autoTimesPerDay) ?? 1
+        )
+        heatWatchEnabled = try container.decodeIfPresent(Bool.self, forKey: .heatWatchEnabled) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -125,6 +151,10 @@ struct Collection: Identifiable, Codable, Hashable, Sendable {
         if let smartDefinition {
             try container.encode(smartDefinition, forKey: .smartDefinition)
         }
+        try container.encode(isCarePolicyCollection, forKey: .isCarePolicyCollection)
+        try container.encode(wateringMode, forKey: .wateringMode)
+        try container.encode(autoTimesPerDay, forKey: .autoTimesPerDay)
+        try container.encode(heatWatchEnabled, forKey: .heatWatchEnabled)
     }
 }
 

@@ -30,7 +30,7 @@ struct CroppedImagePreview: View {
             .clipShape(shape)
             .overlay {
                 shape.strokeBorder(
-                    isActive ? Color.accentColor : FaloColors.borderSubtle,
+                    isActive ? BonsaiWorldColors.accent : FaloColors.borderSubtle,
                     lineWidth: isActive ? 2 : 1
                 )
             }
@@ -47,6 +47,8 @@ struct CroppedImagePreviewLoader: View {
     let frameSize: CGSize
     var cornerRadius: CGFloat = FaloRadius.small
     var isActive: Bool = false
+    var rotationDegrees: Int = 0
+    var isMirroredHorizontally: Bool = false
     var onActivate: () -> CGRect
 
     @Environment(ImageService.self) private var imageService
@@ -84,11 +86,17 @@ struct CroppedImagePreviewLoader: View {
             }
         }
         .help("Drag to pan this frame. Other frames keep their own crop.")
-        .task(id: imageID) {
+        .task(id: "\(imageID.uuidString)-\(rotationDegrees)-\(isMirroredHorizontally)") {
             await loadSource()
             applyCrop()
         }
         .onChange(of: cropRect) { _, _ in
+            applyCrop()
+        }
+        .onChange(of: rotationDegrees) { _, _ in
+            applyCrop()
+        }
+        .onChange(of: isMirroredHorizontally) { _, _ in
             applyCrop()
         }
     }
@@ -118,10 +126,7 @@ struct CroppedImagePreviewLoader: View {
         croppedDisplay = nil
         do {
             let data = try await imageService.loadOriginalData(for: imageID)
-            let nsImage = await Task.detached(priority: .userInitiated) {
-                NSImage(data: data)
-            }.value
-            guard let nsImage else { return }
+            guard let nsImage = NSImage(data: data) else { return }
             sourceImage = downscaled(nsImage, maxDimension: 720)
             applyCrop()
         } catch {
@@ -133,7 +138,9 @@ struct CroppedImagePreviewLoader: View {
         guard let sourceImage else { return }
         let cropped = ImagePresentationCropping.croppedImage(
             from: sourceImage,
-            normalizedCrop: cropRect
+            normalizedCrop: cropRect,
+            rotationDegrees: rotationDegrees,
+            isMirroredHorizontally: isMirroredHorizontally
         )
         croppedDisplay = Image(nsImage: cropped)
     }

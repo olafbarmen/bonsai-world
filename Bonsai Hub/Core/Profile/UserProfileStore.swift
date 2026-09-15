@@ -3,10 +3,10 @@
 //  Bonsai World
 //
 //  User Profile + Gardens. Geographic root for Maps, Weather, AI, Work, Notifications.
-//  Name / email / language persist in UserDefaults (lightweight user prefs).
-//  Gardens persist through an injected GardenRepository — UserDefaults before a
-//  Library exists, Database/Gardens.json once one is open (see
-//  GardenMigrationService and ``attachLibraryGardenRepository(_:)``).
+//  Name / email / language / profile image ID:
+//  - Always mirrored in UserDefaults (available before a library opens)
+//  - Also stored in Database/UserProfile.json once a library is attached (ZIP backup / restore)
+//  Gardens persist through GardenRepository (UserDefaults → Database/Gardens.json).
 //
 
 import Foundation
@@ -20,23 +20,24 @@ final class UserProfileStore {
     private static let legacyGardenAddressKey = "falo.appSettings.gardenAddress"
 
     private var gardenRepository: GardenRepository
+    /// When set, profile fields are also written to ``LibraryPackageLayout/userProfileFileName``.
+    private var libraryStorage: StorageService?
 
-    var name: String = "" {
-        didSet { persistProfileFieldsIfNeeded() }
-    }
-
-    var email: String = "" {
-        didSet { persistProfileFieldsIfNeeded() }
-    }
-
-    var language: AppLanguage = .english {
-        didSet { persistProfileFieldsIfNeeded() }
-    }
+    var name: String = ""
+    var email: String = ""
+    var language: AppLanguage = .english
+    /// Optional library image for the sidebar avatar (display crop only). Nil → SF Symbol fallback.
+    var profileImageID: UUID?
 
     private(set) var gardens: [Garden] = []
     private(set) var revision: Int = 0
 
     private var isLoading = false
+
+    /// Persist name / email / language / photo after UI edits (do not rely on didSet alone).
+    func noteProfileFieldsChanged() {
+        persistProfileFieldsIfNeeded()
+    }
 
     /// Default Garden — geographic context for Maps / Weather / AI / Dashboard.
     var defaultGarden: Garden? {
@@ -72,6 +73,57 @@ final class UserProfileStore {
             ensureSingleDefault()
         }
         revision += 1
+    }
+
+    /// Binds profile storage to the open library.
+    /// - Prefer library file when it has name or photo (ZIP restore / normal launch).
+    /// - Otherwise keep in-memory prefs and write them into the library file.
+    func attachLibraryProfileStorage(_ storage: StorageService) {
+        libraryStorage = storage
+        reconcileProfileWithLibrary(preferLibraryIdentity: true)
+    }
+
+    /// After ZIP replace: always re-read the library file; never keep stale empty prefs over a restored profile.
+    func reloadProfileAfterLibraryReplace(_ storage: StorageService) {
+        libraryStorage = storage
+        reconcileProfileWithLibrary(preferLibraryIdentity: true)
+    }
+
+    /// Writes the current profile into the open library immediately (call before ZIP export).
+    func flushProfileToOpenLibrary() {
+        persistProfileToUserDefaults()
+        persistProfileToLibraryIfNeeded()
+    }
+
+    private func reconcileProfileWithLibrary(preferLibraryIdentity: Bool) {
+        guard libraryStorage != nil else { return }
+
+        let memoryHasIdentity = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            || profileImageID != nil
+
+        if let snapshot = libraryStorage.flatMap({ Self.loadProfileFile(from: $0) }) {
+            let libraryHasIdentity = !snapshot.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                || snapshot.profileImageID != nil
+
+            if libraryHasIdentity {
+                applyProfileSnapshot(snapshot, persistMirror: true)
+                return
+            }
+
+            // Library file exists but is empty — keep memory if the grower already typed a name.
+            if memoryHasIdentity {
+                persistProfileToLibraryIfNeeded()
+                return
+            }
+
+            if preferLibraryIdentity {
+                applyProfileSnapshot(snapshot, persistMirror: true)
+            }
+            return
+        }
+
+        // No library file yet — create one from current prefs.
+        persistProfileToLibraryIfNeeded()
     }
 
     // MARK: - Gardens
@@ -159,6 +211,29 @@ final class UserProfileStore {
         )
     }
 
+    /// Clears profile fields and gardens after Empty Personal Library.
+    /// Leaves one fresh default Garden so Maps / Weather still have a geographic root.
+    func resetPersonalProfileForEmptyLibrary() {
+        isLoading = true
+        name = ""
+        email = ""
+        language = .english
+        profileImageID = nil
+        isLoading = false
+        persistProfileFieldsIfNeeded()
+
+        try? gardenRepository.discardPersistedCatalog()
+        let garden = Garden(
+            id: GardenSeed.defaultGardenID,
+            name: "My Garden",
+            isActive: true,
+            isDefault: true
+        )
+        gardens = [garden]
+        revision += 1
+        persistGardensIfNeeded()
+    }
+
     /// Sets or clears the manually selected Garden Position. Never geocodes Address.
     func updateGardenPosition(id: UUID, coordinate: GeographicCoordinate?) {
         guard let index = gardens.firstIndex(where: { $0.id == id }) else { return }
@@ -204,9 +279,60 @@ final class UserProfileStore {
 
     private func persistProfileFieldsIfNeeded() {
         guard !isLoading else { return }
-        let snapshot = PersistedProfileFields(name: name, email: email, language: language)
+        persistProfileToUserDefaults()
+        persistProfileToLibraryIfNeeded()
+        revision += 1
+    }
+
+    private func persistProfileToUserDefaults() {
+        let snapshot = LibraryUserProfileFile(
+            name: name,
+            email: email,
+            language: language,
+            profileImageID: profileImageID
+        )
         guard let data = try? JSONEncoder().encode(snapshot) else { return }
         UserDefaults.standard.set(data, forKey: Self.profileStorageKey)
+    }
+
+    private func persistProfileToLibraryIfNeeded() {
+        guard let storage = libraryStorage else { return }
+        let snapshot = LibraryUserProfileFile(
+            name: name,
+            email: email,
+            language: language,
+            profileImageID: profileImageID
+        )
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let data = try? encoder.encode(snapshot) else { return }
+
+        do {
+            try storage.savePackageFile(
+                relativePath: LibraryPackageLayout.userProfileFileName,
+                data: data
+            )
+        } catch {
+            // Fallback: write beside Trees.json when the storage provider write fails.
+            guard let root = storage.libraryPackageRootURL else { return }
+            let folder = root.appendingPathComponent(LibraryPackageLayout.database, isDirectory: true)
+            let url = folder.appendingPathComponent("UserProfile.json", isDirectory: false)
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try? data.write(to: url, options: .atomic)
+        }
+    }
+
+    private func applyProfileSnapshot(_ snapshot: LibraryUserProfileFile, persistMirror: Bool) {
+        isLoading = true
+        name = snapshot.name
+        email = snapshot.email
+        language = snapshot.language
+        profileImageID = snapshot.profileImageID
+        isLoading = false
+        if persistMirror {
+            persistProfileToUserDefaults()
+        }
+        revision += 1
     }
 
     private func loadOrCreate() {
@@ -240,10 +366,11 @@ final class UserProfileStore {
 
     private func loadProfileFields() {
         if let data = UserDefaults.standard.data(forKey: Self.profileStorageKey),
-           let snapshot = try? JSONDecoder().decode(PersistedProfileFields.self, from: data) {
+           let snapshot = try? JSONDecoder().decode(LibraryUserProfileFile.self, from: data) {
             name = snapshot.name
             email = snapshot.email
             language = snapshot.language
+            profileImageID = snapshot.profileImageID
             return
         }
 
@@ -256,12 +383,42 @@ final class UserProfileStore {
             language = legacy.language
         }
     }
+
+    private static func loadProfileFile(from storage: StorageService) -> LibraryUserProfileFile? {
+        do {
+            guard let data = try storage.loadPackageFile(
+                relativePath: LibraryPackageLayout.userProfileFileName
+            ) else {
+                return nil
+            }
+            return try JSONDecoder().decode(LibraryUserProfileFile.self, from: data)
+        } catch {
+            return nil
+        }
+    }
 }
 
-private struct PersistedProfileFields: Codable {
+/// On-disk / UserDefaults envelope for profile fields (included in library ZIP).
+struct LibraryUserProfileFile: Codable, Hashable, Sendable {
     var name: String
     var email: String
     var language: AppLanguage
+    var profileImageID: UUID?
+
+    init(name: String, email: String, language: AppLanguage, profileImageID: UUID? = nil) {
+        self.name = name
+        self.email = email
+        self.language = language
+        self.profileImageID = profileImageID
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
+        email = try container.decodeIfPresent(String.self, forKey: .email) ?? ""
+        language = try container.decodeIfPresent(AppLanguage.self, forKey: .language) ?? .english
+        profileImageID = try container.decodeIfPresent(UUID.self, forKey: .profileImageID)
+    }
 }
 
 /// Shape of the pre-refactor combined profile blob (`falo.userProfile.v1`).

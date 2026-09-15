@@ -38,6 +38,12 @@ final class ImagePresentationStore {
         recipes[RecipeKey(imageID: imageID, contextID: context?.rawValue ?? "")]
     }
 
+    func recipes(for imageID: UUID) -> [ImagePresentationMetadata] {
+        recipes.compactMap { key, value in
+            key.imageID == imageID ? value : nil
+        }
+    }
+
     func save(_ metadata: ImagePresentationMetadata) {
         save([metadata])
     }

@@ -42,7 +42,7 @@ struct LocationDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.windowBackground)
+        .faloWorkspaceCanvas()
         .navigationTitle(location?.name ?? "Location Inspector")
     }
 
@@ -118,7 +118,7 @@ struct LocationDetailView: View {
                     ForEach(risks, id: \.self) { risk in
                         Label(risk, systemImage: "exclamationmark.triangle.fill")
                             .font(FaloTypography.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(BonsaiWorldColors.statusAttention)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -249,7 +249,7 @@ struct LocationDetailView: View {
                         Button {
                             openTree(tree.id)
                         } label: {
-                            LocationInspectorTreeRow(tree: tree)
+                            LocationInspectorTreeRow(tree: tree, imageService: imageService)
                         }
                         .buttonStyle(.plain)
                         // Future: multi-select, batch Work, drag between Locations.
@@ -271,10 +271,11 @@ struct LocationDetailView: View {
 
 private struct LocationInspectorTreeRow: View {
     let tree: Tree
+    let imageService: ImageService
 
     var body: some View {
         HStack(alignment: .center, spacing: FaloSpacing.medium) {
-            TreeListThumbnail(imageID: tree.listImageID)
+            TreeListThumbnail(imageID: tree.listImageID, imageService: imageService)
 
             VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
                 Text(bonsaiName)

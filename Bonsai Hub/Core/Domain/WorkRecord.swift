@@ -31,6 +31,10 @@ struct WorkRecord: Identifiable, Codable, Hashable, Sendable {
     var templateID: UUID?
     /// Optional calendar / schedule identity.
     var scheduleID: UUID?
+    /// Optional Shaping area (raw ``ShapingAreaID`` value) for Tree Timeline context.
+    var shapingAreaID: String?
+    /// Links to the detailed Shaping history entry, when registered from Shaping.
+    var shapingHistoryEntryID: UUID?
 
     var createdDate: Date
     var modifiedDate: Date
@@ -48,6 +52,8 @@ struct WorkRecord: Identifiable, Codable, Hashable, Sendable {
         wireID: UUID? = nil,
         templateID: UUID? = nil,
         scheduleID: UUID? = nil,
+        shapingAreaID: String? = nil,
+        shapingHistoryEntryID: UUID? = nil,
         createdDate: Date = .now,
         modifiedDate: Date = .now
     ) {
@@ -63,6 +69,8 @@ struct WorkRecord: Identifiable, Codable, Hashable, Sendable {
         self.wireID = wireID
         self.templateID = templateID
         self.scheduleID = scheduleID
+        self.shapingAreaID = shapingAreaID
+        self.shapingHistoryEntryID = shapingHistoryEntryID
         self.createdDate = createdDate
         self.modifiedDate = modifiedDate
     }

@@ -11,6 +11,7 @@ import Foundation
 /// Collection Detail actions requested from Quick Actions (never from duplicate toolbars).
 enum CollectionQuickActionCommand: String, Hashable, Sendable {
     case editCollection
+    case deleteCollection
     /// Leave Edit Mode after Auto Save (same Finish pattern as Tree Detail).
     case finish
 }

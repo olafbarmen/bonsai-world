@@ -166,8 +166,9 @@ struct ImageWorkspaceSummaryView: View {
 }
 
 enum ImageWorkspaceLayout {
+    /// 5:6 identification thumbnail.
     static let summaryThumbnailWidth: CGFloat = 90
-    static let summaryThumbnailHeight: CGFloat = 120
+    static let summaryThumbnailHeight: CGFloat = 108
     static let summaryColumnMinWidth: CGFloat = 140
-    static let filmstripHeight: CGFloat = 118
+    static let filmstripHeight: CGFloat = 112
 }

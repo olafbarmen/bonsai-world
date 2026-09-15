@@ -12,6 +12,7 @@ struct CopyExistingTreeSheet: View {
     @Environment(AppState.self) private var appState
     @Environment(TreeService.self) private var treeService
     @Environment(ReferenceDataService.self) private var referenceData
+    @Environment(ImageService.self) private var imageService
     @Environment(\.dismiss) private var dismiss
 
     @State private var treePendingCopy: Tree?
@@ -42,7 +43,7 @@ struct CopyExistingTreeSheet: View {
                             treePendingCopy = tree
                         } label: {
                             HStack(alignment: .center, spacing: FaloSpacing.medium) {
-                                TreeListThumbnail(imageID: tree.listImageID)
+                                TreeListThumbnail(imageID: tree.listImageID, imageService: imageService)
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(TreePresentation.title(for: tree))
                                         .foregroundStyle(.primary)

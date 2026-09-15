@@ -3,7 +3,6 @@
 //  Bonsai World
 //
 //  Extensible catalog of First Launch Wizard choices.
-//  Add future options here (iCloud, Restore Backup, Sample Library) without redesigning the welcome UI.
 //
 
 import Foundation
@@ -25,8 +24,8 @@ struct FirstLaunchOption: Identifiable, Hashable, Sendable {
 enum FirstLaunchOptionsCatalog {
     static let createNewID = "firstLaunch.createNew"
     static let openExistingID = "firstLaunch.openExisting"
-    static let createInICloudID = "firstLaunch.createInICloud"
     static let restoreBackupID = "firstLaunch.restoreBackup"
+    static let createInICloudID = "firstLaunch.createInICloud"
     static let createSampleID = "firstLaunch.createSample"
 
     /// Primary actions shown on the Welcome screen (order matters).
@@ -34,15 +33,22 @@ enum FirstLaunchOptionsCatalog {
         [
             FirstLaunchOption(
                 id: createNewID,
-                title: "Create New Library",
-                subtitle: "Choose a folder and create a Bonsai World Library.",
-                systemImage: "plus.rectangle.on.folder",
+                title: "I'm starting fresh",
+                subtitle: "Create a new library for your trees.",
+                systemImage: "leaf",
+                availability: .available
+            ),
+            FirstLaunchOption(
+                id: restoreBackupID,
+                title: "I have a ZIP backup",
+                subtitle: "Moved Mac, or restoring a safety copy.",
+                systemImage: "doc.zipper",
                 availability: .available
             ),
             FirstLaunchOption(
                 id: openExistingID,
-                title: "Open Existing Library",
-                subtitle: "Select a Bonsai World Library you already have.",
+                title: "I already have a library on this Mac",
+                subtitle: "Open a Bonsai World Library folder you already use.",
                 systemImage: "folder",
                 availability: .available
             )
@@ -60,17 +66,10 @@ enum FirstLaunchOptionsCatalog {
                 availability: .comingSoon
             ),
             FirstLaunchOption(
-                id: restoreBackupID,
-                title: "Restore Backup",
-                subtitle: "Restore from a Bonsai World backup.",
-                systemImage: "arrow.counterclockwise",
-                availability: .comingSoon
-            ),
-            FirstLaunchOption(
                 id: createSampleID,
                 title: "Create Sample Library",
                 subtitle: "Start with example trees to explore the app.",
-                systemImage: "leaf",
+                systemImage: "square.stack.3d.up",
                 availability: .comingSoon
             )
         ]

@@ -25,7 +25,7 @@ enum TreeListColumnID: String, CaseIterable, Codable, Identifiable, Hashable, Se
         switch self {
         case .botanicalName: "Botanical Name"
         case .style: "Style"
-        case .treeStatus: "Tree Status"
+        case .treeStatus: "Tree Stage"
         case .location: "Location"
         case .pot: "Pot"
         case .acquisition: "Acquisition"

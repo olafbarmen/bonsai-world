@@ -23,7 +23,7 @@ struct NewTreeDraft: Sendable {
 
     var styleID: UUID?
     var sizeClassID: UUID?
-    var treeStatusID: UUID?
+    var treeStageID: UUID?
 
     /// Required — Add Tree cannot save without a chosen Location.
     var locationID: UUID?

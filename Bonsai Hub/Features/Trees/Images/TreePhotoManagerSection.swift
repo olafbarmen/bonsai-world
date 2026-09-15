@@ -2,8 +2,9 @@
 //  TreePhotoManagerSection.swift
 //  Bonsai World
 //
-//  Tree Detail photo manager — Hero preview with a horizontal filmstrip below.
-//  Selecting a thumbnail updates the Hero image.
+//  Tree Detail photos — Primary image with filmstrip directly underneath
+//  (column 0). Horizontal scroll when there are many thumbnails so columns
+//  1–2 can start at the top of the card grid.
 //
 
 import AppKit
@@ -14,11 +15,12 @@ struct TreePhotoManagerSection: View {
     static let defaultFixedHeight: CGFloat = 320
 
     /// Portrait Primary Image container (mild 3:4 — trees are taller than wide).
-    private static let mainAspectRatio: CGFloat = GalleryLayout.imageAspectRatio
+    private static let defaultMainAspectRatio: CGFloat = GalleryLayout.imageAspectRatio
     private static let thumbnailWidth: CGFloat = 48
     private static let thumbnailHeight: CGFloat = 64
     private static let filmstripItemWidth: CGFloat = 64
-    private static let filmstripMinHeight: CGFloat = 112
+    /// Cap filmstrip height so a long gallery scrolls instead of pushing cards down.
+    private static let filmstripMaxHeight: CGFloat = 120
 
     let treeID: UUID
     let imageIDs: [UUID]
@@ -29,11 +31,21 @@ struct TreePhotoManagerSection: View {
     let captureDates: [UUID: Date]
     @Binding var selectedImageID: UUID?
     var isEditing: Bool = false
+    /// When false, only the primary preview is shown (Overview presence column).
+    var showsFilmstrip: Bool = true
+    /// Width÷height for the main preview. Higher = shorter. Nil uses the default portrait ratio.
+    var mainAspectRatio: CGFloat? = nil
+    /// When set, the main preview scales to fit within this height (aspect preserved).
+    var previewMaxHeight: CGFloat? = nil
     var onAddImage: () -> Void = {}
     var onSelectImage: (UUID) -> Void = { _ in }
     var onSetPrimary: (UUID) -> Void = { _ in }
     var onUpdatePhotoMetadata: (UUID, String, Date) -> Void = { _, _, _ in }
     var onDeletePhoto: (UUID) -> Void = { _ in }
+
+    private var resolvedMainAspectRatio: CGFloat {
+        mainAspectRatio ?? Self.defaultMainAspectRatio
+    }
 
     @Environment(ImageService.self) private var imageService
     @Environment(\.openWindow) private var openWindow
@@ -51,10 +63,10 @@ struct TreePhotoManagerSection: View {
         let _ = imageService.presentationRevision
         VStack(alignment: .leading, spacing: FaloSpacing.small) {
             mainPreview
-            filmstrip
+            if showsFilmstrip {
+                filmstrip
+            }
         }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .clipped()
         .task(id: imageIDs) {
             await loadThumbnails()
         }
@@ -106,9 +118,9 @@ struct TreePhotoManagerSection: View {
     // MARK: - Filmstrip
 
     private var filmstrip: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             ScrollView(.horizontal, showsIndicators: true) {
-                HStack(spacing: FaloSpacing.xSmall) {
+                HStack(alignment: .top, spacing: FaloSpacing.small) {
                     ForEach(imageIDs, id: \.self) { imageID in
                         filmstripItem(imageID)
                     }
@@ -116,7 +128,7 @@ struct TreePhotoManagerSection: View {
                 .padding(.horizontal, FaloSpacing.small)
                 .padding(.vertical, FaloSpacing.small)
             }
-            .frame(minHeight: Self.filmstripMinHeight)
+            .frame(maxHeight: Self.filmstripMaxHeight)
             .faloScrollSurface()
 
             if isEditing {
@@ -125,6 +137,7 @@ struct TreePhotoManagerSection: View {
                     .padding(.bottom, FaloSpacing.small)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
         .background {
             RoundedRectangle(cornerRadius: FaloRadius.hero, style: .continuous)
                 .fill(Color.primary.opacity(0.03))
@@ -167,7 +180,7 @@ struct TreePhotoManagerSection: View {
                 .overlay {
                     RoundedRectangle(cornerRadius: FaloRadius.small, style: .continuous)
                         .strokeBorder(
-                            isSelected ? Color.accentColor : Color.primary.opacity(0.08),
+                            isSelected ? BonsaiWorldColors.accent : BonsaiWorldColors.border,
                             lineWidth: isSelected ? 2 : 1
                         )
                 }
@@ -175,7 +188,7 @@ struct TreePhotoManagerSection: View {
                 if isPrimary {
                     Image(systemName: "star.fill")
                         .font(.system(size: 8, weight: .semibold))
-                        .foregroundStyle(.yellow)
+                        .foregroundStyle(BonsaiWorldColors.accent)
                         .padding(2)
                         .background(Circle().fill(Color.black.opacity(0.35)))
                         .offset(x: 3, y: -3)
@@ -249,12 +262,13 @@ struct TreePhotoManagerSection: View {
 
     // MARK: - Main preview
 
-    /// Portrait container (3:4). Layout size comes from the column width — never the photo pixels.
+    /// Portrait container. Layout size comes from the column width — never the photo pixels.
+    /// Optional ``previewMaxHeight`` keeps the well from stretching the parent; image fits inside.
     private var mainPreview: some View {
         let shape = RoundedRectangle(cornerRadius: FaloRadius.hero, style: .continuous)
         return Color.clear
-            .aspectRatio(Self.mainAspectRatio, contentMode: .fit)
-            .frame(maxWidth: .infinity)
+            .aspectRatio(resolvedMainAspectRatio, contentMode: .fit)
+            .frame(maxWidth: .infinity, maxHeight: previewMaxHeight)
             .background(shape.fill(Color.primary.opacity(0.03)))
             .overlay {
                 mainImageContent
@@ -294,12 +308,13 @@ struct TreePhotoManagerSection: View {
                     ProgressView()
                         .controlSize(.regular)
                 } else if let mainImage {
+                    // Presentation crop is already framed — fit the whole result.
+                    // Fill would re-crop a few pixels when aspect drifts slightly.
                     mainImage
                         .resizable()
-                        .scaledToFill()
+                        .scaledToFit()
                 }
             }
-            .clipped()
     }
 
     private var emptyPlaceholder: some View {

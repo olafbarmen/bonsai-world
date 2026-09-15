@@ -10,6 +10,8 @@
 import SwiftUI
 
 struct WeatherDashboardCard: View {
+    var fillsRowHeight: Bool = false
+
     @Environment(WeatherService.self) private var weatherService
     @Environment(AppSettings.self) private var appSettings
     @Environment(\.scenePhase) private var scenePhase
@@ -18,11 +20,11 @@ struct WeatherDashboardCard: View {
         DashboardPlaceholderData.hoverInfo(for: .weather)
     }
 
-    private let labelColumnWidth: CGFloat = 64
-    private let valueColumnWidth: CGFloat = 88
+    private let labelColumnWidth: CGFloat = 56
+    private let valueColumnWidth: CGFloat = 80
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DashboardSpacing.titleToContent) {
+        VStack(alignment: .leading, spacing: FaloSpacing.small) {
             header
 
             switch weatherService.state {
@@ -39,9 +41,17 @@ struct WeatherDashboardCard: View {
                     loadingBody
                 }
             }
+
+            if fillsRowHeight {
+                Spacer(minLength: 0)
+            }
         }
-        .padding(DashboardSpacing.cardPadding)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .padding(FaloSpacing.medium)
+        .frame(
+            maxWidth: .infinity,
+            maxHeight: fillsRowHeight ? .infinity : nil,
+            alignment: .topLeading
+        )
         .dashboardCardChrome()
         .help(hoverInfo.helpText)
         .accessibilityElement(children: .contain)
@@ -58,13 +68,13 @@ struct WeatherDashboardCard: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(alignment: .top, spacing: FaloSpacing.small) {
+        HStack(alignment: .firstTextBaseline, spacing: FaloSpacing.small) {
             Text("Weather")
                 .font(FaloTypography.headline)
 
             Spacer(minLength: FaloSpacing.xSmall)
 
-            VStack(alignment: .trailing, spacing: 1) {
+            VStack(alignment: .trailing, spacing: 0) {
                 HStack(spacing: FaloSpacing.xSmall) {
                     Text("Garden:")
                         .font(FaloTypography.caption)
@@ -102,7 +112,7 @@ struct WeatherDashboardCard: View {
                 .font(FaloTypography.caption)
                 .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var noGardenPositionBody: some View {
@@ -114,7 +124,7 @@ struct WeatherDashboardCard: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
     private func errorBody(_ message: String) -> some View {
@@ -126,14 +136,24 @@ struct WeatherDashboardCard: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: .infinity, minHeight: 120, alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 
+    /// Comparison + risk side by side; 7-day strip full width below.
     @ViewBuilder
     private func loadedBody(_ snapshot: WeatherSnapshot) -> some View {
-        comparisonTable(snapshot)
-        riskSection(snapshot)
-        weekStrip(snapshot)
+        VStack(alignment: .leading, spacing: FaloSpacing.small) {
+            HStack(alignment: .top, spacing: FaloSpacing.large) {
+                comparisonTable(snapshot)
+                    .fixedSize(horizontal: true, vertical: false)
+
+                riskSection(snapshot)
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+
+            weekStrip(snapshot)
+                .frame(maxWidth: .infinity)
+        }
     }
 
     // MARK: - Today / Tomorrow comparison
@@ -145,7 +165,7 @@ struct WeatherDashboardCard: View {
             measurementSystem: appSettings.measurementSystem
         )
 
-        return Grid(alignment: .leading, horizontalSpacing: FaloSpacing.medium, verticalSpacing: 3) {
+        return Grid(alignment: .leading, horizontalSpacing: FaloSpacing.small, verticalSpacing: 2) {
             GridRow {
                 Color.clear
                     .frame(width: labelColumnWidth, height: 1)
@@ -171,19 +191,18 @@ struct WeatherDashboardCard: View {
                 }
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// `secondary` is the Low temperature — only the Temp row supplies it.
     private func parameterValue(_ value: String, secondary: String? = nil, level: WeatherRiskLevel) -> some View {
-        HStack(spacing: 5) {
+        HStack(spacing: FaloSpacing.xSmall) {
             Circle()
                 .fill(level.color)
-                .frame(width: 7, height: 7)
+                .frame(width: 6, height: 6)
                 .accessibilityHidden(true)
-            HStack(spacing: 3) {
+            HStack(spacing: 2) {
                 Text(value)
-                    .font(FaloTypography.body)
+                    .font(FaloTypography.caption.weight(.medium))
                     .monospacedDigit()
                     .lineLimit(1)
                 if let secondary {
@@ -207,6 +226,9 @@ struct WeatherDashboardCard: View {
 
     private func riskSection(_ snapshot: WeatherSnapshot) -> some View {
         let risks = WeatherRiskAssessment.todaysRisks(for: snapshot)
+        let nextAction = WeatherRiskAssessment.nextAction(for: snapshot)
+        /// ``nextAction`` equals the first risk when risks exist — show it once under Next Action.
+        let additionalRisks = Array(risks.dropFirst())
 
         return VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
             DashboardCardSectionLabel(title: "Today's Bonsai Risks")
@@ -216,11 +238,19 @@ struct WeatherDashboardCard: View {
                     .font(FaloTypography.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            } else {
-                DashboardCardBulletList(items: risks, compact: true)
+            } else if !additionalRisks.isEmpty {
+                DashboardCardBulletList(items: additionalRisks, compact: true)
             }
 
-            DashboardCardNextAction(text: WeatherRiskAssessment.nextAction(for: snapshot))
+            VStack(alignment: .leading, spacing: 2) {
+                DashboardCardSectionLabel(title: "Next Action")
+                Text(nextAction)
+                    .font(FaloTypography.body)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Next Action, \(nextAction)")
         }
     }
 
@@ -232,21 +262,19 @@ struct WeatherDashboardCard: View {
                 let high = appSettings.temperatureUnit.formatted(celsius: day.maxTemperatureCelsius)
                 let low = appSettings.temperatureUnit.formatted(celsius: day.minTemperatureCelsius)
 
-                VStack(spacing: 1) {
+                VStack(spacing: 0) {
                     Text(Self.weekdayFormatter.string(from: day.date))
-                        .font(FaloTypography.caption)
+                        .font(.system(size: 10, weight: .regular))
                         .foregroundStyle(.secondary)
                     Image(systemName: day.condition.systemImageName)
-                        .font(.system(size: 11, weight: .regular))
+                        .font(.system(size: 10, weight: .regular))
                         .symbolRenderingMode(.hierarchical)
                         .foregroundStyle(.secondary)
-                        .frame(height: 13)
+                        .frame(height: 12)
                     Text(high)
-                        .font(FaloTypography.caption)
-                        .monospacedDigit()
+                        .font(.system(size: 10, weight: .medium).monospacedDigit())
                     Text(low)
-                        .font(.system(size: 9))
-                        .monospacedDigit()
+                        .font(.system(size: 9).monospacedDigit())
                         .foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity)
@@ -268,10 +296,10 @@ struct WeatherDashboardCard: View {
 private extension WeatherRiskLevel {
     var color: Color {
         switch self {
-        case .normal: Color.green
-        case .watch: Color.yellow
-        case .caution: Color.orange
-        case .critical: Color.red
+        case .normal: BonsaiWorldColors.statusPositive
+        case .watch: BonsaiWorldColors.statusAttention
+        case .caution: BonsaiWorldColors.statusWarning
+        case .critical: BonsaiWorldColors.statusCritical
         }
     }
 }
@@ -284,5 +312,5 @@ private extension WeatherRiskLevel {
         .environment(weatherService)
         .environment(AppSettings())
         .padding()
-        .frame(width: 460, height: 320)
+        .frame(width: 720, height: 240)
 }

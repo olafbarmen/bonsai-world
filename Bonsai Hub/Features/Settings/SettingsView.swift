@@ -20,21 +20,40 @@ struct SettingsView: View {
             Section("Preferences") {
                 settingsRow(.regionalSettings)
                 settingsRow(.appearance)
+                settingsRow(.experience)
                 settingsRow(.notifications)
+                settingsRow(.social)
             }
             Section("Data") {
                 settingsRow(.referenceData)
-                settingsRow(.backup)
+            }
+            Section("Inventory") {
+                settingsRow(.potBrandsAndMakers)
+            }
+
+            Section("Bonsai Knowledge") {
+                settingsRow(.seedStratificationKnowledge)
+            }
+
+            Section("Library") {
+                settingsRow(.libraryManagement)
             }
         }
-        .faloScrollSurface()
-        .navigationTitle("Settings")
+        .faloWarmContentList()
+        .bonsaiWorkspaceNavigationTitle("Settings")
         .navigationSplitViewColumnWidth(min: 220, ideal: 280)
     }
 
     private func settingsRow(_ pane: SettingsPane) -> some View {
         Label(pane.title, systemImage: pane.systemImage)
+            .foregroundStyle(BonsaiWorldColors.textPrimary)
             .tag(pane)
+            .listRowBackground(
+                SidebarRowBackground(
+                    isSelected: appState.selectedSettingsPane == pane,
+                    baseFill: BonsaiWorldColors.canvas
+                )
+            )
     }
 }
 

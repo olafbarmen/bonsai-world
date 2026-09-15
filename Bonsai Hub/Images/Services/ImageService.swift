@@ -19,18 +19,28 @@ final class ImageService {
     private let presentationStore: ImagePresentationStore
     /// Bumps when a crop recipe is saved or reset so display views reload.
     private(set) var presentationRevision: Int = 0
+    /// Bumps when the image catalog gains/loses assets so Gallery refreshes.
+    private(set) var catalogRevision: Int = 0
+    /// In-memory decode cache only — must not invalidate @Observable views
+    /// (cache writes used to re-render every ImageService observer and freeze
+    /// sheets that load many tree thumbnails, e.g. Assign to Tree).
+    @ObservationIgnored
     private var thumbnailCache: [String: NSImage] = [:]
 
     init(storage: StorageService, previewData: ImagePreviewData) {
         self.storage = storage
         self.previewData = previewData
         self.presentationStore = ImagePresentationStore(storage: storage)
+        previewData.onCatalogChanged = { [weak self] in
+            self?.catalogRevision += 1
+        }
     }
 
     /// Re-load catalogs after the library package becomes ready.
     func attachStorage(_ storage: StorageService) {
         previewData.attachStorage(storage)
         presentationStore.attachStorage(storage)
+        catalogRevision += 1
     }
 
     // MARK: - Metadata
@@ -72,7 +82,8 @@ final class ImageService {
 
     /// Count of catalogued images — use in Gallery to establish observation when wired.
     var libraryImageCount: Int {
-        previewData.allAssets().count
+        let _ = catalogRevision
+        return previewData.allAssets().count
     }
 
     /// Loads original image bytes via StorageService (for Crop and decode).
@@ -95,22 +106,32 @@ final class ImageService {
         maxPixelSize: Int? = nil
     ) async throws -> NSImage {
         let cacheKey = "\(id.uuidString)-\(context.rawValue)-\(maxPixelSize ?? 0)-\(presentationRevision)"
-        if let maxPixelSize, let cached = thumbnailCache[cacheKey] {
+        if maxPixelSize != nil, let cached = thumbnailCache[cacheKey] {
             return cached
         }
 
         let data = try await loadOriginalData(for: id)
-        let crop = presentationMetadata(for: id, context: context).cropNormalizedRect.cgRect
-        let decoded = await Task.detached(priority: .userInitiated) {
-            ImagePresentationCropping.displayImage(
+        let recipe = presentationMetadata(for: id, context: context)
+        let crop = recipe.cropNormalizedRect.cgRect
+        let rotation = recipe.rotationDegrees
+        let mirrored = recipe.isMirroredHorizontally
+        let pixelSize = maxPixelSize
+        let cgImage = await Task.detached(priority: .userInitiated) {
+            ImagePresentationCropping.displayCGImage(
                 from: data,
                 normalizedCrop: crop,
-                maxPixelSize: maxPixelSize
+                rotationDegrees: rotation,
+                isMirroredHorizontally: mirrored,
+                maxPixelSize: pixelSize
             )
         }.value
-        guard let decoded else {
+        guard let cgImage else {
             throw StorageError.assetNotFound(StorageAssetID(id))
         }
+        let decoded = NSImage(
+            cgImage: cgImage,
+            size: NSSize(width: cgImage.width, height: cgImage.height)
+        )
         if maxPixelSize != nil {
             thumbnailCache[cacheKey] = decoded
         }
@@ -182,6 +203,38 @@ final class ImageService {
         presentationStore.save(stamped)
         thumbnailCache.removeAll()
         presentationRevision += 1
+    }
+
+    /// Shared clockwise rotation for an image’s recipes (0 when none saved).
+    func presentationRotation(for id: UUID) -> Int {
+        let degrees = presentationStore.recipes(for: id).first?.rotationDegrees ?? 0
+        return ImagePresentationMetadata.normalizedRotation(degrees)
+    }
+
+    /// Shared horizontal mirror flag for an image’s recipes (false when none saved).
+    func presentationIsMirroredHorizontally(for id: UUID) -> Bool {
+        presentationStore.recipes(for: id).first?.isMirroredHorizontally ?? false
+    }
+
+    /// Rotate every saved recipe 90° clockwise. Creates a full-frame recipe when none exist.
+    func rotatePresentationClockwise(for id: UUID) {
+        let existing = presentationStore.recipes(for: id)
+        if existing.isEmpty {
+            savePresentationMetadata(
+                ImagePresentationMetadata(
+                    sourceImageID: id,
+                    rotationDegrees: 90
+                )
+            )
+            return
+        }
+        let updated = existing.map { item -> ImagePresentationMetadata in
+            var next = item
+            next.rotationDegrees = ImagePresentationMetadata.normalizedRotation(item.rotationDegrees + 90)
+            next.cropNormalizedRect = item.cropNormalizedRect.rotatedClockwise90()
+            return next
+        }
+        savePresentationMetadata(updated)
     }
 
     /// Removes saved crop — reverts to full-frame presentation.

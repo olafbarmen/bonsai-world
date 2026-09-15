@@ -62,6 +62,7 @@ struct DashboardLayout: Hashable, Codable, Sendable {
             DashboardCardPlacement(id: .inventoryStatus, prominence: .secondary),
             DashboardCardPlacement(id: .repotting, prominence: .secondary),
             DashboardCardPlacement(id: .quickStatistics, prominence: .secondary),
+            DashboardCardPlacement(id: .knowledge, prominence: .secondary),
             DashboardCardPlacement(id: .todaysCare, prominence: .primary, isHidden: true)
         ]
     )

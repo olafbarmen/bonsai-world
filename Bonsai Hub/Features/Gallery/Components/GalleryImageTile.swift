@@ -14,6 +14,8 @@ struct GalleryImageTile: View {
     let showsFeaturedBadge: Bool
     let onSelect: () -> Void
     let onOpenWorkspace: () -> Void
+    var onCrop: () -> Void = {}
+    var onDelete: () -> Void = {}
 
     private var cardShape: RoundedRectangle {
         RoundedRectangle(cornerRadius: GalleryLayout.cardCornerRadius, style: .continuous)
@@ -35,7 +37,7 @@ struct GalleryImageTile: View {
             .overlay {
                 cardShape
                     .strokeBorder(
-                        isSelected ? Color.accentColor : FaloColors.borderSubtle,
+                        isSelected ? BonsaiWorldColors.accent : FaloColors.borderSubtle,
                         lineWidth: isSelected ? 2 : 1
                     )
             }
@@ -46,23 +48,40 @@ struct GalleryImageTile: View {
                 onOpenWorkspace()
             }
         )
+        .contextMenu {
+            Button("Crop") {
+                onSelect()
+                onCrop()
+            }
+            Button("Open Image Workspace") {
+                onSelect()
+                onOpenWorkspace()
+            }
+            Divider()
+            Button("Delete Image", role: .destructive) {
+                onSelect()
+                onDelete()
+            }
+        }
         .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
         .accessibilityHint("Single-click to select. Double-click to open Image Workspace.")
     }
 
-    /// Image well — Presentation crop fills the card (Original is never modified).
+    /// Image well — Presentation crop fills a fixed 5:6 frame (Original never modified).
     private var presentationWell: some View {
-        ZStack {
-            Color.primary.opacity(0.03)
-
-            GalleryThumbnailImage(imageID: entry.id)
-                .padding(GalleryLayout.imageWellPadding)
-        }
-        .padding(GalleryLayout.presentationWellInset)
-        .frame(maxWidth: .infinity)
-        .aspectRatio(GalleryLayout.imageAspectRatio, contentMode: .fit)
-        .clipped()
+        Color.clear
+            .aspectRatio(GalleryLayout.imageAspectRatio, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+            .overlay {
+                ZStack {
+                    Color.primary.opacity(0.03)
+                    GalleryThumbnailImage(imageID: entry.id)
+                        .padding(GalleryLayout.imageWellPadding)
+                }
+                .padding(GalleryLayout.presentationWellInset)
+            }
+            .clipped()
     }
 
     private var metadataSection: some View {

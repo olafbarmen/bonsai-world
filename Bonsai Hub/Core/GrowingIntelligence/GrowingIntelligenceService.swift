@@ -15,7 +15,8 @@
 //  Produces future recommendations (watering, fertilizing, placement, recovery,
 //  seasonal / winter care). Not AI — future AI builds upon this domain.
 //
-//  Engines are prepared; recommendation behaviour is not implemented.
+//  Engines: Fertilizing and Watering (Care advisory v1) are live;
+//  other engines remain architectural placeholders.
 //
 
 import Foundation
@@ -76,8 +77,60 @@ final class GrowingIntelligenceService {
 
     // MARK: - Future evaluation API
 
+    /// Decision-engine lookup for Care → Fertilizing. Explorer inputs — not a Tree query.
+    func fertilizerAdvice(_ query: FertilizerQuery) -> FertilizerAdvice {
+        fertilizer.advice(for: query)
+    }
+
+    /// Care → Watering advisory v1 — Location Environment + weather only.
+    /// Never changes Tasks, Due, or Watering policy.
+    func wateringAdvice(
+        environment: LocationEnvironmentProfile,
+        snapshot: WeatherSnapshot?,
+        heatWatchEnabled: Bool
+    ) -> WateringAdvice {
+        watering.advice(
+            environment: environment,
+            snapshot: snapshot,
+            heatWatchEnabled: heatWatchEnabled
+        )
+    }
+
+    func fertilizerAdvice(
+        kind: FertilizerKind,
+        stage: FertilizerStage,
+        season: FertilizerSeason,
+        growth: FertilizerGrowth,
+        health: FertilizerHealth = .healthy
+    ) -> FertilizerAdvice {
+        fertilizer.advice(
+            kind: kind,
+            stage: stage,
+            season: season,
+            growth: growth,
+            health: health
+        )
+    }
+
+    /// Tree-level plan. Maps Tree state into the shared engine. Does not schedule dates.
+    func fertilizationPlan(
+        for tree: Tree,
+        now: Date = .now,
+        lastFertilizedAt: Date? = nil
+    ) -> TreeFertilizationPlan {
+        let speciesName = tree.speciesID.flatMap { referenceData.species(id: $0)?.name }
+        let treeStageName = tree.treeStageID.flatMap { referenceData.treeStage(id: $0)?.name }
+        return TreeFertilizationPlanner(engine: fertilizer).plan(
+            for: tree,
+            treeStageName: treeStageName,
+            speciesName: speciesName,
+            now: now,
+            lastFertilizedAt: lastFertilizedAt
+        )
+    }
+
     /// Produces recommendations for a query.
-    /// Intentionally empty — engines are not implemented yet.
+    /// Watering / fertilizing Care surfaces call dedicated advice APIs; this list stays empty for now.
     func recommendations(for query: GrowingIntelligenceQuery) -> [GrowingRecommendation] {
         _ = (query, treeService, referenceData, profile, engines)
         return []

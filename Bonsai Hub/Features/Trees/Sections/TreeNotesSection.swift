@@ -19,6 +19,7 @@ struct TreeNotesSection: View {
     @Binding var text: String
     var isEditing: Bool
     var layout: TreeNotesLayout = .standard
+    var showsCardChrome: Bool = true
 
     private var editorMinHeight: CGFloat {
         switch layout {
@@ -35,34 +36,44 @@ struct TreeNotesSection: View {
     }
 
     var body: some View {
-        DetailCard(title: "Notes") {
-            if isEditing {
-                TextEditor(text: $text)
-                    .font(FaloCardTypography.fieldValue)
-                    .frame(minHeight: editorMinHeight, maxHeight: .infinity, alignment: .topLeading)
-                    .padding(FaloSpacing.small)
-                    .background {
-                        RoundedRectangle(cornerRadius: FaloRadius.small, style: .continuous)
-                            .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
-                    }
-                    .accessibilityLabel("Notes")
+        Group {
+            if showsCardChrome {
+                DetailCard(title: "Notes") { notesBody }
+                    .frame(maxWidth: .infinity, maxHeight: layout == .journalColumn ? .infinity : nil, alignment: .topLeading)
             } else {
-                Text(displayText)
-                    .font(FaloCardTypography.fieldValue)
-                    .foregroundStyle(isEmpty ? .secondary : .primary)
-                    .frame(maxWidth: .infinity, minHeight: viewMinHeight, alignment: .topLeading)
-                    .textSelection(.enabled)
-                    .padding(.vertical, FaloSpacing.xSmall)
-            }
-
-            if layout == .journalColumn {
-                Text("Future journal entries will appear here chronologically.")
-                    .font(FaloTypography.caption)
-                    .foregroundStyle(.tertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                notesBody
+                    .frame(maxWidth: .infinity, alignment: .topLeading)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: layout == .journalColumn ? .infinity : nil, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private var notesBody: some View {
+        if isEditing {
+            TextEditor(text: $text)
+                .font(FaloCardTypography.fieldValue)
+                .frame(minHeight: editorMinHeight, maxHeight: .infinity, alignment: .topLeading)
+                .padding(FaloSpacing.small)
+                .background {
+                    RoundedRectangle(cornerRadius: FaloRadius.small, style: .continuous)
+                        .strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                }
+                .accessibilityLabel("Notes")
+        } else {
+            Text(displayText)
+                .font(FaloCardTypography.fieldValue)
+                .foregroundStyle(isEmpty ? .secondary : .primary)
+                .frame(maxWidth: .infinity, minHeight: viewMinHeight, alignment: .topLeading)
+                .textSelection(.enabled)
+                .padding(.vertical, FaloSpacing.xSmall)
+        }
+
+        if layout == .journalColumn {
+            Text("Use Context Tools → Add Journal for dated notes. View Tree History for the assembled story.")
+                .font(FaloTypography.caption)
+                .foregroundStyle(.tertiary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     private var isEmpty: Bool {

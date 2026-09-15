@@ -27,15 +27,8 @@ struct DashboardEmptyMessage: View {
     var body: some View {
         Text(text)
             .font(FaloTypography.body)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(BonsaiWorldColors.textSecondary)
             .padding(.vertical, FaloSpacing.small)
-    }
-}
-
-/// Heading is kept; the module behind this card is not wired yet.
-struct DashboardNoFunctionYet: View {
-    var body: some View {
-        DashboardEmptyMessage(text: "No function yet.")
     }
 }
 

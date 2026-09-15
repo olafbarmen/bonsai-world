@@ -38,9 +38,9 @@ struct CollectionsView: View {
                 FeaturedEmptyState(
                     title: "No Collections yet",
                     systemImage: "square.stack.3d.up",
-                    description: "Use Quick Actions → New Collection to create a group for favorites, species studies, or an exhibition."
+                    description: "Use Context Tools → New Collection to create a group for favorites, species studies, or an exhibition."
                 )
-                .background(.windowBackground)
+                .faloWorkspaceCanvas()
             } else {
                 CollectionsList(
                     smartCollections: smartCollections,
@@ -57,7 +57,7 @@ struct CollectionsView: View {
                 )
             }
         }
-        .navigationTitle("Collections")
+        .bonsaiWorkspaceNavigationTitle("Collections")
         .navigationSplitViewColumnWidth(min: 220, ideal: 300)
         .onAppear {
             scheduleDefaultSelection()

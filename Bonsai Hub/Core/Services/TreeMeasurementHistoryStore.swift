@@ -2,8 +2,9 @@
 //  TreeMeasurementHistoryStore.swift
 //  Bonsai World
 //
-//  Append-only Measurement History for Trees.
+//  Measurement History for Trees (append-only while a Tree exists).
 //  Persists to Database/TreeMeasurementHistory.json in the library package.
+//  Records for a Tree are removed when that Tree is deleted.
 //
 
 import Foundation
@@ -81,9 +82,18 @@ final class TreeMeasurementHistoryStore {
         return seed
     }
 
-    /// Appends a new historical record. Never updates or deletes prior records.
+    /// Appends a new historical record. Never updates or deletes prior records
+    /// for a living Tree — use ``removeAll(for:)`` only when the Tree is deleted.
     func append(_ record: TreeMeasurementRecord) {
         file.records.append(record)
+        persist()
+    }
+
+    /// Cascade-removes Tree-owned measurement history when the Tree is deleted.
+    func removeAll(for treeID: UUID) {
+        let before = file.records.count
+        file.records.removeAll { $0.treeID == treeID }
+        guard file.records.count != before else { return }
         persist()
     }
 

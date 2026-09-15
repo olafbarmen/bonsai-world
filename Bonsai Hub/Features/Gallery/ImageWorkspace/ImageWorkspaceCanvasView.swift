@@ -19,71 +19,31 @@ struct ImageWorkspaceCanvasView: View {
     @State private var didFail = false
     @State private var zoomMultiplier: CGFloat = 1.0
     @State private var accumulatedZoom: CGFloat = 1.0
-
-    private let minZoom: CGFloat = 0.5
-    private let maxZoom: CGFloat = 4.0
+    @State private var zoomResetTrigger = UUID()
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack {
-                ImageWorkspaceCanvasBackground()
-
-                if let displayImage {
-                    ScrollView([.horizontal, .vertical], showsIndicators: true) {
-                        displayImage
-                            .resizable()
-                            .scaledToFit()
-                            .frame(
-                                width: geometry.size.width * zoomMultiplier,
-                                height: geometry.size.height * zoomMultiplier
-                            )
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else if isLoading {
-                    ProgressView()
-                        .controlSize(.large)
-                } else if didFail {
-                    ContentUnavailableView(
-                        "Image Unavailable",
-                        systemImage: "photo",
-                        description: Text("The image could not be loaded.")
-                    )
-                }
-            }
-        }
+        ZoomableImageCanvas(
+            displayImage: displayImage,
+            isLoading: isLoading,
+            loadFailed: didFail,
+            style: .workspace,
+            contentPadding: 0,
+            resetTrigger: zoomResetTrigger,
+            zoomMultiplier: $zoomMultiplier,
+            accumulatedZoom: $accumulatedZoom
+        )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .gesture(magnificationGesture)
-        .onTapGesture(count: 2) {
-            resetZoom()
-        }
-        .help("Scroll or pinch to zoom. Double-click to reset.")
         .task(id: "\(imageID.uuidString)-\(imageService.presentationRevision)") {
             await loadImage()
         }
-    }
-
-    private var magnificationGesture: some Gesture {
-        MagnificationGesture()
-            .onChanged { value in
-                let proposed = accumulatedZoom * value
-                zoomMultiplier = min(max(proposed, minZoom), maxZoom)
-            }
-            .onEnded { value in
-                accumulatedZoom = min(max(accumulatedZoom * value, minZoom), maxZoom)
-                zoomMultiplier = accumulatedZoom
-            }
-    }
-
-    private func resetZoom() {
-        zoomMultiplier = 1.0
-        accumulatedZoom = 1.0
     }
 
     private func loadImage() async {
         isLoading = true
         displayImage = nil
         didFail = false
-        resetZoom()
+        ZoomableImageCanvas.reset(&zoomMultiplier, &accumulatedZoom)
+        zoomResetTrigger = UUID()
         defer { isLoading = false }
 
         do {
@@ -92,16 +52,5 @@ struct ImageWorkspaceCanvasView: View {
         } catch {
             didFail = true
         }
-    }
-}
-
-/// Calm neutral backdrop behind the photograph.
-private struct ImageWorkspaceCanvasBackground: View {
-    var body: some View {
-        Color(nsColor: .controlBackgroundColor)
-            .overlay {
-                Color.primary.opacity(0.02)
-            }
-            .ignoresSafeArea()
     }
 }

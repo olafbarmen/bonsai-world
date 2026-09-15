@@ -14,9 +14,18 @@ struct ImageWorkspaceView: View {
     @Environment(AppState.self) private var appState
     @Environment(GalleryService.self) private var galleryService
     @Environment(TreeService.self) private var treeService
+    @Environment(ImageService.self) private var imageService
+    @Environment(ImageImportService.self) private var imageImportService
+    @Environment(AppSettings.self) private var appSettings
     @Environment(\.openWindow) private var openWindow
+    @Environment(\.dismissWindow) private var dismissWindow
 
-    private var experienceLevel: ImageWorkspaceExperienceLevel { .current }
+    @State private var pendingDeleteConfirmation = false
+
+    private var experienceLevel: ImageWorkspaceExperienceLevel {
+        let _ = appSettings.experienceEdition
+        return .current
+    }
 
     var body: some View {
         let _ = treeService.trees
@@ -34,12 +43,24 @@ struct ImageWorkspaceView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .background(.windowBackground)
-        .navigationTitle(entryTitle)
+        .faloWorkspaceCanvas()
+        .bonsaiWorkspaceNavigationTitle(entryTitle)
         .onChange(of: appState.pendingImageQuickAction) { _, request in
             guard let request else { return }
             handleImageTool(request.command)
             appState.clearPendingImageQuickAction()
+        }
+        .confirmationDialog(
+            "Delete image?",
+            isPresented: $pendingDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Image", role: .destructive) {
+                confirmDeleteImage()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This removes the image from the library and from any Tree or inventory it is attached to.")
         }
     }
 
@@ -47,8 +68,14 @@ struct ImageWorkspaceView: View {
         switch command {
         case .crop:
             openCropWorkspace()
-        case .importPhotos, .attachToTree, .rotate, .setPrimary, .setFeatured, .compare, .delete:
-            break
+        case .rotate:
+            imageService.rotatePresentationClockwise(for: imageID)
+        case .importPhotos:
+            Task { await importPhotoFromFinder() }
+        case .setPrimary:
+            setAsTreePrimary()
+        case .delete:
+            pendingDeleteConfirmation = true
         }
     }
 
@@ -57,6 +84,30 @@ struct ImageWorkspaceView: View {
             id: CropWorkspaceWindowContext.windowID,
             value: CropWorkspaceWindowContext(imageID: imageID)
         )
+    }
+
+    private func importPhotoFromFinder() async {
+        do {
+            let asset = try await imageImportService.importGalleryImageFromFinder()
+            openWindow(
+                id: ImageWorkspaceWindowContext.windowID,
+                value: ImageWorkspaceWindowContext(imageID: asset.id)
+            )
+        } catch {
+            // User cancelled Finder or import failed — no parallel error UI here.
+        }
+    }
+
+    private func setAsTreePrimary() {
+        guard let treeID = galleryService.entry(for: imageID)?.treeID else { return }
+        try? treeService.setPrimaryImage(treeID: treeID, imageID: imageID)
+    }
+
+    private func confirmDeleteImage() {
+        Task {
+            try? await galleryService.deleteLibraryImage(id: imageID)
+            dismissWindow(id: ImageWorkspaceWindowContext.windowID)
+        }
     }
 
     private var entryTitle: String {
@@ -97,22 +148,33 @@ struct ImageWorkspaceView: View {
 }
 
 #Preview {
-    ImageWorkspaceView(imageID: UUID())
+    let imageService = ImageService(
+        storage: StorageService.shared,
+        previewData: ImagePreviewData()
+    )
+    let treeService = TreeService(
+        repository: PreviewTreeRepository(previewData: PreviewData()),
+        collectionRepository: PreviewCollectionRepository(previewData: PreviewData()),
+        photoIndex: TreePhotoIndexStore(storage: StorageService.shared),
+        bonsaiNameSequences: BonsaiNameSequenceStore(
+            storage: StorageService.shared,
+            libraryPersistenceEnabled: false
+        )
+    )
+    let yamadoriService = YamadoriService(
+        repository: PreviewYamadoriRepository(),
+        treeService: treeService
+    )
+    return ImageWorkspaceView(imageID: UUID())
+        .environment(imageService)
         .environment(
             GalleryService(
-                imageService: ImageService(
-                    storage: StorageService.shared,
-                    previewData: ImagePreviewData()
-                ),
-                treeService: TreeService(
-                    repository: PreviewTreeRepository(previewData: PreviewData()),
-                    collectionRepository: PreviewCollectionRepository(previewData: PreviewData()),
-                    photoIndex: TreePhotoIndexStore(storage: StorageService.shared),
-                    bonsaiNameSequences: BonsaiNameSequenceStore(
-                        storage: StorageService.shared,
-                        libraryPersistenceEnabled: false
-                    )
-                )
+                imageService: imageService,
+                treeService: treeService,
+                yamadoriService: yamadoriService
             )
         )
+        .environment(treeService)
+        .environment(yamadoriService)
+        .environment(AppState())
 }

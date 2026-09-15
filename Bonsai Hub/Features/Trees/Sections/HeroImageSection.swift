@@ -50,7 +50,7 @@ struct HeroImageSection: View {
         .overlay(alignment: .bottomLeading) {
             if isEditing {
                 Button(action: onAddImage) {
-                    Label("Add Image", systemImage: "plus")
+                    Label("Add Photo", systemImage: "plus")
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)

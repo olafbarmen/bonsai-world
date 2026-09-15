@@ -91,8 +91,14 @@ final class LibraryTreeRepository: TreeRepository {
         let existing = trees[index]
         var updated = tree
         updated.id = existing.id
-        // Permanent registry code — never overwritten from an incoming draft.
-        updated.bonsaiName = existing.bonsaiName
+        if existing.yamadoriNursery, !tree.yamadoriNursery {
+            updated.bonsaiName = tree.bonsaiName.trimmingCharacters(in: .whitespacesAndNewlines)
+            updated.yamadoriNursery = false
+        } else {
+            // Permanent registry code — never overwritten from an incoming draft.
+            updated.bonsaiName = existing.bonsaiName
+            updated.yamadoriNursery = existing.yamadoriNursery
+        }
         updated.createdDate = existing.createdDate
         updated.modifiedDate = .now
         trees[index] = updated
@@ -104,6 +110,32 @@ final class LibraryTreeRepository: TreeRepository {
         }
 
         return updated
+    }
+
+    func repairBotanicalIdentities(_ trees: [Tree]) throws {
+        var catalog = loadTreesFromDisk()
+        let incoming = Dictionary(uniqueKeysWithValues: trees.map { ($0.id, $0) })
+        var changed = false
+
+        for index in catalog.indices {
+            guard let repaired = incoming[catalog[index].id] else { continue }
+            let existing = catalog[index]
+            guard existing.genusID != repaired.genusID
+                || existing.speciesID != repaired.speciesID
+                || existing.cultivarID != repaired.cultivarID
+            else {
+                continue
+            }
+            catalog[index].genusID = repaired.genusID
+            catalog[index].speciesID = repaired.speciesID
+            catalog[index].cultivarID = repaired.cultivarID
+            catalog[index].modifiedDate = .now
+            changed = true
+        }
+
+        if changed {
+            try persistAllTreesToDisk(catalog)
+        }
     }
 
     /// Physically removes a Tree from the catalog.

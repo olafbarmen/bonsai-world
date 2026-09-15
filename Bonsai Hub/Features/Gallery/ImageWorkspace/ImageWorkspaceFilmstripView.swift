@@ -66,12 +66,12 @@ struct ImageWorkspaceFilmstripView: View {
                 GalleryThumbnailImage(imageID: entry.id)
                     .padding(4)
             }
-            .frame(width: 54, height: 72)
+            .frame(width: 55, height: 66)
             .clipShape(RoundedRectangle(cornerRadius: FaloRadius.small, style: .continuous))
             .overlay {
                 RoundedRectangle(cornerRadius: FaloRadius.small, style: .continuous)
                     .strokeBorder(
-                        entry.id == currentImageID ? Color.accentColor : FaloColors.borderSubtle,
+                        entry.id == currentImageID ? BonsaiWorldColors.accent : FaloColors.borderSubtle,
                         lineWidth: entry.id == currentImageID ? 2 : 1
                     )
             }

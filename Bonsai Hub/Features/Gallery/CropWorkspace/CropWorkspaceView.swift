@@ -12,18 +12,24 @@ struct CropWorkspaceView: View {
     let imageID: UUID
 
     @Environment(ImageService.self) private var imageService
+    @Environment(AppSettings.self) private var appSettings
     @Environment(\.dismissWindow) private var dismissWindow
 
     @State private var crops: [CropLivePreviewSurface: CGRect] = [:]
     @State private var aspectMode: CropAspectRatioMode
     @State private var zoomLevel: Double
+    @State private var rotationDegrees: Int = 0
+    @State private var isMirroredHorizontally = false
     @State private var hasUnsavedChanges = false
     @State private var isComparingOriginal = false
     @State private var comingSoonTitle: String?
     @State private var selectedPreview: CropLivePreviewSurface = .galleryCard
     @State private var suppressDirty = false
 
-    private let experienceLevel: CropWorkspaceExperienceLevel = .current
+    private var experienceLevel: CropWorkspaceExperienceLevel {
+        let _ = appSettings.experienceEdition
+        return .current
+    }
 
     init(imageID: UUID) {
         self.imageID = imageID
@@ -88,6 +94,8 @@ struct CropWorkspaceView: View {
         zoomLevel = imageService.legacyPresentationMetadata(for: imageID)?.zoomLevel
             ?? imageService.exactPresentationMetadata(for: imageID, context: .galleryCard)?.zoomLevel
             ?? 1.0
+        rotationDegrees = imageService.presentationRotation(for: imageID)
+        isMirroredHorizontally = imageService.presentationIsMirroredHorizontally(for: imageID)
         hasUnsavedChanges = false
     }
 
@@ -99,7 +107,11 @@ struct CropWorkspaceView: View {
     private var workspaceContent: some View {
         if imageService.metadata(for: imageID) != nil {
             VStack(spacing: 0) {
-                CropWorkspaceHeader(title: photoTitle)
+                CropWorkspaceHeader(
+                    title: photoTitle,
+                    hasUnsavedChanges: hasUnsavedChanges,
+                    onSave: saveCrop
+                )
 
                 HStack(spacing: 0) {
                     CropWorkspaceCanvasView(
@@ -107,7 +119,9 @@ struct CropWorkspaceView: View {
                         cropRect: selectedCropBinding,
                         aspectMode: $aspectMode,
                         hidesCropOverlay: isComparingOriginal,
-                        lockedNormalizedAspect: canvasLockedAspect
+                        lockedNormalizedAspect: canvasLockedAspect,
+                        rotationDegrees: rotationDegrees,
+                        isMirroredHorizontally: isMirroredHorizontally
                     )
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
 
@@ -117,12 +131,14 @@ struct CropWorkspaceView: View {
                         aspectMode: $aspectMode,
                         selectedPreview: $selectedPreview,
                         imageSize: imagePixelSize,
-                        experienceLevel: experienceLevel
+                        experienceLevel: experienceLevel,
+                        rotationDegrees: rotationDegrees,
+                        isMirroredHorizontally: isMirroredHorizontally
                     )
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .background(.windowBackground)
+            .faloWorkspaceCanvas()
         } else {
             ContentUnavailableView(
                 "Image Not Found",
@@ -142,7 +158,11 @@ struct CropWorkspaceView: View {
 
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(CropWorkspaceToolsCatalog.actions(for: experienceLevel)) { definition in
-                    QuickActionRow(definition: definition, onAction: performTool)
+                    QuickActionRow(
+                        definition: definition,
+                        appearance: .quieter,
+                        onAction: performTool
+                    )
                     .padding(.horizontal, FaloSpacing.small)
                 }
             }
@@ -150,7 +170,10 @@ struct CropWorkspaceView: View {
             Spacer(minLength: 0)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(.windowBackground)
+        // Same theme surface as main sidebar so menu text/icons stay readable
+        // in Light (dark on warm) and Dark (cream on forest green).
+        .background(BonsaiWorldColors.sidebar)
+        .tint(BonsaiWorldColors.sidebarAccent)
         .navigationSplitViewColumnWidth(
             min: 180,
             ideal: CropWorkspaceLayout.toolsSidebarWidth,
@@ -170,6 +193,10 @@ struct CropWorkspaceView: View {
                 saveCrop()
             case CropWorkspaceToolsCatalog.resetCropID:
                 resetCrop()
+            case CropWorkspaceToolsCatalog.rotateID:
+                rotateClockwise()
+            case CropWorkspaceToolsCatalog.mirrorID:
+                mirrorHorizontally()
             case CropWorkspaceToolsCatalog.compareOriginalID:
                 isComparingOriginal.toggle()
             case CropWorkspaceToolsCatalog.cancelID:
@@ -189,6 +216,8 @@ struct CropWorkspaceView: View {
                 ),
                 aspectRatioMode: surface.aspectMode,
                 zoomLevel: zoomLevel,
+                rotationDegrees: rotationDegrees,
+                isMirroredHorizontally: isMirroredHorizontally,
                 contextID: surface.context.rawValue
             )
         }
@@ -211,10 +240,32 @@ struct CropWorkspaceView: View {
         selectedPreview = .galleryCard
         aspectMode = CropLivePreviewSurface.galleryCard.aspectMode
         zoomLevel = 1.0
+        rotationDegrees = 0
+        isMirroredHorizontally = false
         isComparingOriginal = false
         imageService.resetPresentationMetadata(for: imageID)
         suppressDirty = true
         hasUnsavedChanges = false
+    }
+
+    private func rotateClockwise() {
+        rotationDegrees = ImagePresentationMetadata.normalizedRotation(rotationDegrees + 90)
+        var rotated: [CropLivePreviewSurface: CGRect] = [:]
+        for (surface, rect) in crops {
+            rotated[surface] = NormalizedCropRect(rect).rotatedClockwise90().cgRect
+        }
+        crops = rotated
+        markDirty()
+    }
+
+    private func mirrorHorizontally() {
+        isMirroredHorizontally.toggle()
+        var mirrored: [CropLivePreviewSurface: CGRect] = [:]
+        for (surface, rect) in crops {
+            mirrored[surface] = NormalizedCropRect(rect).mirroredHorizontally().cgRect
+        }
+        crops = mirrored
+        markDirty()
     }
 
     private func cancel() {
@@ -240,10 +291,13 @@ struct CropWorkspaceView: View {
         let asset = imageService.metadata(for: imageID)
         let width = CGFloat(asset?.width ?? 0)
         let height = CGFloat(asset?.height ?? 0)
-        if width > 0, height > 0 {
-            return CGSize(width: width, height: height)
+        let base = (width > 0 && height > 0)
+            ? CGSize(width: width, height: height)
+            : CGSize(width: 1, height: 1)
+        if rotationDegrees == 90 || rotationDegrees == 270 {
+            return CGSize(width: base.height, height: base.width)
         }
-        return CGSize(width: 1, height: 1)
+        return base
     }
 
     private var canvasLockedAspect: CGFloat {
@@ -258,29 +312,45 @@ struct CropWorkspaceView: View {
 
 private struct CropWorkspaceHeader: View {
     let title: String
+    let hasUnsavedChanges: Bool
+    let onSave: () -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
-            Text("Crop Photo")
-                .font(.title2.weight(.semibold))
-                .foregroundStyle(.primary)
+        HStack(alignment: .center, spacing: FaloSpacing.large) {
+            VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+                Text("Crop Photo")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(BonsaiWorldColors.textPrimary)
 
-            HStack(spacing: FaloSpacing.xSmall) {
-                Text("Media")
-                chevron
-                Text("Images")
-                chevron
-                Text(title)
-                    .foregroundStyle(FaloColors.textSecondary)
-                    .lineLimit(1)
+                HStack(spacing: FaloSpacing.xSmall) {
+                    Text("Media")
+                    chevron
+                    Text("Images")
+                    chevron
+                    Text(title)
+                        .foregroundStyle(BonsaiWorldColors.textSecondary)
+                        .lineLimit(1)
+                }
+                .font(FaloTypography.caption)
+                .foregroundStyle(BonsaiWorldColors.textSecondary)
             }
-            .font(FaloTypography.caption)
-            .foregroundStyle(FaloColors.textSecondary)
+
+            Spacer(minLength: 0)
+
+            Button(action: onSave) {
+                Label("Save Crop", systemImage: "checkmark.circle")
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(BonsaiWorldColors.accent)
+            .keyboardShortcut("s", modifiers: .command)
+            .help(hasUnsavedChanges
+                ? "Save presentation crop metadata — Original is never modified"
+                : "Save the current crop and close")
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, FaloSpacing.large)
         .padding(.vertical, FaloSpacing.medium)
-        .background(.bar)
+        .background(BonsaiWorldColors.canvas)
         .overlay(alignment: .bottom) {
             Rectangle()
                 .fill(FaloColors.borderSubtle)
@@ -291,6 +361,6 @@ private struct CropWorkspaceHeader: View {
     private var chevron: some View {
         Image(systemName: "chevron.right")
             .font(.caption2.weight(.semibold))
-            .foregroundStyle(FaloColors.textSecondary)
+            .foregroundStyle(BonsaiWorldColors.textSecondary)
     }
 }

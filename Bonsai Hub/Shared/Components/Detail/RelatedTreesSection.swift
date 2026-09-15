@@ -22,6 +22,8 @@ struct RelatedTreesSection: View {
     /// Does not delete the Tree.
     var onRemove: ((RelatedTreeItem) -> Void)?
 
+    @Environment(ImageService.self) private var imageService
+
     private var isMembershipWorkspace: Bool { onRemove != nil }
 
     var body: some View {
@@ -52,6 +54,7 @@ struct RelatedTreesSection: View {
                     ForEach(items) { item in
                         MembershipTreeRow(
                             item: item,
+                            imageService: imageService,
                             onSelect: { onSelect?(item) },
                             onRemove: { onRemove?(item) }
                         )
@@ -62,6 +65,7 @@ struct RelatedTreesSection: View {
                     ForEach(Array(items.enumerated()), id: \.element.id) { index, item in
                         RelatedTreeRow(
                             item: item,
+                            imageService: imageService,
                             onSelect: { onSelect?(item) }
                         )
                         if index < items.count - 1 {
@@ -80,6 +84,7 @@ struct RelatedTreesSection: View {
 
 private struct MembershipTreeRow: View {
     let item: RelatedTreeItem
+    let imageService: ImageService
     var onSelect: () -> Void
     var onRemove: () -> Void
 
@@ -87,7 +92,7 @@ private struct MembershipTreeRow: View {
         HStack(alignment: .center, spacing: FaloSpacing.medium) {
             Button(action: onSelect) {
                 HStack(alignment: .center, spacing: FaloSpacing.medium) {
-                    TreeListThumbnail(imageID: item.imageID)
+                    TreeListThumbnail(imageID: item.imageID, imageService: imageService)
 
                     VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
                         Text(item.name)
@@ -146,12 +151,13 @@ private struct MembershipTreeRow: View {
 
 private struct RelatedTreeRow: View {
     let item: RelatedTreeItem
+    let imageService: ImageService
     var onSelect: () -> Void
 
     var body: some View {
         Button(action: onSelect) {
             HStack(spacing: FaloSpacing.medium) {
-                TreeListThumbnail(imageID: item.imageID)
+                TreeListThumbnail(imageID: item.imageID, imageService: imageService)
 
                 VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
                     Text(item.name)

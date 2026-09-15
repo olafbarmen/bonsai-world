@@ -11,21 +11,34 @@ import SwiftUI
 
 struct TreeUpcomingTasksSection: View {
     let treeID: UUID
+    /// Card title — Overview uses "Next Work"; Edit / legacy uses "Tasks".
+    var title: String = "Tasks"
+    /// When false, overdue occurrences are omitted (shown under Overview "Now").
+    var includesOverdue: Bool = true
+    /// Overview View Mode uses Dashboard-matching raised chrome.
+    var usesDashboardChrome: Bool = false
+    var fillsRowHeight: Bool = false
 
     @Environment(TaskService.self) private var taskService
     @State private var detailOccurrence: TaskOccurrence?
     @State private var completingTask: CareTask?
+    @State private var completingShapingTask: CareTask?
     @State private var errorMessage: String?
     @State private var isWateringExpanded = false
 
     private var overdue: [TaskOccurrence] {
-        taskService.pendingOccurrences(due: .overdue)
+        guard includesOverdue else { return [] }
+        return taskService.pendingOccurrences(due: .overdue)
             .filter { $0.treeID == treeID }
             .sorted { $0.dueDate < $1.dueDate }
     }
 
     private var upcoming: [TaskOccurrence] {
-        let overdueIDs = Set(overdue.map(\.id))
+        let overdueIDs = Set(
+            taskService.pendingOccurrences(due: .overdue)
+                .filter { $0.treeID == treeID }
+                .map(\.id)
+        )
         return taskService.pendingOccurrences(forTree: treeID)
             .filter { !overdueIDs.contains($0.id) }
             .sorted { $0.dueDate < $1.dueDate }
@@ -40,45 +53,11 @@ struct TreeUpcomingTasksSection: View {
     }
 
     var body: some View {
-        DetailCard(title: "Tasks") {
-            if overdue.isEmpty, upcoming.isEmpty {
-                Text("Nothing planned.")
-                    .font(FaloCardTypography.fieldValue)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+        Group {
+            if usesDashboardChrome {
+                TreeOverviewModuleCard(title: title, fillsRowHeight: fillsRowHeight) { tasksBody }
             } else {
-                VStack(alignment: .leading, spacing: FaloSpacing.medium) {
-                    if !overdue.isEmpty {
-                        taskGroup(title: "Overdue", occurrences: overdue, emphasize: true)
-                    }
-                    if !upcomingOther.isEmpty || !upcomingWatering.isEmpty {
-                        VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
-                            Text("UPCOMING")
-                                .font(FaloCardTypography.sectionTitle)
-                                .tracking(FaloCardTypography.sectionTitleTracking)
-                                .foregroundStyle(.secondary)
-
-                            if !upcomingOther.isEmpty {
-                                occurrenceStack(upcomingOther, emphasize: false)
-                            }
-
-                            if !upcomingWatering.isEmpty {
-                                DisclosureGroup(isExpanded: $isWateringExpanded) {
-                                    occurrenceStack(upcomingWatering, emphasize: false)
-                                } label: {
-                                    HStack(spacing: FaloSpacing.xSmall) {
-                                        Text("Watering")
-                                            .font(FaloCardTypography.fieldValue)
-                                        Text("\(upcomingWatering.count)")
-                                            .font(FaloTypography.caption)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                .tint(.secondary)
-                            }
-                        }
-                    }
-                }
+                DetailCard(title: title) { tasksBody }
             }
         }
         .sheet(item: $detailOccurrence) { occurrence in
@@ -87,9 +66,12 @@ struct TreeUpcomingTasksSection: View {
         .sheet(item: $completingTask) { task in
             if let taskTreeID = task.treeIDs.first {
                 AddWorkSheet(treeID: taskTreeID, initialWorkTypeID: task.workTypeID, scheduleID: task.id) { record in
-                    try? taskService.completeTask(task, resultingWorkRecordID: record.id)
+                    _ = try? taskService.completeTask(task, resultingWorkRecordID: record.id)
                 }
             }
+        }
+        .sheet(item: $completingShapingTask) { task in
+            ShapingTaskCompletionSheet(task: task, treeID: treeID) {}
         }
         .alert(
             "Couldn't Complete Task",
@@ -104,12 +86,57 @@ struct TreeUpcomingTasksSection: View {
         }
     }
 
+    @ViewBuilder
+    private var tasksBody: some View {
+        if overdue.isEmpty, upcoming.isEmpty {
+            Text("Nothing planned.")
+                .font(usesDashboardChrome ? FaloTypography.body : FaloCardTypography.fieldValue)
+                .foregroundStyle(usesDashboardChrome ? BonsaiWorldColors.textSecondary : .secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        } else {
+            VStack(alignment: .leading, spacing: FaloSpacing.medium) {
+                if !overdue.isEmpty {
+                    taskGroup(title: "Overdue", occurrences: overdue, emphasize: true)
+                }
+                if !upcomingOther.isEmpty || !upcomingWatering.isEmpty {
+                    VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+                        if includesOverdue {
+                            Text("UPCOMING")
+                                .font(FaloCardTypography.sectionTitle)
+                                .tracking(FaloCardTypography.sectionTitleTracking)
+                                .foregroundStyle(.secondary)
+                        }
+
+                        if !upcomingOther.isEmpty {
+                            occurrenceStack(upcomingOther, emphasize: false)
+                        }
+
+                        if !upcomingWatering.isEmpty {
+                            DisclosureGroup(isExpanded: $isWateringExpanded) {
+                                occurrenceStack(upcomingWatering, emphasize: false)
+                            } label: {
+                                HStack(spacing: FaloSpacing.xSmall) {
+                                    Text("Watering")
+                                        .font(FaloCardTypography.fieldValue)
+                                    Text("\(upcomingWatering.count)")
+                                        .font(FaloTypography.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            .tint(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private func taskGroup(title: String, occurrences: [TaskOccurrence], emphasize: Bool) -> some View {
         VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
             Text(title.uppercased())
                 .font(FaloCardTypography.sectionTitle)
                 .tracking(FaloCardTypography.sectionTitleTracking)
-                .foregroundStyle(emphasize ? Color.orange : .secondary)
+                .foregroundStyle(emphasize ? BonsaiWorldColors.statusAttention : .secondary)
 
             VStack(spacing: 0) {
                 occurrenceStack(occurrences, emphasize: emphasize)
@@ -133,6 +160,10 @@ struct TreeUpcomingTasksSection: View {
     }
 
     private func attemptComplete(_ occurrence: TaskOccurrence) {
+        if case .task(let task) = occurrence.source, task.shapingAreaID != nil {
+            completingShapingTask = task
+            return
+        }
         guard occurrence.isInstant else {
             if case .task(let task) = occurrence.source {
                 completingTask = task
@@ -168,7 +199,7 @@ private struct TreeTaskRow: View {
 
                 Text(occurrence.dueDate, style: .date)
                     .font(FaloTypography.caption)
-                    .foregroundStyle(emphasizeDate ? Color.orange : .secondary)
+                    .foregroundStyle(emphasizeDate ? BonsaiWorldColors.statusAttention : .secondary)
                     .lineLimit(1)
             }
             .contentShape(Rectangle())

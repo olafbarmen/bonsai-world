@@ -21,10 +21,18 @@ struct TreeDetailView: View {
     @Environment(ImageImportService.self) private var imageImportService
     @Environment(TreeMeasurementHistoryStore.self) private var measurementHistory
     @Environment(WorkService.self) private var workService
+    @Environment(JournalService.self) private var journalService
+    @Environment(GrowingIntelligenceService.self) private var growingIntelligence
+    @Environment(PotService.self) private var potService
+    @Environment(YamadoriService.self) private var yamadoriService
+    @Environment(TaskService.self) private var taskService
+    @Environment(AppSettings.self) private var appSettings
     @Environment(\.scenePhase) private var scenePhase
 
     var mode: EditorMode
     var showsCollectionBackButton: Bool = false
+    /// When false (embedded under Trees / Yamadori library chrome), do not set a second toolbar title.
+    var showsNavigationTitle: Bool = true
     /// When false (Tree Workspace window), do not drive main-window Quick Actions.
     var publishesInteractionModeToAppState: Bool = true
 
@@ -32,6 +40,9 @@ struct TreeDetailView: View {
     @State private var draft: TreeDetailDraft?
     @State private var lastPersistedDraft: TreeDetailDraft?
     @State private var isMembershipSheetPresented = false
+    @State private var isAssignPotSheetPresented = false
+    @State private var showRemovePotConfirmation = false
+    @State private var potAssignmentErrorMessage: String?
     @State private var selectedImageID: UUID?
     @State private var isImportingPrimaryImage = false
     @State private var autoSaveStatus: TreeAutoSaveStatus = .idle
@@ -40,6 +51,8 @@ struct TreeDetailView: View {
     @State private var isAddMeasurementPresented = false
     @State private var addMeasurementPrefill: TreeMeasurementRecord?
     @State private var isAddWorkPresented = false
+    @State private var isAddJournalPresented = false
+    @State private var isTreeHistoryPresented = false
     @State private var showDeleteTreeConfirmation = false
     @State private var deleteFailed = false
     @State private var deleteErrorMessage = "The tree could not be deleted. Try again."
@@ -49,6 +62,8 @@ struct TreeDetailView: View {
     @State private var showDuplicateTreeConfirmation = false
     @State private var duplicateFailed = false
     @State private var duplicateErrorMessage = "Tree info could not be duplicated. Try again."
+    @State private var isFertilizationExpanded = false
+    @State private var isFoundAtExpanded = false
 
     private var treeID: UUID? {
         mode.editingID ?? appState.selectedTreeID
@@ -63,24 +78,36 @@ struct TreeDetailView: View {
         interactionMode.isEditing
     }
 
-    /// Former Trees are history — no Edit, Add Activity, or Tasks.
+    /// Former Trees are history — no Edit, Add Work, or Tasks.
     private var allowsEditing: Bool {
         tree?.isInCare == true
     }
 
     private var navigationTitleText: String {
-        mode.treeEditorTitle(botanicalName: tree?.botanicalName ?? "")
+        mode.treeEditorTitle(bonsaiName: tree?.bonsaiName ?? "")
     }
 
     var body: some View {
         Group {
             if let tree {
-                treeDetail(tree)
+                treeDetail(
+                    tree,
+                    segment: Binding(
+                        get: { appState.treeDetailSegment },
+                        set: { newSegment in
+                            appState.treeDetailSegment = newSegment
+                            syncSidebar(for: newSegment)
+                        }
+                    )
+                )
                     .onAppear {
                         if tree.isInCare {
                             publishInteractionMode()
                         } else {
                             discardDraftAndReturnToViewing()
+                            if appState.treeDetailSegment == .shaping {
+                                appState.treeDetailSegment = .overview
+                            }
                         }
                         syncSelectedImage(for: tree, reason: .treeOpened)
                         migrateMeasurementsIfNeeded(for: tree)
@@ -135,12 +162,49 @@ struct TreeDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.windowBackground)
-        .navigationTitle(navigationTitleText)
+        .faloWorkspaceCanvas()
+        .modifier(TreeDetailNavigationTitleModifier(
+            showsNavigationTitle: showsNavigationTitle,
+            title: navigationTitleText
+        ))
         .sheet(isPresented: $isMembershipSheetPresented) {
             if let draftBinding = draftCollectionBinding {
                 CollectionMembershipSheet(memberIDs: draftBinding)
             }
+        }
+        .sheet(isPresented: $isAssignPotSheetPresented) {
+            if let tree {
+                TreeAssignPotSheet(
+                    treeID: tree.id,
+                    excludingPotID: TreeCurrentPotDisplay.resolvedInventoryPot(
+                        for: tree,
+                        potService: potService
+                    )?.id
+                )
+            }
+        }
+        .confirmationDialog(
+            "Remove Inventory Pot?",
+            isPresented: $showRemovePotConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Remove Pot", role: .destructive) {
+                removeInventoryPotAssignment()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Unlinks this pot from the tree. The pot returns to Available and is not deleted.")
+        }
+        .alert(
+            "Couldn't Update Pot",
+            isPresented: Binding(
+                get: { potAssignmentErrorMessage != nil },
+                set: { if !$0 { potAssignmentErrorMessage = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { potAssignmentErrorMessage = nil }
+        } message: {
+            Text(potAssignmentErrorMessage ?? "")
         }
         .sheet(isPresented: $isAddMeasurementPresented) {
             if let tree, let prefill = addMeasurementPrefill {
@@ -158,6 +222,20 @@ struct TreeDetailView: View {
             if let tree {
                 NavigationStack {
                     AddWorkSheet(treeID: tree.id)
+                }
+            }
+        }
+        .sheet(isPresented: $isAddJournalPresented) {
+            if let tree {
+                NavigationStack {
+                    AddJournalSheet(treeID: tree.id)
+                }
+            }
+        }
+        .sheet(isPresented: $isTreeHistoryPresented) {
+            if let tree {
+                NavigationStack {
+                    TreeHistorySheet(document: treeHistoryDocument(for: tree))
                 }
             }
         }
@@ -241,6 +319,9 @@ struct TreeDetailView: View {
         case .editTree:
             guard allowsEditing else { return }
             beginEditing()
+        case .addActivity:
+            guard allowsEditing else { return }
+            isAddWorkPresented = true
         case .addImage:
             guard allowsEditing else { return }
             Task { await addImageFromQuickAction() }
@@ -251,8 +332,17 @@ struct TreeDetailView: View {
         case .addMeasurement:
             guard allowsEditing else { return }
             presentAddMeasurement()
+        case .addJournal:
+            guard allowsEditing else { return }
+            isAddJournalPresented = true
+        case .viewTreeHistory:
+            isTreeHistoryPresented = true
         case .viewImages:
-            appState.selectSection(.mediaImages)
+            if let treeID {
+                appState.showTreeImages(treeID: treeID)
+            } else {
+                appState.selectSection(.mediaImages)
+            }
         case .duplicateTree:
             guard allowsEditing else { return }
             showDuplicateTreeConfirmation = true
@@ -305,6 +395,11 @@ struct TreeDetailView: View {
         guard let id = treeID else { return }
         discardDraftAndReturnToViewing()
         do {
+            // Pot must unlink while the Tree still exists (clears Tree.currentPotID).
+            try? potService.unassignCurrentPot(fromTreeID: id)
+            taskService.unlinkDeletedTree(id)
+            yamadoriService.clearLinkedTreeReference(treeID: id)
+            measurementHistory.removeAll(for: id)
             try treeService.deleteTree(id: id)
             appState.selectedTreeID = nil
         } catch {
@@ -497,8 +592,10 @@ struct TreeDetailView: View {
     }
 
     @ViewBuilder
-    private func treeDetail(_ tree: Tree) -> some View {
+    private func treeDetail(_ tree: Tree, segment: Binding<TreeDetailSegment>) -> some View {
         let memberships = displayedMemberships(for: tree)
+        let showsShapingSegment = allowsEditing
+        let activeSegment = showsShapingSegment ? segment.wrappedValue : .overview
 
         VStack(spacing: 0) {
             if showsCollectionBackButton {
@@ -515,20 +612,436 @@ struct TreeDetailView: View {
                 .padding(.top, FaloSpacing.medium)
             }
 
-            if isEditing {
+            if showsShapingSegment {
+                HStack {
+                    Picker("Tree Detail", selection: segment) {
+                        ForEach(TreeDetailSegment.allCases) { segment in
+                            Text(segment.title).tag(segment)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .frame(maxWidth: 280)
+
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, FaloSpacing.xLarge)
+                .padding(.top, FaloSpacing.medium)
+            }
+
+            if isEditing, activeSegment == .overview {
                 TreeAutoSaveBanner(status: autoSaveStatus)
             }
 
-            // One continuous scroll surface: image + cards move together (not sticky).
-            FaloAdaptiveDesktopWorkspace(profile: .treeDetail) {
-                VStack(alignment: .leading, spacing: TreeDetailSpacing.cardGap) {
-                    TreeDetailActivityHeader(
-                        tree: tree,
-                        showsAddActivity: allowsEditing,
-                        onSelectWork: { isAddWorkPresented = true }
-                    )
+            if activeSegment == .shaping, showsShapingSegment {
+                ShapingEditorView(treeID: tree.id)
+                    .environment(imageService)
+                    .environment(imageImportService)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                treeOverviewContent(tree: tree, memberships: memberships)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 
-                    TreeDetailCardColumns {
+    private func syncSidebar(for segment: TreeDetailSegment) {
+        switch segment {
+        case .overview where appState.selectedSection == .shaping:
+            appState.selectedSection = .gardenTrees
+        case .shaping:
+            // Stay on Garden → Trees — Shaping is a Tree segment, not a sidebar module.
+            if appState.selectedSection == .shaping {
+                appState.selectedSection = .gardenTrees
+            }
+        default:
+            break
+        }
+    }
+
+    @ViewBuilder
+    private func treeOverviewContent(tree: Tree, memberships: [Collection]) -> some View {
+        FaloAdaptiveDesktopWorkspace(profile: isEditing ? .treeDetail : .treeOverview) {
+            VStack(alignment: .leading, spacing: isEditing ? TreeDetailSpacing.cardGap : TreeOverviewSpacing.cardGap) {
+                if isEditing {
+                    treeOverviewEditColumns(tree: tree, memberships: memberships)
+                    TreeTimelineSection(
+                        events: timelineEvents(for: tree),
+                        onViewTreeHistory: { isTreeHistoryPresented = true }
+                    )
+                } else {
+                    treeOverviewViewMode(tree: tree, memberships: memberships)
+                }
+            }
+        }
+        .background(isEditing ? Color.clear : BonsaiWorldColors.canvas)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    // MARK: - View Mode (hero + 4-column Dashboard grid)
+
+    @ViewBuilder
+    private func treeOverviewViewMode(tree: Tree, memberships: [Collection]) -> some View {
+        TreeOverviewContentWidthReader { contentWidth in
+            overviewGrid(tree: tree, memberships: memberships, contentWidth: contentWidth)
+        }
+    }
+
+    @ViewBuilder
+    private func overviewGrid(tree: Tree, memberships: [Collection], contentWidth: CGFloat) -> some View {
+        let gap = TreeOverviewSpacing.cardGap
+        let column = TreeOverviewGridMetrics.columnWidth(in: contentWidth)
+        let span2 = TreeOverviewGridMetrics.spanWidth(2, in: contentWidth)
+        let fullWidth = TreeOverviewGridMetrics.spanWidth(4, in: contentWidth)
+        let notesExcerpt = overviewNotesExcerpt(tree.notes)
+        let stageTitle = treeStageDisplayName(for: tree)
+        let locationTitle = locationDisplayName(for: tree)
+        let imageIDs = displayedImageIDs(for: tree)
+        let plan = fertilizationPlan(for: tree)
+        let sourceFind = sourceYamadoriFind(for: tree)
+
+        VStack(alignment: .leading, spacing: gap) {
+            // Hero pads inside the raised surface — columns must fit the *inner* width
+            // or the card overflows and the trailing corners look square when clipped.
+            let heroInnerWidth = max(0, fullWidth - (2 * TreeOverviewSpacing.cardPadding))
+            let heroColumn = TreeOverviewGridMetrics.columnWidth(in: heroInnerWidth)
+            overviewHero(
+                tree: tree,
+                columnWidth: heroColumn,
+                notesExcerpt: notesExcerpt,
+                stageTitle: stageTitle.isEmpty ? nil : stageTitle,
+                locationTitle: locationTitle,
+                photoCount: imageIDs.count
+            )
+            .frame(width: fullWidth, alignment: .topLeading)
+
+            // Row 1 — Tree Information: Photos (2) + Collections (1) + Additional Information (1).
+            FaloEqualHeightRow(spacing: gap) {
+                TreeOverviewPhotosCard(
+                    imageIDs: imageIDs,
+                    imageService: imageService,
+                    allowsEditing: allowsEditing,
+                    onSelectImage: { selectedImageID = $0 },
+                    onAddPhoto: { handleQuickAction(.addImage) },
+                    onViewAll: imageIDs.isEmpty
+                        ? nil
+                        : { handleQuickAction(.viewImages) },
+                    fillsRowHeight: true
+                )
+                .frame(width: span2)
+
+                TreeOverviewCollectionsCard(
+                    items: memberships.map { ($0.id, $0.name) },
+                    onSelect: { appState.showCollection($0) },
+                    fillsRowHeight: true
+                )
+                    .frame(width: column)
+
+                TreeOverviewAdditionalInfoCard(
+                    acquired: overviewAcquiredLabel(for: tree),
+                    source: overviewSourceLabel(for: tree),
+                    value: overviewValueLabel(for: tree),
+                    fillsRowHeight: true
+                )
+                .frame(width: column)
+            }
+
+            TreeSocialShareCard(
+                level: tree.socialShareLevel,
+                isSocialEnabled: appSettings.isSocialEnabled,
+                isEditing: false,
+                onChange: { setSocialShareLevel($0, for: tree) }
+            )
+            .frame(width: fullWidth, alignment: .topLeading)
+
+            // Row 2 — Work & Care: Health & Care (1) + Next Work (2) + Fertilization (1).
+            FaloEqualHeightRow(spacing: gap) {
+                TreeOverviewHealthCareCard(
+                    healthTitle: tree.healthStatus.title,
+                    healthSystemImage: tree.healthStatus.systemImage,
+                    healthNeedsAttention: tree.healthStatus == .needsAttention
+                        || tree.healthStatus == .recovering,
+                    lastWateredLabel: overviewRelativeDateLabel(lastWateredAt(for: tree)),
+                    lastFertilizedLabel: overviewRelativeDateLabel(lastFertilizedAt(for: tree)),
+                    fillsRowHeight: true
+                )
+                .frame(width: column)
+
+                TreeUpcomingTasksSection(
+                    treeID: tree.id,
+                    title: "Next Work",
+                    includesOverdue: false,
+                    usesDashboardChrome: true,
+                    fillsRowHeight: true
+                )
+                .frame(width: span2)
+
+                ExpandableSection(
+                    title: "Fertilization",
+                    summaryRows: [
+                        ExpandableSectionSummaryRow(label: "Recommendation", value: plan.recommendation),
+                        ExpandableSectionSummaryRow(label: "When", value: plan.when),
+                    ].filter { !$0.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty },
+                    chrome: .overview,
+                    fillsRowHeight: true,
+                    isExpanded: $isFertilizationExpanded
+                ) {
+                    TreeFertilizationSection(
+                        plan: plan,
+                        seasonTitle: FertilizerSeasonCalendar.season(from: .now).title,
+                        treeStageName: treeStageDisplayName(for: tree),
+                        fertilizationModeTitle: fertilizationModeTitle(for: tree),
+                        fertilizerHealth: .constant(tree.fertilizerHealth),
+                        fertilizerKindOverride: .constant(tree.fertilizerKindOverride),
+                        isEditing: false,
+                        showsCardChrome: false
+                    )
+                }
+                .frame(width: column)
+            }
+
+            if let find = sourceFind {
+                ExpandableSection(
+                    title: "Found At",
+                    summaryRows: [
+                        ExpandableSectionSummaryRow(
+                            label: "Find",
+                            value: find.displayName.isEmpty ? find.yamadoriCode : find.displayName
+                        )
+                    ],
+                    chrome: .overview,
+                    fillsRowHeight: false,
+                    isExpanded: $isFoundAtExpanded
+                ) {
+                    VStack(alignment: .leading, spacing: FaloSpacing.small) {
+                        Button {
+                            appState.openYamadoriFindAtLastPosition(find: find, tree: tree)
+                        } label: {
+                            HStack {
+                                Text(find.displayName.isEmpty ? find.yamadoriCode : find.displayName)
+                                    .font(FaloTypography.body)
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                Text("Open")
+                                    .font(FaloTypography.caption)
+                                    .foregroundStyle(BonsaiWorldColors.accent)
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+
+                        YamadoriSiteMapCard(
+                            title: "Found At",
+                            latitude: .constant(find.latitude),
+                            longitude: .constant(find.longitude),
+                            primaryTitle: find.displayName.isEmpty ? find.yamadoriCode : find.displayName,
+                            isEditing: false,
+                            secondaryPins: [],
+                            focusedLatitudeDelta: 0.015,
+                            mapHeight: 200
+                        )
+                    }
+                }
+                .frame(width: span2, alignment: .topLeading)
+            }
+
+            TreeTimelineSection(
+                events: timelineEvents(for: tree),
+                usesRaisedChrome: true,
+                onViewTreeHistory: { isTreeHistoryPresented = true }
+            )
+            .frame(width: fullWidth, alignment: .topLeading)
+        }
+        .frame(width: contentWidth, alignment: .topLeading)
+    }
+
+    @ViewBuilder
+    private func overviewHero(
+        tree: Tree,
+        columnWidth: CGFloat,
+        notesExcerpt: String?,
+        stageTitle: String?,
+        locationTitle: String?,
+        photoCount: Int
+    ) -> some View {
+        // Fixed 5:6 hero height — does not grow when the window widens.
+        let photoHeight = TreeOverviewGridMetrics.heroColumnHeight
+
+        TreeOverviewHeroBanner(
+            bonsaiName: tree.bonsaiName,
+            botanicalName: tree.botanicalName,
+            nickname: tree.nickname,
+            genusName: genusDisplayName(for: tree),
+            speciesName: speciesDisplayName(for: tree),
+            cultivarName: cultivarDisplayName(for: tree),
+            origin: originDisplayName(for: tree),
+            healthTitle: tree.healthStatus.title,
+            healthSystemImage: tree.healthStatus.systemImage,
+            healthNeedsAttention: tree.healthStatus == .needsAttention
+                || tree.healthStatus == .recovering,
+            locationTitle: locationTitle,
+            stageTitle: stageTitle,
+            notesExcerpt: notesExcerpt,
+            photoCount: photoCount,
+            columnWidth: columnWidth,
+            photoHeight: photoHeight
+        ) {
+            overviewPresencePhoto(tree: tree, maxHeight: photoHeight)
+        } currentState: {
+            TreeOverviewCurrentStateCard(
+                actionableRows: currentStateRows(for: tree),
+                fillsRowHeight: true
+            )
+        } species: {
+            overviewSpeciesTeaser(for: tree, fillsRowHeight: true)
+        }
+    }
+
+    @ViewBuilder
+    private func overviewSpeciesTeaser(for tree: Tree, fillsRowHeight: Bool) -> some View {
+        if let speciesID = tree.speciesID,
+           let speciesProfile = SpeciesProfileCatalog.profile(
+            speciesID: speciesID,
+            cultivarID: tree.cultivarID
+           ) {
+            TreeOverviewSpeciesTeaser(
+                scientificName: speciesProfile.scientificName,
+                commonName: speciesProfile.primaryCommonName,
+                summaryLine: speciesProfile.summaryLine,
+                onOpenProfile: { appState.openSpeciesProfile(speciesID: speciesProfile.id) },
+                fillsRowHeight: fillsRowHeight
+            )
+        } else {
+            TreeOverviewSpeciesTeaser.notRegistered(
+                botanicalName: tree.botanicalName.isEmpty
+                    ? speciesDisplayName(for: tree)
+                    : tree.botanicalName,
+                fillsRowHeight: fillsRowHeight
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func overviewPresencePhoto(tree: Tree, maxHeight: CGFloat) -> some View {
+        TreePhotoManagerSection(
+            treeID: tree.id,
+            imageIDs: displayedImageIDs(for: tree),
+            primaryImageID: displayedPrimaryImageID(for: tree),
+            photoNames: displayedPhotoNames(for: tree),
+            captureDates: displayedCaptureDates(for: tree),
+            selectedImageID: $selectedImageID,
+            isEditing: false,
+            showsFilmstrip: false,
+            previewMaxHeight: maxHeight,
+            onAddImage: {},
+            onSelectImage: { selectedImageID = $0 },
+            onSetPrimary: { setPrimaryPhoto($0) },
+            onUpdatePhotoMetadata: { id, name, date in
+                updatePhotoMetadata(id: id, name: name, captureDate: date)
+            },
+            onDeletePhoto: { deletePhoto(id: $0) }
+        )
+        .frame(maxWidth: .infinity, maxHeight: maxHeight, alignment: .top)
+    }
+
+    private func currentStateRows(
+        for tree: Tree
+    ) -> [(label: String, value: String, systemImage: String, action: (() -> Void)?)] {
+        var rows: [(String, String, String, (() -> Void)?)] = []
+        let stage = treeStageDisplayName(for: tree)
+        if !stage.isEmpty { rows.append(("Stage", stage, "leaf", nil)) }
+        let light = DetailOptionPickerRow.displayName(
+            for: tree.lightConditionID,
+            in: DetailPickerOption.map(referenceData.lightConditions)
+        )
+        if !light.isEmpty { rows.append(("Light", light, "sun.max", nil)) }
+        let soil = DetailOptionPickerRow.displayName(
+            for: tree.soilMixID,
+            in: DetailPickerOption.map(referenceData.soilMixes)
+        )
+        if !soil.isEmpty { rows.append(("Soil", soil, "circle.grid.cross", nil)) }
+        let potDisplay = TreeCurrentPotDisplay.resolve(
+            tree: tree,
+            potService: potService,
+            referenceData: referenceData
+        )
+        if let potTitle = potDisplay.title, !potTitle.isEmpty {
+            let openPot: (() -> Void)? = {
+                guard let potID = TreeCurrentPotDisplay.resolvedInventoryPot(
+                    for: tree,
+                    potService: potService
+                )?.id else { return nil }
+                return { appState.showInventoryPot(potID) }
+            }()
+            rows.append(("Pot", potTitle, "archivebox", openPot))
+        }
+        let style = DetailOptionPickerRow.displayName(
+            for: tree.styleID,
+            in: DetailPickerOption.map(referenceData.styles)
+        )
+        if !style.isEmpty { rows.append(("Style", style, "paintbrush", nil)) }
+        return rows
+    }
+
+    private func overviewNotesExcerpt(_ notes: String) -> String? {
+        let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        if trimmed.count <= 120 { return trimmed }
+        return String(trimmed.prefix(117)) + "…"
+    }
+
+    /// Relative date for Overview care rows — `nil` when no event (row is omitted, not "-").
+    private func overviewRelativeDateLabel(_ date: Date?) -> String? {
+        guard let date else { return nil }
+        if Calendar.current.isDateInToday(date) { return "Today" }
+        if Calendar.current.isDateInYesterday(date) { return "Yesterday" }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: date, relativeTo: .now)
+    }
+
+    private func lastWateredAt(for tree: Tree) -> Date? {
+        workService.history(for: tree.id)
+            .filter { taskService.expiresIfMissed(workTypeID: $0.workTypeID) }
+            .map(\.performedAt)
+            .max()
+    }
+
+    private func overviewAcquiredLabel(for tree: Tree) -> String {
+        guard let date = tree.acquisitionDate else { return "" }
+        return date.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    private func overviewSourceLabel(for tree: Tree) -> String {
+        let source = tree.acquisitionSourceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !source.isEmpty { return source }
+        return DetailOptionPickerRow.displayName(
+            for: tree.acquisitionMethodID,
+            in: DetailPickerOption.map(referenceData.acquisitionMethods)
+        )
+    }
+
+    private func overviewValueLabel(for tree: Tree) -> String {
+        CurrencyFormatting.string(tree.purchasePrice, currency: appSettings.currency, empty: "")
+    }
+
+    private func locationDisplayName(for tree: Tree) -> String? {
+        let name = referenceData.location(id: tree.locationID)?.name
+            ?? DetailOptionPickerRow.displayName(
+                for: tree.locationID,
+                in: DetailPickerOption.map(referenceData.locations)
+            )
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    // MARK: - Edit Mode (existing form columns)
+
+    @ViewBuilder
+    private func treeOverviewEditColumns(tree: Tree, memberships: [Collection]) -> some View {
+                TreeDetailCardColumns {
                         TreePhotoManagerSection(
                             treeID: tree.id,
                             imageIDs: displayedImageIDs(for: tree),
@@ -567,18 +1080,26 @@ struct TreeDetailView: View {
                             styleID: styleIDBinding,
                             locationID: locationIDBinding(for: tree),
                             healthStatus: healthStatusBinding(for: tree),
-                            treeStatusID: treeStatusIDBinding,
+                            treeStageID: treeStageIDBinding,
                             sizeClassID: sizeClassIDBinding,
                             lightConditionID: lightConditionIDBinding,
                             soilMixID: soilMixIDBinding,
                             styles: DetailPickerOption.map(referenceData.styles),
                             locations: DetailPickerOption.map(referenceData.locations),
-                            treeStatuses: DetailPickerOption.map(referenceData.treeStatuses),
+                            treeStages: DetailPickerOption.map(referenceData.treeStages),
                             sizeClasses: DetailPickerOption.map(referenceData.sizeClasses),
                             lightConditions: DetailPickerOption.map(referenceData.lightConditions),
                             soilMixes: DetailPickerOption.map(referenceData.soilMixes),
                             selectedSoilMix: selectedSoilMix(for: tree),
                             soilComponentNames: soilComponentNames(for: tree),
+                            isEditing: isEditing
+                        )
+                        TreeWateringPolicySection(
+                            effective: treeService.effectiveWateringPolicy(for: tree.id),
+                            carePolicyCollections: treeService.carePolicyCollections(),
+                            carePolicyCollectionID: carePolicyCollectionIDBinding(for: tree),
+                            wateringModeOverride: wateringModeOverrideBinding(for: tree),
+                            autoTimesPerDayOverride: autoTimesPerDayOverrideBinding(for: tree),
                             isEditing: isEditing
                         )
                         MeasurementHistorySection(
@@ -603,33 +1124,90 @@ struct TreeDetailView: View {
                             disposalMethods: DetailPickerOption.map(referenceData.disposalMethods),
                             isEditing: isEditing
                         )
+                        TreeKnownHistorySection(
+                            text: knownHistoryBinding(for: tree),
+                            isEditing: isEditing
+                        )
                         collectionsBlock(memberships: memberships)
                         PotSection(
+                            inventoryPot: TreeCurrentPotDisplay.resolvedInventoryPot(
+                                for: tree,
+                                potService: potService
+                            ),
+                            inventoryPotDisplayName: inventoryPotDisplayName(for: tree),
                             potTypeID: potTypeIDBinding,
                             potLengthMillimetres: potLengthMillimetresBinding,
                             potWidthMillimetres: potWidthMillimetresBinding,
                             potHeightMillimetres: potHeightMillimetresBinding,
                             potDiameterMillimetres: potDiameterMillimetresBinding,
                             potTypes: DetailPickerOption.map(referenceData.potTypes),
+                            isEditing: isEditing,
+                            onAssignInventoryPot: { isAssignPotSheetPresented = true },
+                            onChangeInventoryPot: { isAssignPotSheetPresented = true },
+                            onRemoveInventoryPot: { showRemovePotConfirmation = true },
+                            onOpenInventoryPot: {
+                                if let potID = tree.currentPotID {
+                                    appState.showInventoryPot(potID)
+                                }
+                            }
+                        )
+                        TreeFertilizationSection(
+                            plan: fertilizationPlan(for: tree),
+                            seasonTitle: FertilizerSeasonCalendar.season(from: .now).title,
+                            treeStageName: treeStageDisplayName(for: tree),
+                            fertilizationModeTitle: fertilizationModeTitle(for: tree),
+                            fertilizerHealth: fertilizerHealthBinding(for: tree),
+                            fertilizerKindOverride: fertilizerKindOverrideBinding(for: tree),
                             isEditing: isEditing
                         )
                     } column2: {
-                        TreeUpcomingTasksSection(treeID: tree.id)
+                        if let find = sourceYamadoriFind(for: tree) {
+                            VStack(alignment: .leading, spacing: FaloSpacing.small) {
+                                if !isEditing {
+                                    Button {
+                                        appState.openYamadoriFindAtLastPosition(find: find, tree: tree)
+                                    } label: {
+                                        HStack {
+                                            Text(find.displayName.isEmpty ? find.yamadoriCode : find.displayName)
+                                                .font(FaloTypography.body)
+                                                .foregroundStyle(.primary)
+                                            Spacer()
+                                            Text("Open")
+                                                .font(FaloTypography.caption)
+                                                .foregroundStyle(BonsaiWorldColors.accent)
+                                            Image(systemName: "chevron.right")
+                                                .font(.caption.weight(.semibold))
+                                                .foregroundStyle(.tertiary)
+                                        }
+                                        .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+
+                                YamadoriSiteMapCard(
+                                    title: "Found At",
+                                    latitude: .constant(find.latitude),
+                                    longitude: .constant(find.longitude),
+                                    primaryTitle: find.displayName.isEmpty ? find.yamadoriCode : find.displayName,
+                                    isEditing: false,
+                                    secondaryPins: [],
+                                    focusedLatitudeDelta: 0.015,
+                                    mapHeight: 200
+                                )
+                            }
+                        }
+                        TreeSocialShareCard(
+                            level: tree.socialShareLevel,
+                            isSocialEnabled: appSettings.isSocialEnabled,
+                            isEditing: true,
+                            onChange: { setSocialShareLevel($0, for: tree) }
+                        )
                         TreeNotesSection(
                             text: notesBinding(for: tree),
                             isEditing: isEditing,
                             layout: .journalColumn
                         )
                     }
-
-                    TreeTimelineSection(records: workService.history(for: tree.id)) { workTypeID in
-                        workService.workType(id: workTypeID)?.name
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func displayedMemberships(for tree: Tree) -> [Collection] {
@@ -686,6 +1264,34 @@ struct TreeDetailView: View {
         )
     }
 
+    private func knownHistoryBinding(for tree: Tree) -> Binding<String> {
+        Binding(
+            get: { isEditing ? (draft?.knownHistory ?? tree.knownHistory) : tree.knownHistory },
+            set: { draft?.knownHistory = $0 }
+        )
+    }
+
+    private func carePolicyCollectionIDBinding(for tree: Tree) -> Binding<UUID?> {
+        Binding(
+            get: { isEditing ? (draft?.carePolicyCollectionID ?? tree.carePolicyCollectionID) : tree.carePolicyCollectionID },
+            set: { draft?.carePolicyCollectionID = $0 }
+        )
+    }
+
+    private func wateringModeOverrideBinding(for tree: Tree) -> Binding<WateringMode?> {
+        Binding(
+            get: { isEditing ? (draft?.wateringModeOverride ?? tree.wateringModeOverride) : tree.wateringModeOverride },
+            set: { draft?.wateringModeOverride = $0 }
+        )
+    }
+
+    private func autoTimesPerDayOverrideBinding(for tree: Tree) -> Binding<Int?> {
+        Binding(
+            get: { isEditing ? (draft?.autoTimesPerDayOverride ?? tree.autoTimesPerDayOverride) : tree.autoTimesPerDayOverride },
+            set: { draft?.autoTimesPerDayOverride = $0 }
+        )
+    }
+
     private var styleIDBinding: Binding<UUID?> {
         Binding(
             get: { draft?.styleID ?? tree?.styleID },
@@ -700,10 +1306,10 @@ struct TreeDetailView: View {
         )
     }
 
-    private var treeStatusIDBinding: Binding<UUID?> {
+    private var treeStageIDBinding: Binding<UUID?> {
         Binding(
-            get: { draft?.treeStatusID ?? tree?.treeStatusID },
-            set: { draft?.treeStatusID = $0 }
+            get: { draft?.treeStageID ?? tree?.treeStageID },
+            set: { draft?.treeStageID = $0 }
         )
     }
 
@@ -712,6 +1318,58 @@ struct TreeDetailView: View {
             get: { isEditing ? (draft?.healthStatus ?? tree.healthStatus) : tree.healthStatus },
             set: { draft?.healthStatus = $0 }
         )
+    }
+
+    private func treeStageDisplayName(for tree: Tree) -> String {
+        let stageID = isEditing ? (draft?.treeStageID ?? tree.treeStageID) : tree.treeStageID
+        guard let stageID, let name = referenceData.treeStage(id: stageID)?.name else {
+            return ""
+        }
+        return name
+    }
+
+    private func fertilizationModeTitle(for tree: Tree) -> String {
+        let name = treeStageDisplayName(for: tree)
+        guard !name.isEmpty else { return "" }
+        return TreeStageFertilizerMapping.fertilizationModeTitle(forTreeStageName: name) ?? ""
+    }
+
+    private func fertilizerHealthBinding(for tree: Tree) -> Binding<FertilizerHealth?> {
+        Binding(
+            get: { isEditing ? (draft?.fertilizerHealth ?? tree.fertilizerHealth) : tree.fertilizerHealth },
+            set: { draft?.fertilizerHealth = $0 }
+        )
+    }
+
+    private func fertilizerKindOverrideBinding(for tree: Tree) -> Binding<FertilizerKind?> {
+        Binding(
+            get: { isEditing ? (draft?.fertilizerKindOverride ?? tree.fertilizerKindOverride) : tree.fertilizerKindOverride },
+            set: { draft?.fertilizerKindOverride = $0 }
+        )
+    }
+
+    private func fertilizationPlan(for tree: Tree) -> TreeFertilizationPlan {
+        growingIntelligence.fertilizationPlan(
+            for: treeForFertilizationPlan(tree),
+            lastFertilizedAt: lastFertilizedAt(for: tree)
+        )
+    }
+
+    private func treeForFertilizationPlan(_ tree: Tree) -> Tree {
+        guard isEditing, let draft else { return tree }
+        var live = tree
+        live.fertilizerHealth = draft.fertilizerHealth
+        live.fertilizerKindOverride = draft.fertilizerKindOverride
+        live.healthStatus = draft.healthStatus
+        live.treeStageID = draft.treeStageID
+        return live
+    }
+
+    private func lastFertilizedAt(for tree: Tree) -> Date? {
+        workService.history(for: tree.id)
+            .filter { workService.workType(id: $0.workTypeID)?.behaviour.requiresFertilizer == true }
+            .map(\.performedAt)
+            .max()
     }
 
     private func locationIDBinding(for tree: Tree) -> Binding<UUID?> {
@@ -745,6 +1403,33 @@ struct TreeDetailView: View {
             get: { draft?.potTypeID ?? tree?.potTypeID },
             set: { draft?.potTypeID = $0 }
         )
+    }
+
+    /// Inventory Pot display name only (for Edit Tree inventory block).
+    private func inventoryPotDisplayName(for tree: Tree) -> String {
+        guard let pot = TreeCurrentPotDisplay.resolvedInventoryPot(for: tree, potService: potService) else {
+            return ""
+        }
+        let trimmed = pot.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return trimmed }
+        if let potTypeID = pot.potTypeID, let type = referenceData.potType(id: potTypeID) {
+            return type.name
+        }
+        return "Untitled Pot"
+    }
+
+    private func removeInventoryPotAssignment() {
+        guard let treeID else { return }
+        do {
+            try potService.unassignCurrentPot(fromTreeID: treeID)
+        } catch {
+            potAssignmentErrorMessage = error.localizedDescription
+        }
+    }
+
+    private func sourceYamadoriFind(for tree: Tree) -> YamadoriFind? {
+        guard let findID = tree.sourceYamadoriID else { return nil }
+        return yamadoriService.getFind(id: findID)
     }
 
     private func selectedSoilMix(for tree: Tree) -> SoilMix? {
@@ -901,14 +1586,20 @@ struct TreeDetailView: View {
         } else {
             ids = tree.imageIDs
         }
-        return sortedImageIDs(ids)
+        let referenceIDs = treeService.referenceImageIDs(for: tree)
+        return sortedImageIDs(ids.filter { !referenceIDs.contains($0) })
     }
 
     private func displayedPrimaryImageID(for tree: Tree) -> UUID? {
+        let referenceIDs = treeService.referenceImageIDs(for: tree)
+        let primary: UUID?
         if isEditing, let draft {
-            return draft.primaryImageID
+            primary = draft.primaryImageID
+        } else {
+            primary = tree.primaryImageID
         }
-        return tree.primaryImageID
+        if let primary, referenceIDs.contains(primary) { return nil }
+        return primary
     }
 
     private func displayedPhotoNames(for tree: Tree) -> [UUID: String] {
@@ -938,6 +1629,191 @@ struct TreeDetailView: View {
             return override
         }
         return imageService.captureDate(for: id)
+    }
+
+    /// Chronological Timeline from Work, Measurement, and Photo registrations.
+    private func timelineEvents(for tree: Tree) -> [TreeTimelineEvent] {
+        let system = appSettings.measurementSystem
+        let photoNames = displayedPhotoNames(for: tree)
+        let photoEvents: [(id: UUID, date: Date, name: String)] = displayedImageIDs(for: tree).map { id in
+            (id, displayedCaptureDate(for: id), photoNames[id] ?? imageService.photoName(for: id))
+        }
+        return TreeTimelineAssembler.events(
+            workRecords: workService.history(for: tree.id),
+            workTypeName: { workService.workType(id: $0)?.name },
+            measurements: measurementHistory.timeline(for: tree.id),
+            measurementDetail: { record in
+                timelineMeasurementDetail(record, system: system)
+            },
+            photoEvents: photoEvents,
+            journalEntries: journalService.history(for: tree.id)
+        )
+    }
+
+    private func treeHistoryDocument(for tree: Tree) -> TreeHistoryDocument {
+        let events = timelineEvents(for: tree)
+        let journals = journalService.history(for: tree.id)
+        var identity: [String] = [
+            "Name: \(TreePresentation.title(for: tree))"
+        ]
+        if !tree.botanicalName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            identity.append("Botanical: \(tree.botanicalName)")
+        }
+        let stage = treeStageDisplayName(for: tree).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !stage.isEmpty, stage != FaloDisplayValue.empty {
+            identity.append("Stage: \(stage)")
+        }
+        if let location = locationDisplayName(for: tree), !location.isEmpty {
+            identity.append("Location: \(location)")
+        }
+
+        var acquisition: [String] = []
+        if let date = tree.acquisitionDate {
+            acquisition.append("Date: \(date.formatted(date: .abbreviated, time: .omitted))")
+        }
+        if let methodID = tree.acquisitionMethodID,
+           let method = referenceData.acquisitionMethod(id: methodID)?.name {
+            acquisition.append("Method: \(method)")
+        }
+        let source = tree.acquisitionSourceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !source.isEmpty {
+            acquisition.append("Source: \(source)")
+        }
+        let acqNotes = tree.acquisitionNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !acqNotes.isEmpty {
+            acquisition.append(acqNotes)
+        }
+
+        var yamadori: [String] = []
+        if let find = sourceYamadoriFind(for: tree) {
+            let name = find.displayName.isEmpty ? find.yamadoriCode : find.displayName
+            yamadori.append("Find: \(name)")
+            if !find.yamadoriCode.isEmpty, find.displayName.isEmpty == false {
+                yamadori.append("Code: \(find.yamadoriCode)")
+            }
+        }
+
+        let workHistory = workService.history(for: tree.id)
+
+        let wateringLines = careWorkLines(
+            from: workHistory,
+            matching: workService.isWatering(workTypeID:),
+            fallbackTypeName: "Watering"
+        )
+        let wateringSummaryLine: String? = workService.lastCompletedWateringDate(for: tree.id).map {
+            "Last watered: \($0.formatted(date: .abbreviated, time: .omitted))"
+        }
+
+        let fertilizingLines = careWorkLines(
+            from: workHistory,
+            matching: workService.isFertilizing(workTypeID:),
+            fallbackTypeName: "Fertilizing"
+        )
+        let fertilizingSummaryLine: String? = workService.lastCompletedFertilizingDate(for: tree.id).map {
+            "Last fertilized: \($0.formatted(date: .abbreviated, time: .omitted))"
+        }
+
+        let potDisplay = TreeCurrentPotDisplay.resolve(
+            tree: tree,
+            potService: potService,
+            referenceData: referenceData
+        )
+        let currentPotLine: String? = {
+            guard let title = potDisplay.title, !title.isEmpty else { return nil }
+            switch potDisplay.source {
+            case .inventoryPot: return "Current pot: \(title) (inventory)"
+            case .treeDescription: return "Current pot: \(title)"
+            case .none: return nil
+            }
+        }()
+
+        let repottingLines = careWorkLines(
+            from: workHistory,
+            matching: workService.isRepotting(workTypeID:),
+            fallbackTypeName: "Repotting"
+        )
+
+        let careWorkIDs = Set(
+            workHistory
+                .filter {
+                    workService.isWatering(workTypeID: $0.workTypeID)
+                        || workService.isFertilizing(workTypeID: $0.workTypeID)
+                        || workService.isRepotting(workTypeID: $0.workTypeID)
+                }
+                .map(\.id)
+        )
+        let historyTimeline = events.filter { !careWorkIDs.contains($0.id) }
+
+        let photoNames = displayedPhotoNames(for: tree)
+        let developmentPhotos: [TreeHistoryPhoto] = displayedImageIDs(for: tree)
+            .map { id in
+                TreeHistoryPhoto(
+                    id: id,
+                    date: displayedCaptureDate(for: id),
+                    name: photoNames[id] ?? imageService.photoName(for: id)
+                )
+            }
+            .sorted { lhs, rhs in
+                if lhs.date != rhs.date { return lhs.date < rhs.date }
+                return lhs.id.uuidString < rhs.id.uuidString
+            }
+
+        return TreeHistoryDocument.assemble(
+            tree: tree,
+            identityLines: identity,
+            acquisitionLines: acquisition,
+            yamadoriLines: yamadori,
+            journalEntries: journals,
+            wateringSummaryLine: wateringSummaryLine,
+            wateringLines: wateringLines,
+            fertilizingSummaryLine: fertilizingSummaryLine,
+            fertilizingLines: fertilizingLines,
+            currentPotLine: currentPotLine,
+            repottingLines: repottingLines,
+            developmentPhotos: developmentPhotos,
+            timelineEvents: historyTimeline,
+            notes: tree.notes
+        )
+    }
+
+    private func careWorkLines(
+        from records: [WorkRecord],
+        matching: (UUID) -> Bool,
+        fallbackTypeName: String
+    ) -> [String] {
+        records
+            .filter { matching($0.workTypeID) }
+            .sorted { $0.performedAt > $1.performedAt }
+            .map { record in
+                let date = record.performedAt.formatted(date: .abbreviated, time: .omitted)
+                let typeName = workService.workType(id: record.workTypeID)?.name ?? fallbackTypeName
+                let notes = record.notes.trimmingCharacters(in: .whitespacesAndNewlines)
+                return notes.isEmpty ? "\(date) — \(typeName)" : "\(date) — \(typeName): \(notes)"
+            }
+    }
+
+    private func timelineMeasurementDetail(
+        _ record: TreeMeasurementRecord,
+        system: MeasurementSystem
+    ) -> String? {
+        let parts: [(String, Int?, MeasurementDimension)] = [
+            ("H", record.heightMillimetres, .height),
+            ("C", record.crownWidthMillimetres, .crownWidth),
+            ("N", record.nebariWidthMillimetres, .nebariWidth),
+            ("T", record.trunkDiameterMillimetres, .trunkDiameter)
+        ]
+        let formatted = parts.compactMap { label, millimetres, dimension -> String? in
+            guard millimetres != nil else { return nil }
+            let value = MeasurementService.string(
+                millimetres: millimetres,
+                dimension: dimension,
+                system: system,
+                empty: ""
+            )
+            guard !value.isEmpty else { return nil }
+            return "\(label) \(value)"
+        }
+        return formatted.isEmpty ? nil : formatted.joined(separator: " · ")
     }
 
     /// Oldest Capture Date first; stable tie-break on id.
@@ -989,7 +1865,18 @@ struct TreeDetailView: View {
         }
     }
 
+    private func setSocialShareLevel(_ level: SocialShareLevel, for tree: Tree) {
+        var updated = tree
+        updated.socialShareLevel = level
+        do {
+            _ = try treeService.updateTree(updated)
+        } catch {
+            // Keep UI quiet — share level is non-critical; reload keeps the prior value.
+        }
+    }
+
     private func setPrimaryPhoto(_ imageID: UUID) {
+        guard !treeService.isReferenceImage(imageID) else { return }
         selectedImageID = imageID
         if isEditing {
             draft?.primaryImageID = imageID
@@ -1119,11 +2006,20 @@ struct TreeDetailView: View {
 #Preview("View Tree") {
     let state = AppState()
     let previewData = PreviewData()
-    let reference = ReferenceDataService(previewData: ReferencePreviewData())
+    let referencePreview = ReferencePreviewData()
+    let reference = ReferenceDataService(previewData: referencePreview)
     let storage = StorageService.shared
     let imageCatalog = ImagePreviewData()
     let measurementHistory = TreeMeasurementHistoryStore(storage: storage)
     let treeService = TreeService.preview(previewData: previewData)
+    let workService = WorkService(referenceData: reference)
+    let botanical = BotanicalService(store: referencePreview)
+    let taskService = TaskService(
+        referenceData: reference,
+        workService: workService,
+        treeService: treeService,
+        botanicalService: botanical
+    )
     let treeID = treeService.trees.first!.id
     state.selectedTreeID = treeID
     return TreeDetailView(mode: .edit(treeID))
@@ -1134,5 +2030,32 @@ struct TreeDetailView: View {
         .environment(measurementHistory)
         .environment(ImageService(storage: storage, previewData: imageCatalog))
         .environment(ImageImportService(storage: storage, imageCatalog: imageCatalog))
-        .environment(WorkService(referenceData: reference))
+        .environment(workService)
+        .environment(JournalService())
+        .environment(taskService)
+        .environment(PotService.preview(treeService: treeService))
+        .environment(YamadoriService.preview(treeService: treeService))
+        .environment(
+            GrowingIntelligenceService(
+                treeService: treeService,
+                referenceData: reference,
+                profile: UserProfileStore()
+            )
+        )
+}
+
+// MARK: - Navigation title
+
+private struct TreeDetailNavigationTitleModifier: ViewModifier {
+    var showsNavigationTitle: Bool
+    var title: String
+
+    func body(content: Content) -> some View {
+        if showsNavigationTitle {
+            content.bonsaiWorkspaceNavigationTitle(title)
+        } else {
+            // Embedded under library chrome — no system/navigation title (avoids toolbar rule).
+            content
+        }
+    }
 }

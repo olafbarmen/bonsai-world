@@ -17,7 +17,7 @@ enum GalleryLayout {
     /// Narrowest card width before the grid reflows to fewer columns.
     static let cardMinimumWidth: CGFloat = 220
 
-    /// Image presentation area — typical height at `cardMinimumWidth` (3:4 well).
+    /// Image presentation area — typical height at `cardMinimumWidth` (5:6 well).
     static var imageFrameHeight: CGFloat {
         cardMinimumWidth / imageAspectRatio
     }
@@ -62,10 +62,10 @@ enum GalleryLayout {
         imageFrameHeight + metadataMinHeight
     }
 
-    /// Width:height for tree photographs — mild portrait (not a tall 9:16).
-    static let imageAspectRatio: CGFloat = 3.0 / 4.0
+    /// Width:height for tree photographs — preferred Bonsai World 5:6 presentation.
+    static let imageAspectRatio: CGFloat = 5.0 / 6.0
 
-    /// Outer size for a 3:4 well with the given width.
+    /// Outer size for a 5:6 well with the given width.
     static func portraitSize(width: CGFloat) -> CGSize {
         CGSize(width: width, height: width / imageAspectRatio)
     }

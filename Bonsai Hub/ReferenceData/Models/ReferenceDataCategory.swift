@@ -20,8 +20,7 @@ enum ReferenceDataCategory: String, CaseIterable, Identifiable, Hashable {
     // Tree
     case styles
     case sizeClasses
-    case treeStatuses
-    case developmentStages
+    case treeStages
 
     // Work
     case workTypes
@@ -44,6 +43,7 @@ enum ReferenceDataCategory: String, CaseIterable, Identifiable, Hashable {
     case tools
     case wire
     case chemicals
+    case consumables
 
     var id: Self { self }
 
@@ -56,8 +56,7 @@ enum ReferenceDataCategory: String, CaseIterable, Identifiable, Hashable {
         case .countries: "Countries"
         case .styles: "Styles"
         case .sizeClasses: "Size Classes"
-        case .treeStatuses: "Tree Status"
-        case .developmentStages: "Development Stages"
+        case .treeStages: "Tree Stage"
         case .workTypes: "Work Types"
         case .locations: "Locations"
         case .locationTypes: "Location Types"
@@ -70,6 +69,7 @@ enum ReferenceDataCategory: String, CaseIterable, Identifiable, Hashable {
         case .tools: "Tools"
         case .wire: "Wire"
         case .chemicals: "Chemicals"
+        case .consumables: "Consumables"
         }
     }
 
@@ -79,7 +79,7 @@ enum ReferenceDataCategory: String, CaseIterable, Identifiable, Hashable {
             .botanical
         case .acquisitionMethods, .disposalMethods, .suppliers, .countries:
             .acquisition
-        case .styles, .sizeClasses, .treeStatuses, .developmentStages:
+        case .styles, .sizeClasses, .treeStages:
             .tree
         case .workTypes:
             .work
@@ -89,7 +89,7 @@ enum ReferenceDataCategory: String, CaseIterable, Identifiable, Hashable {
             .soil
         case .fertilizerTypes:
             .fertilizer
-        case .inventoryPots, .tools, .wire, .chemicals:
+        case .inventoryPots, .tools, .wire, .chemicals, .consumables:
             .inventory
         }
     }
@@ -165,9 +165,13 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
     case userProfile
     case regionalSettings
     case referenceData
+    case potBrandsAndMakers
     case appearance
+    case experience
     case notifications
-    case backup
+    case social
+    case libraryManagement
+    case seedStratificationKnowledge
 
     var id: Self { self }
 
@@ -176,9 +180,13 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .userProfile: "User Profile"
         case .regionalSettings: "Regional Settings"
         case .referenceData: "Reference Data"
+        case .potBrandsAndMakers: "Pot Brands & Makers"
         case .appearance: "Appearance"
+        case .experience: "Experience"
         case .notifications: "Notifications"
-        case .backup: "Backup"
+        case .social: "Social"
+        case .libraryManagement: "Library Management"
+        case .seedStratificationKnowledge: "Seed Stratification"
         }
     }
 
@@ -187,9 +195,13 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
         case .userProfile: "person.crop.circle"
         case .regionalSettings: "globe"
         case .referenceData: "list.bullet.rectangle"
+        case .potBrandsAndMakers: "seal"
         case .appearance: "paintbrush"
+        case .experience: "square.stack.3d.up"
         case .notifications: "bell"
-        case .backup: "externaldrive"
+        case .social: "person.2"
+        case .libraryManagement: "externaldrive"
+        case .seedStratificationKnowledge: "leaf.arrow.triangle.circlepath"
         }
     }
 }

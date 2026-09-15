@@ -11,6 +11,7 @@ import Foundation
 /// Tree Detail actions requested from Quick Actions (never from duplicate toolbars).
 enum TreeQuickActionCommand: String, Hashable, Sendable {
     case editTree
+    case addActivity
     case addImage
     case viewImages
     case showOnMap
@@ -19,6 +20,8 @@ enum TreeQuickActionCommand: String, Hashable, Sendable {
     case returnToCare
     case cancel
     case addMeasurement
+    case addJournal
+    case viewTreeHistory
 }
 
 /// One-shot request so SwiftUI can observe distinct enqueues of the same command.

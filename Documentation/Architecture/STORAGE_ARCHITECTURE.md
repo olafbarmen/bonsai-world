@@ -6,7 +6,7 @@
 
 This file keeps **detailed** phase notes, library package layout, and Settings location options for implementers. It must not contradict the Constitution or Product Blueprint. If strategy changes, update the Blueprint first, then this appendix.
 
-**Do not implement additional cloud providers or database persistence until an explicit implementation task.** Phase 1 local foundation (`StorageProvider`, `LocalStorageProvider`, `StorageService`) is in code under `Storage/`.
+**Do not implement additional cloud providers until an explicit implementation task.** Phase 1 local foundation (`StorageProvider`, `LocalStorageProvider`, `StorageService`) is in code under `Storage/`. This appendix may hold **prep contracts** (below) without enabling iCloud in the product.
 
 ---
 
@@ -20,7 +20,7 @@ This file keeps **detailed** phase notes, library package layout, and Settings l
 
 ## Scope
 
-**In scope:** Phase details, `StorageProvider` rules, library location options, package structure, separation from Locations.
+**In scope:** Phase details, `StorageProvider` rules, library location options, package structure, separation from Locations, Phase 2 prep contract.
 
 **Out of scope:** Concrete Swift APIs, database engine choice, schemas, UI mockups beyond Settings option names.
 
@@ -76,7 +76,7 @@ Fully functional macOS app using **local storage only**. `StorageService` + `Loc
 
 ### Phase 2 — iCloud
 
-Optional iCloud-backed provider; same model contracts.
+Optional iCloud-backed provider; same model contracts. **Not enabled in product until an explicit go** (see prep contract below). Onboarding may show “Coming Soon”; Settings must not offer a live iCloud Library Location until that go.
 
 ### Phase 3 — Windows providers
 
@@ -90,28 +90,81 @@ Workspace Profiles never select or fork providers.
 
 ---
 
-## Library package (planned)
+## Phase 2 prep contract (not implemented)
 
-Conceptual layout (names illustrative):
+Prep only — **no iCloud Drive Library Location, no CloudKit, no live sync** until the grower approves an implementation task. Goal: know what Phase 2 must satisfy so companion work does not invent a second library shape.
+
+### Gates before enabling iCloud
+
+1. Mac Library package layout and local repositories are stable (Phase 1 truth).  
+2. Product decision: **companion readiness** (at least: what the iPhone app may read/write in v1) — do not promise “Mac and iPhone” sync in shipping UI before that.  
+3. Explicit implementation task approved (this appendix is not that task).
+
+### What `StorageProvider` must keep working
+
+| Requirement | Why |
+|-------------|-----|
+| Same relative package paths (`Database/`, `Images/…`, documents, metadata) | Features stay path-agnostic; Mac and future clients share one package shape |
+| Atomic whole-file writes for JSON/catalog blobs (as Phase 1 does today) | Avoid half-written libraries when a provider swaps backends |
+| Opaque location config (kind + bookmark / equivalent) — no absolute paths in models | User-owned library; move/rename root without rewriting Trees |
+| Fail closed when provider kind is not implemented (`providerUnavailable`) | `iCloudDrive` / `oneDrive` / `bonsaiCloud` stay non-selectable until real providers exist |
+
+### One writer (v1 cloud)
+
+Until a real sync engine exists, treat the library as **one active writer at a time**.
+
+- Whole-file JSON replace is not safe if two Macs (or Mac + phone) edit the same files while cloud file replication is mid-flight.  
+- Phase 2 **must not** ship as “open on two devices at once” without conflict rules.  
+- Acceptable interim (only if later approved as a separate slice): library root in iCloud Drive with an explicit single-writer warning — **still not approved here**.
+
+### Conflict (must be designed before multi-writer)
+
+Any multi-device Phase 2+ needs an agreed policy before enablement, e.g.:
+
+- last-writer-wins per file (weak; document risk), or  
+- per-record merge with conflict surfacing in Settings / Library Management, or  
+- device lock / “library in use elsewhere”.
+
+Do not invent UI for this until the product choice is made. Export ZIP remains the safety net today.
+
+### Package layout (shared contract)
+
+Conceptual layout (names illustrative; match what `LocalStorageProvider` already ensures):
 
 ```text
 Bonsai World Library/
-  Database/          (or equivalent store)
+  Database/          (Trees, Tasks, Work, stock, …)
   Images/
     Originals/
     Thumbnails/
     Hero/
   Documents/
+  Library.json       (manifest / metadata)
   …
 ```
 
-Models reference assets by ID / relative key. Features never build absolute paths.
+Models reference assets by ID / relative key. Features never build absolute paths. A future iCloud provider stores **the same package**, not a parallel schema.
+
+### Out of scope for this prep note
+
+- Enabling Settings → Library Location → **iCloud Drive**  
+- Changing First Launch to create libraries in iCloud  
+- CloudKit / push / conflict UI  
+- iPhone app target  
+
+Those require a separate, grower-approved implementation pass.
+
+---
+
+## Library package (planned)
+
+See Phase 2 prep contract package layout above. Models reference assets by ID / relative key. Features never build absolute paths.
 
 ---
 
 ## Settings — Library Location (reserved)
 
-Future Settings options choose where the library lives (local default, user folder, iCloud, etc.). Presentation is platform-native; semantics stay in Core.
+Future Settings options choose where the library lives (local default, user folder, iCloud, etc.). Presentation is platform-native; semantics stay in Core. Phase 1 selectable kinds only: Internal SSD, External SSD, Custom Folder. Cloud kinds exist on `LibraryLocationKind` but remain non-selectable until providers ship.
 
 ---
 

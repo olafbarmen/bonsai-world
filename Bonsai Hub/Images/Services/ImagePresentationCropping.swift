@@ -13,10 +13,19 @@ import ImageIO
 
 enum ImagePresentationCropping {
     /// Returns `original` when the crop is full-frame or cannot be applied.
-    static func croppedImage(from original: NSImage, normalizedCrop: CGRect) -> NSImage {
+    static func croppedImage(
+        from original: NSImage,
+        normalizedCrop: CGRect,
+        rotationDegrees: Int = 0,
+        isMirroredHorizontally: Bool = false
+    ) -> NSImage {
+        var oriented = rotated(original, degrees: rotationDegrees)
+        if isMirroredHorizontally {
+            oriented = mirroredHorizontally(oriented)
+        }
         let crop = sanitized(normalizedCrop)
-        guard !isFullFrame(crop) else { return original }
-        guard let cgImage = cgImage(from: original) else { return original }
+        guard !isFullFrame(crop) else { return oriented }
+        guard let cgImage = cgImage(from: oriented) else { return oriented }
 
         let pixelBounds = CGRect(x: 0, y: 0, width: cgImage.width, height: cgImage.height)
         let pixelCrop = CGRect(
@@ -30,10 +39,28 @@ enum ImagePresentationCropping {
 
         guard pixelCrop.width >= 1, pixelCrop.height >= 1,
               let cropped = cgImage.cropping(to: pixelCrop) else {
-            return original
+            return oriented
         }
 
         return NSImage(cgImage: cropped, size: NSSize(width: cropped.width, height: cropped.height))
+    }
+
+    /// Sendable-friendly decode path — returns pixels for cross-isolation handoff to the main actor.
+    static func displayCGImage(
+        from data: Data,
+        normalizedCrop: CGRect,
+        rotationDegrees: Int = 0,
+        isMirroredHorizontally: Bool = false,
+        maxPixelSize: Int? = nil
+    ) -> CGImage? {
+        guard let image = displayImage(
+            from: data,
+            normalizedCrop: normalizedCrop,
+            rotationDegrees: rotationDegrees,
+            isMirroredHorizontally: isMirroredHorizontally,
+            maxPixelSize: maxPixelSize
+        ) else { return nil }
+        return cgImage(from: image)
     }
 
     /// Decode `data` off the hot path. When `maxPixelSize` is set, uses an ImageIO thumbnail
@@ -41,18 +68,33 @@ enum ImagePresentationCropping {
     static func displayImage(
         from data: Data,
         normalizedCrop: CGRect,
+        rotationDegrees: Int = 0,
+        isMirroredHorizontally: Bool = false,
         maxPixelSize: Int? = nil
     ) -> NSImage? {
         if let maxPixelSize {
-            return thumbnail(from: data, normalizedCrop: normalizedCrop, maxPixelSize: maxPixelSize)
+            return thumbnail(
+                from: data,
+                normalizedCrop: normalizedCrop,
+                rotationDegrees: rotationDegrees,
+                isMirroredHorizontally: isMirroredHorizontally,
+                maxPixelSize: maxPixelSize
+            )
         }
         guard let original = NSImage(data: data) else { return nil }
-        return croppedImage(from: original, normalizedCrop: normalizedCrop)
+        return croppedImage(
+            from: original,
+            normalizedCrop: normalizedCrop,
+            rotationDegrees: rotationDegrees,
+            isMirroredHorizontally: isMirroredHorizontally
+        )
     }
 
     private static func thumbnail(
         from data: Data,
         normalizedCrop: CGRect,
+        rotationDegrees: Int,
+        isMirroredHorizontally: Bool,
         maxPixelSize: Int
     ) -> NSImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
@@ -69,7 +111,57 @@ enum ImagePresentationCropping {
             cgImage: cgThumb,
             size: NSSize(width: cgThumb.width, height: cgThumb.height)
         )
-        return croppedImage(from: thumb, normalizedCrop: normalizedCrop)
+        return croppedImage(
+            from: thumb,
+            normalizedCrop: normalizedCrop,
+            rotationDegrees: rotationDegrees,
+            isMirroredHorizontally: isMirroredHorizontally
+        )
+    }
+
+    static func rotated(_ image: NSImage, degrees: Int) -> NSImage {
+        let turns = ((degrees / 90) % 4 + 4) % 4
+        guard turns != 0 else { return image }
+
+        let sourceSize = image.size
+        let destSize = turns % 2 == 1
+            ? NSSize(width: sourceSize.height, height: sourceSize.width)
+            : sourceSize
+        let dest = NSImage(size: destSize)
+        dest.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        let transform = NSAffineTransform()
+        transform.translateX(by: destSize.width / 2, yBy: destSize.height / 2)
+        transform.rotate(byDegrees: CGFloat(-turns * 90))
+        transform.translateX(by: -sourceSize.width / 2, yBy: -sourceSize.height / 2)
+        transform.concat()
+        image.draw(
+            at: .zero,
+            from: NSRect(origin: .zero, size: sourceSize),
+            operation: .copy,
+            fraction: 1
+        )
+        dest.unlockFocus()
+        return dest
+    }
+
+    static func mirroredHorizontally(_ image: NSImage) -> NSImage {
+        let sourceSize = image.size
+        let dest = NSImage(size: sourceSize)
+        dest.lockFocus()
+        NSGraphicsContext.current?.imageInterpolation = .high
+        let transform = NSAffineTransform()
+        transform.translateX(by: sourceSize.width, yBy: 0)
+        transform.scaleX(by: -1, yBy: 1)
+        transform.concat()
+        image.draw(
+            at: .zero,
+            from: NSRect(origin: .zero, size: sourceSize),
+            operation: .copy,
+            fraction: 1
+        )
+        dest.unlockFocus()
+        return dest
     }
 
     static func isFullFrame(_ crop: CGRect) -> Bool {

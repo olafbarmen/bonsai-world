@@ -27,9 +27,9 @@ struct TreeDetailToolbar: ToolbarContent {
 
 extension EditorMode {
     /// Navigation title for the tree editor surface.
-    /// Create → Botanical Name when generated, otherwise "Add Tree"; Edit → Botanical Name.
-    func treeEditorTitle(botanicalName: String) -> String {
-        let trimmed = botanicalName.trimmingCharacters(in: .whitespacesAndNewlines)
+    /// Create → Bonsai Name when set, otherwise "Add Tree"; Edit → Bonsai Name.
+    func treeEditorTitle(bonsaiName: String) -> String {
+        let trimmed = bonsaiName.trimmingCharacters(in: .whitespacesAndNewlines)
         switch self {
         case .create:
             return trimmed.isEmpty ? "Add Tree" : trimmed

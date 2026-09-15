@@ -29,7 +29,7 @@ struct GalleryPreviewSheet: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .faloScrollSurface()
-            .background(.windowBackground)
+            .faloWorkspaceCanvas()
             .navigationTitle(entry.photoName)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {

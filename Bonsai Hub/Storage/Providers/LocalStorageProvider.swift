@@ -36,6 +36,9 @@ final class LocalStorageProvider: StorageProvider, @unchecked Sendable {
         }
     }
 
+    /// Library package root (Features use ``StorageService/libraryPackageRootURL``).
+    var packageRootURL: URL { rootURL }
+
     /// Default Internal SSD library under Application Support.
     static func makeDefault(fileManager: FileManager = .default) -> LocalStorageProvider {
         LocalStorageProvider(

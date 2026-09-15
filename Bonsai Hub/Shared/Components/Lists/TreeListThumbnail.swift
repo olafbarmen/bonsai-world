@@ -5,24 +5,36 @@
 //  Leading photo on every tree list — same size everywhere.
 //  Leaf icon only when the tree has no image.
 //
+//  ImageService is passed in explicitly — macOS Table cells do not reliably
+//  inherit @Environment when rows recycle during fast scrolling.
+//
 
 import AppKit
 import SwiftUI
 
 struct TreeListThumbnail: View {
     var imageID: UUID?
+    let imageService: ImageService
+    var onDoubleClick: (() -> Void)?
+    /// Defaults match list rows; Dashboard Attention may pass a larger size.
+    var width: CGFloat = Self.defaultWidth
+    var height: CGFloat = Self.defaultHeight
+    /// SF Symbol when `imageID` is nil or fails to load. Trees use leaf; Pots use shippingbox.
+    var placeholderSystemImage: String = "leaf.fill"
 
-    @Environment(ImageService.self) private var imageService
     @State private var thumbnail: NSImage?
 
-    static let width: CGFloat = 36
-    static let height: CGFloat = 48
+    static let defaultWidth: CGFloat = 36
+    static let defaultHeight: CGFloat = 48
+    /// Alias for existing call sites.
+    static var width: CGFloat { defaultWidth }
+    static var height: CGFloat { defaultHeight }
 
     var body: some View {
         let _ = imageService.presentationRevision
         let shape = RoundedRectangle(cornerRadius: FaloRadius.small, style: .continuous)
         Color.clear
-            .frame(width: Self.width, height: Self.height)
+            .frame(width: width, height: height)
             .overlay {
                 if let thumbnail {
                     Image(nsImage: thumbnail)
@@ -30,19 +42,26 @@ struct TreeListThumbnail: View {
                         .scaledToFill()
                 } else {
                     ThumbnailPlaceholder(
-                        systemImage: "leaf.fill",
-                        width: Self.width,
-                        height: Self.height
+                        systemImage: placeholderSystemImage,
+                        width: width,
+                        height: height
                     )
                 }
             }
             .clipped()
             .clipShape(shape)
             .overlay {
-                shape.strokeBorder(Color.primary.opacity(0.08), lineWidth: 1)
+                shape.strokeBorder(BonsaiWorldColors.border, lineWidth: 1)
             }
-            .accessibilityHidden(true)
-            .task(id: "\(imageID?.uuidString ?? "")-\(imageService.presentationRevision)") {
+            .contentShape(shape)
+            .onTapGesture(count: 2) {
+                onDoubleClick?()
+            }
+            .accessibilityHidden(onDoubleClick == nil)
+            .accessibilityLabel(onDoubleClick == nil ? "" : "Open image")
+            .accessibilityAddTraits(onDoubleClick == nil ? [] : .isButton)
+            .help(onDoubleClick == nil ? "" : "Double-click to open")
+            .task(id: "\(imageID?.uuidString ?? "")-\(width)-\(height)-\(placeholderSystemImage)-\(imageService.presentationRevision)") {
                 await loadThumbnail()
             }
     }
@@ -52,11 +71,12 @@ struct TreeListThumbnail: View {
             thumbnail = nil
             return
         }
+        let maxPixel = Int(max(width, height) * 2.5)
         do {
             thumbnail = try await imageService.loadDisplayNSImage(
                 for: imageID,
                 context: .treeThumbnail,
-                maxPixelSize: 96
+                maxPixelSize: max(96, maxPixel)
             )
         } catch {
             thumbnail = nil

@@ -18,10 +18,12 @@ enum AcquisitionMethodPreviewData {
         "Seed",
         "Cutting",
         "Air Layer",
+        "Grafting",
         "Yamadori",
         "Gift",
         "Auction",
         "Online Marketplace",
         "Other",
+        "Field Tree",
     ]).map { AcquisitionMethod(id: $0.id, name: $0.name, sortOrder: $0.sortOrder) }
 }

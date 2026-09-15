@@ -3,7 +3,7 @@
 //  Bonsai World
 //
 //  Experience Level behaviour for Gallery (Blueprint §5.5, §6).
-//  Wired to Settings → Experience Level when that ships; safe Novice default today.
+//  Driven by Settings → Experience Edition via ``ExperienceEditionStore``.
 //
 
 import Foundation
@@ -14,8 +14,10 @@ enum GalleryExperienceLevel: String, CaseIterable, Sendable {
     case experienced
     case expert
 
-    /// Default until Workspace Profile UI ships (Constitution §17 — safe by default).
-    static let current: GalleryExperienceLevel = .novice
+    /// Follows the active Experience Edition (defaults to Complete → expert).
+    static var current: GalleryExperienceLevel {
+        ExperienceEditionStore.current.disclosureTier
+    }
 
     /// Whether Featured badges appear on tiles (Experienced+ when Featured workflow ships).
     var showsFeaturedBadge: Bool {

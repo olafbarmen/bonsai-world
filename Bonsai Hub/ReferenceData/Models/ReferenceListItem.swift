@@ -73,9 +73,8 @@ extension Supplier: ReferenceNamedItem {}
 extension Country: ReferenceNamedItem {}
 extension Style: ReferenceNamedItem {}
 extension SizeClass: ReferenceNamedItem {}
-extension TreeStatus: ReferenceNamedItem {}
+extension TreeStage: ReferenceNamedItem {}
 extension WorkType: ReferenceNamedItem {}
-extension DevelopmentStage: ReferenceNamedItem {}
 extension LocationReference: ReferenceNamedItem {}
 extension LocationType: ReferenceNamedItem {}
 extension PotType: ReferenceNamedItem {}
@@ -87,3 +86,6 @@ extension InventoryPot: ReferenceNamedItem {}
 extension Tool: ReferenceNamedItem {}
 extension Wire: ReferenceNamedItem {}
 extension Chemical: ReferenceNamedItem {}
+extension Consumable: ReferenceNamedItem {}
+extension PotBrand: ReferenceNamedItem {}
+extension PotMaker: ReferenceNamedItem {}

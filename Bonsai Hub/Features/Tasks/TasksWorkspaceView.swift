@@ -19,6 +19,7 @@ import SwiftUI
 struct TasksWorkspaceView: View {
     let horizon: TasksHorizon
 
+    @Environment(AppState.self) private var appState
     @Environment(TaskService.self) private var taskService
     @State private var isAddTaskPresented = false
     @State private var isManageSchedulesPresented = false
@@ -37,6 +38,10 @@ struct TasksWorkspaceView: View {
         taskService.pendingOccurrences(due: horizon)
     }
 
+    private var instantCompletableOccurrences: [TaskOccurrence] {
+        occurrences.filter { $0.isInstant && $0.libraryInventoryKind == nil }
+    }
+
     var body: some View {
         FaloAdaptiveDesktopWorkspace(profile: .dashboard) {
             TasksWorkspaceContent(
@@ -46,37 +51,24 @@ struct TasksWorkspaceView: View {
                 onOpenDetail: { detailOccurrence = $0 }
             )
         }
-        .background(.windowBackground)
-        .navigationTitle(horizon.title)
-        .toolbar {
-            ToolbarItem {
-                Button {
-                    isManageSchedulesPresented = true
-                } label: {
-                    Label("Manage Schedules", systemImage: "repeat")
-                }
-                .labelStyle(.titleAndIcon)
-                .help("View, pause, or delete recurring schedules")
-            }
-            ToolbarItem {
-                Button {
-                    completeAllInstantly()
-                } label: {
-                    Label("Complete All", systemImage: "checkmark.circle")
-                }
-                .labelStyle(.titleAndIcon)
-                .help("Complete every task due \(horizon.title.lowercased()) that doesn't need details")
-                .disabled(occurrences.isEmpty)
-            }
-            ToolbarItem {
-                Button {
-                    isAddTaskPresented = true
-                } label: {
-                    Label("New Task", systemImage: "plus")
-                }
-                .labelStyle(.titleAndIcon)
-                .help("Schedule a new task")
-            }
+        .faloWorkspaceCanvas()
+        .bonsaiWorkspaceNavigationTitle(horizon.title)
+        .onAppear {
+            consumeWantsNewTask()
+            consumeWantsManageSchedules()
+            consumeWantsCompleteAll()
+        }
+        .onChange(of: appState.wantsNewTask) { _, wants in
+            guard wants else { return }
+            consumeWantsNewTask()
+        }
+        .onChange(of: appState.wantsManageSchedules) { _, wants in
+            guard wants else { return }
+            consumeWantsManageSchedules()
+        }
+        .onChange(of: appState.wantsCompleteAllTasks) { _, wants in
+            guard wants else { return }
+            consumeWantsCompleteAll()
         }
         .sheet(isPresented: $isAddTaskPresented) {
             AddTaskSheet()
@@ -87,7 +79,7 @@ struct TasksWorkspaceView: View {
         .sheet(item: $completingTask) { task in
             if let treeID = task.treeIDs.first {
                 AddWorkSheet(treeID: treeID, initialWorkTypeID: task.workTypeID, scheduleID: task.id) { record in
-                    try? taskService.completeTask(task, resultingWorkRecordID: record.id)
+                    _ = try? taskService.completeTask(task, resultingWorkRecordID: record.id)
                 }
             }
         }
@@ -130,7 +122,37 @@ struct TasksWorkspaceView: View {
         .animation(.default, value: completionOutcome?.id)
     }
 
+    private func consumeWantsNewTask() {
+        guard appState.wantsNewTask else { return }
+        isAddTaskPresented = true
+        appState.wantsNewTask = false
+    }
+
+    private func consumeWantsManageSchedules() {
+        guard appState.wantsManageSchedules else { return }
+        isManageSchedulesPresented = true
+        appState.wantsManageSchedules = false
+    }
+
+    private func consumeWantsCompleteAll() {
+        guard appState.wantsCompleteAllTasks else { return }
+        appState.wantsCompleteAllTasks = false
+        completeAllInstantly()
+    }
+
     private func attemptComplete(_ occurrence: TaskOccurrence) {
+        if occurrence.libraryInventoryKind == .soilStocktake {
+            appState.presentSoilStocktake()
+            return
+        }
+        if let seedBatchID = occurrence.seedBatchID, !occurrence.isInstant {
+            dismissDetailThen { appState.showSeedBatch(batchID: seedBatchID) }
+            return
+        }
+        if let yamadoriID = occurrence.yamadoriID, !occurrence.isInstant {
+            dismissDetailThen { appState.showYamadoriTrip(tripID: yamadoriID) }
+            return
+        }
         guard occurrence.isInstant else {
             if case .task(let task) = occurrence.source {
                 completingTask = task
@@ -143,6 +165,11 @@ struct TasksWorkspaceView: View {
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    private func dismissDetailThen(_ action: @escaping () -> Void) {
+        detailOccurrence = nil
+        action()
     }
 
     /// "Completed X." for a one-off Task, or — for a recurring Schedule —
@@ -161,7 +188,9 @@ struct TasksWorkspaceView: View {
     }
 
     private func completeAllInstantly() {
-        let instantOccurrences = occurrences.filter(\.isInstant)
+        let instantOccurrences = instantCompletableOccurrences
+        guard !instantOccurrences.isEmpty else { return }
+
         let skipped = occurrences.count - instantOccurrences.count
 
         var results: [TaskService.OccurrenceCompletionResult] = []
@@ -233,6 +262,9 @@ private struct TasksWorkspaceContent: View {
 
     @Environment(TaskService.self) private var taskService
     @Environment(TreeService.self) private var treeService
+    @Environment(SeedBatchService.self) private var seedBatchService
+    @Environment(YamadoriService.self) private var yamadoriService
+    @Environment(NurseryPropagationService.self) private var nurseryPropagationService
     @Environment(\.faloAdaptiveContentWidth) private var contentWidth
     @State private var isWateringExpanded = false
 
@@ -256,7 +288,7 @@ private struct TasksWorkspaceContent: View {
             if horizon == .overdue, !occurrences.isEmpty {
                 Text("These still need doing — watering that was missed is not listed here (it cannot be done late).")
                     .font(FaloTypography.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(BonsaiWorldColors.statusAttention)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.bottom, FaloSpacing.xSmall)
             }
@@ -307,7 +339,7 @@ private struct TasksWorkspaceContent: View {
                 TaskRowView(
                     occurrence: occurrence,
                     workTypeName: taskService.workType(id: occurrence.workTypeID)?.name ?? "Task",
-                    treeName: treeName(for: occurrence.treeID),
+                    treeName: subjectName(for: occurrence),
                     onComplete: { onComplete(occurrence) },
                     onOpenDetail: { onOpenDetail(occurrence) }
                 )
@@ -319,13 +351,36 @@ private struct TasksWorkspaceContent: View {
         }
     }
 
-    private func treeName(for treeID: UUID) -> String {
-        treeService.trees.first { $0.id == treeID }?.bonsaiName ?? "—"
+    private func subjectName(for occurrence: TaskOccurrence) -> String {
+        if occurrence.libraryInventoryKind == .soilStocktake {
+            return "Soil"
+        }
+        if let seedBatchID = occurrence.seedBatchID {
+            if let batch = seedBatchService.batch(id: seedBatchID) {
+                return "\(batch.botanicalName) · \(batch.batchCode)"
+            }
+            return "Seed Batch"
+        }
+        if let yamadoriID = occurrence.yamadoriID {
+            if let trip = yamadoriService.getYamadori(id: yamadoriID) {
+                let name = trip.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                return name.isEmpty ? "Yamadori" : name
+            }
+            return "Yamadori"
+        }
+        if let projectID = occurrence.nurseryPropagationProjectID {
+            if let project = nurseryPropagationService.project(id: projectID) {
+                return "\(project.botanicalName) · \(project.projectCode)"
+            }
+            return "Field Tree"
+        }
+        guard let treeID = occurrence.treeID else { return "—" }
+        return treeService.trees.first { $0.id == treeID }?.bonsaiName ?? "—"
     }
 
     private func sortByTreeNameThenDueDate(_ lhs: TaskOccurrence, _ rhs: TaskOccurrence) -> Bool {
-        let left = treeName(for: lhs.treeID)
-        let right = treeName(for: rhs.treeID)
+        let left = subjectName(for: lhs)
+        let right = subjectName(for: rhs)
         let nameOrder = left.localizedStandardCompare(right)
         if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
         return lhs.dueDate < rhs.dueDate

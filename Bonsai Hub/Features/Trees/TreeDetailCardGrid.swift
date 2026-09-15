@@ -5,7 +5,7 @@
 //  Tree Detail cards — three independent vertical columns (Dashboard principle).
 //  Each card keeps natural height; exactly ``TreeDetailSpacing/cardGap`` between
 //  cards in the same column. Columns never affect each other’s Y positions.
-//  Photo band uses the same column widths (1 + 2 span).
+//  Photos (primary + filmstrip) live in column 0 so columns 1–2 start at the top.
 //
 //  Desktop-first layout: expands proportionally via ``FaloAdaptiveDesktopWorkspace``;
 //  scrolls horizontally only below ``TreeDetailLayout/minimumContentWidth``.
@@ -98,32 +98,5 @@ struct TreeDetailCardColumns<C0: View, C1: View, C2: View>: View {
             content()
         }
         .frame(maxWidth: .infinity, alignment: .topLeading)
-    }
-}
-
-/// Photo band on the Tree Detail grid: primary = column 0, gallery = columns 1–2.
-struct TreeDetailPhotoGrid<Primary: View, Gallery: View>: View {
-    @Environment(\.treeDetailContentWidth) private var contentWidth
-
-    @ViewBuilder var primary: () -> Primary
-    @ViewBuilder var gallery: () -> Gallery
-
-    private var primaryColumnWidth: CGFloat {
-        TreeDetailCardGridMetrics.columnWidth(in: contentWidth)
-    }
-
-    private var galleryColumnWidth: CGFloat {
-        TreeDetailCardGridMetrics.spanWidth(columns: 2, in: contentWidth)
-    }
-
-    var body: some View {
-        HStack(alignment: .top, spacing: TreeDetailSpacing.cardGap) {
-            primary()
-                .frame(width: primaryColumnWidth, alignment: .center)
-
-            gallery()
-                .frame(width: galleryColumnWidth, alignment: .top)
-        }
-        .frame(width: contentWidth, alignment: .topLeading)
     }
 }

@@ -31,10 +31,16 @@ LIBRARY_COLLECTIONS = LIBRARY_TREES.parent / "Collections.json"
 NS = "{http://schemas.openxmlformats.org/spreadsheetml/2006/main}"
 RNS = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}"
 TREE_NS = uuid.UUID("20000000-0000-4000-8000-000000000001")
+BOTANICAL_NS = uuid.UUID("10000000-0000-4000-8000-B07A010A1001")
 
 
 def ref_id(list_n: int, n: int) -> str:
     return f"10000000-0000-4000-8000-{list_n:02x}{n:010d}"
+
+
+def botanical_id(list_n: int, name: str) -> str:
+    key = f"{list_n}:{name.strip().lower()}"
+    return str(uuid.uuid5(BOTANICAL_NS, key))
 
 
 def tree_id(bonsai_name: str) -> str:
@@ -69,10 +75,34 @@ CULTIVARS_APA = [
     "Generic seed grown", "Field grown", "Collected yamadori",
 ]
 STYLES = [
-    "Formal Upright", "Informal Upright", "Slanting", "Cascade", "Semi-cascade",
-    "Literati", "Twin Trunk", "Clump", "Forest", "Root-over-rock", "Windswept", "Broom",
+    "Formal Upright (Chokkan)",
+    "Informal Upright (Moyogi)",
+    "Slanting (Shakan)",
+    "Cascade (Kengai)",
+    "Semi-Cascade (Han-kengai)",
+    "Literati (Bunjin)",
+    "Twin Trunk (Sokan)",
+    "Forest Planting (Yose-ue)",
+    "Windswept (Fukinagashi)",
+    "Raft (Ikadabuki)",
+    "Root-over-Rock (Sekijoju)",
+    "Clinging-to-Rock (Ishitsuki)",
+    "Broom (Hokidachi)",
+    "Multi-Trunk (Kabudachi)",
+    "Exposed Root (Neagari)",
+    "Driftwood (Sharimiki)",
+    "Weeping (Shidare-zukuri)",
 ]
-SIZE_CLASSES = ["Mame", "Shohin", "Kifu", "Chuhin", "Dai", "Imperial"]
+SIZE_CLASSES = [
+    "Imperial / Hachi-uye (120–200+ cm)",
+    "Omono / Dai (60–120 cm)",
+    "Chumono (30–60 cm)",
+    "Komono (15–30 cm)",
+    "Shohin (10–20 cm)",
+    "Mame (5–10 cm)",
+    "Keshitsubo (<5 cm)",
+    "In training",
+]
 TREE_STATUSES = [
     "Frøplante", "Stikling", "Ungplante", "Prebonsai", "Under utvikling",
     "Bonsai", "Ferdig bonsai",
@@ -83,7 +113,52 @@ ACQUISITION_METHODS = [
     "Auction", "Online Marketplace", "Other",
 ]
 DISPOSAL_METHODS = ["Sold", "Gifted", "Donated", "Exchanged", "Died", "Lost", "Other"]
-POT_TYPES = ["Treningspotte", "Plastpotte", "Keramikk", "Tokoname", "Hjemmelaget", "Ingen potte"]
+POT_TYPES = [
+    "Cascade potte (kaskade)",
+    "Cement potte",
+    "Dyp potte oval",
+    "Dyp potte rektangulær",
+    "Dyp potte rund",
+    "Glasert firkantet",
+    "Glasert oval",
+    "Glasert rektangulær",
+    "Glasert rund",
+    "Glasert shallow oval",
+    "Glasert shallow rektangulær",
+    "Glasert shallow rund",
+    "Håndlaget potte",
+    "I bakken",
+    "Keramikk potte",
+    "Luftpotte",
+    "Mica potte",
+    "Plantekasse plast",
+    "Plantekasse tre",
+    "Plastpotte",
+    "Semi-cascade potte",
+    "Signert potte",
+    "Skogpotte / slab",
+    "Steinplate (slab)",
+    "Tokoname firkantet",
+    "Tokoname oval",
+    "Tokoname rektangulær",
+    "Tokoname rund",
+    "Treboks",
+    "Treningskasse tre",
+    "Treningspotte",
+    "Uglasert firkantet",
+    "Uglasert oval",
+    "Uglasert rektangulær",
+    "Uglasert rund",
+    "Uglasert shallow oval",
+    "Uglasert shallow rektangulær",
+    "Uglasert shallow rund",
+    "Yixing firkantet",
+    "Yixing oval",
+    "Yixing rektangulær",
+    "Yixing rund",
+    "Balje",
+    "Luftkasse",
+]
 
 # Location list 11: seed 1–6 + Excel placements 7–15
 LOCATIONS = {
@@ -106,22 +181,34 @@ LOCATIONS = {
 FALLBACK_LOCATION = "Hage"
 
 STYLE_MAP = {
-    "Informal Upright (Moyogi)": "Informal Upright",
-    "Formal Upright (Chokkan)": "Formal Upright",
-    "Twin Trunk (Sokan)": "Twin Trunk",
-    "Forest Planting (Yose-ue)": "Forest",
-    "Broom (Hokidachi)": "Broom",
-    "Literati (Bunjin)": "Literati",
+    "Formal Upright": "Formal Upright (Chokkan)",
+    "Informal Upright": "Informal Upright (Moyogi)",
+    "Slanting": "Slanting (Shakan)",
+    "Cascade": "Cascade (Kengai)",
+    "Semi-cascade": "Semi-Cascade (Han-kengai)",
+    "Semi-Cascade": "Semi-Cascade (Han-kengai)",
+    "Literati": "Literati (Bunjin)",
+    "Twin Trunk": "Twin Trunk (Sokan)",
+    "Clump": "Multi-Trunk (Kabudachi)",
+    "Forest": "Forest Planting (Yose-ue)",
+    "Root-over-rock": "Root-over-Rock (Sekijoju)",
+    "Root-over-Rock": "Root-over-Rock (Sekijoju)",
+    "Windswept": "Windswept (Fukinagashi)",
+    "Broom": "Broom (Hokidachi)",
 }
 SIZE_MAP_KEYWORDS = [
-    ("imperial", "Imperial"),
-    ("hachi-uye", "Imperial"),
-    ("shohin", "Shohin"),
-    ("omono", "Dai"),
-    ("dai", "Dai"),
-    ("chumono", "Chuhin"),
-    ("komono", "Kifu"),
-    ("mame", "Mame"),
+    ("imperial", "Imperial / Hachi-uye (120–200+ cm)"),
+    ("hachi-uye", "Imperial / Hachi-uye (120–200+ cm)"),
+    ("hachi uye", "Imperial / Hachi-uye (120–200+ cm)"),
+    ("omono", "Omono / Dai (60–120 cm)"),
+    ("dai", "Omono / Dai (60–120 cm)"),
+    ("chumono", "Chumono (30–60 cm)"),
+    ("chuhin", "Chumono (30–60 cm)"),
+    ("komono", "Komono (15–30 cm)"),
+    ("kifu", "Komono (15–30 cm)"),
+    ("shohin", "Shohin (10–20 cm)"),
+    ("mame", "Mame (5–10 cm)"),
+    ("keshitsubo", "Keshitsubo (<5 cm)"),
 ]
 STATUS_MAP = {
     "Pre-bonsai": "Prebonsai",
@@ -186,22 +273,25 @@ def name_index(names: list[str]) -> dict[str, str]:
 
 
 def build_lookups():
-    genus_ids = {n: ref_id(1, i + 1) for i, n in enumerate(GENERA)}
+    genus_ids = {n: botanical_id(1, n) for n in GENERA}
     species_ids = {}
     species_by_epithet = defaultdict(list)
-    for i, binomial in enumerate(SPECIES_ROWS):
-        sid = ref_id(2, i + 1)
+    for binomial in SPECIES_ROWS:
+        sid = botanical_id(2, binomial)
         species_ids[binomial.lower()] = sid
         parts = binomial.split()
         if len(parts) >= 2:
             species_by_epithet[parts[1].lower()].append((binomial, sid, parts[0]))
 
     cultivars = []
-    for i, name in enumerate(CULTIVARS_JCH):
-        cultivars.append((name, ref_id(3, i + 1), species_ids["juniperus chinensis"]))
-    offset = len(CULTIVARS_JCH)
-    for i, name in enumerate(CULTIVARS_APA):
-        cultivars.append((name, ref_id(3, offset + i + 1), species_ids["acer palmatum"]))
+    for name in CULTIVARS_JCH:
+        cultivars.append(
+            (name, botanical_id(3, f"Juniperus chinensis|{name}"), species_ids["juniperus chinensis"])
+        )
+    for name in CULTIVARS_APA:
+        cultivars.append(
+            (name, botanical_id(3, f"Acer palmatum|{name}"), species_ids["acer palmatum"])
+        )
 
     return {
         "genus": genus_ids,
@@ -374,12 +464,17 @@ def map_pot(raw: str, lookups) -> tuple[str | None, str | None]:
     if text in lookups["pot"]:
         return lookups["pot"][text], None
     low = text.lower()
+    for name, pid in lookups["pot"].items():
+        if low == name.lower() or low.startswith(name.lower()):
+            return pid, None
     if low.startswith("tokoname"):
-        return lookups["pot"]["Tokoname"], None
+        return lookups["pot"].get("Tokoname rund"), None
     if low.startswith("glasert") or low.startswith("uglasert"):
-        return lookups["pot"]["Keramikk"], None
-    if "plast" in low or low.startswith("mica"):
-        return lookups["pot"]["Plastpotte"], None
+        return lookups["pot"].get("Keramikk potte"), None
+    if "mica" in low:
+        return lookups["pot"].get("Mica potte"), None
+    if "plast" in low:
+        return lookups["pot"].get("Plastpotte"), None
     return None, text
 
 

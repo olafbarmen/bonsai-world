@@ -12,6 +12,10 @@ struct ContentView: View {
     @Environment(AppSettings.self) private var appSettings
     @Environment(TreeService.self) private var treeService
     @Environment(ReferenceDataService.self) private var referenceData
+    @Environment(TaskService.self) private var taskService
+    @Environment(ImageService.self) private var imageService
+    @Environment(PotService.self) private var potService
+    @Environment(YamadoriService.self) private var yamadoriService
 
     /// Dashboard uses a two-column shell (sidebar + workspace).
     private var isDashboardSelected: Bool {
@@ -24,9 +28,14 @@ struct ContentView: View {
     }
 
     /// Trees in the Library uses sidebar + list/detail split (Tree Overview).
-    /// A Tree Workspace window uses sidebar + full-area Tree Detail for one Tree.
+    /// Shaping uses the same shell — Tree Detail Shaping segment.
     private var isTreesSectionSelected: Bool {
-        appState.selectedSection == .gardenTrees
+        appState.selectedSection == .gardenTrees || appState.selectedSection == .shaping
+    }
+
+    /// Nursery → Yamadori uses sidebar + full-width workspace (Trees-style).
+    private var isYamadoriSectionSelected: Bool {
+        appState.selectedSection == .nurseryYamadori
     }
 
     /// Tasks horizons — sidebar + full-width workspace (no detail column).
@@ -39,64 +48,138 @@ struct ContentView: View {
         }
     }
 
+    /// Knowledge → Bonsai Handbook — sidebar + full-width reading view.
+    private var isKnowledgeHandbookSelected: Bool {
+        appState.selectedSection == .knowledgeHandbook
+    }
+
+    /// Knowledge → Fertilizer Guides — sidebar + full-width reading view.
+    private var isKnowledgeFertilizerGuidesSelected: Bool {
+        appState.selectedSection == .knowledgeFertilizerGuides
+    }
+
+    /// Knowledge → Seed Stratification — sidebar + full-width reading view.
+    private var isKnowledgeSeedStratificationSelected: Bool {
+        appState.selectedSection == .knowledgeSeedStratification
+    }
+
+    /// Knowledge → Species Library — sidebar + inset list/detail workspace (Trees-style chrome).
+    private var isKnowledgeSpeciesLibrarySelected: Bool {
+        appState.selectedSection == .knowledgeSpeciesLibrary
+    }
+
+    /// Nursery → Seeds — sidebar + full-width Seeds workspace.
+    private var isNurserySeedsSelected: Bool {
+        appState.selectedSection == .nurserySeeds
+    }
+
+    private var isNurseryCuttingsSelected: Bool {
+        appState.selectedSection == .nurseryCuttings
+    }
+
+    private var isNurseryAirLayersSelected: Bool {
+        appState.selectedSection == .nurseryAirLayers
+    }
+
+    private var isNurseryGraftingSelected: Bool {
+        appState.selectedSection == .nurseryGrafting
+    }
+
+    private var isNurseryFieldTreeSelected: Bool {
+        appState.selectedSection == .nurseryFieldTree
+    }
+
+    /// Inventory → Soil — sidebar + full-width Soil workspace.
+    private var isInventorySoilSelected: Bool {
+        appState.selectedSection == .inventorySoil
+            || appState.selectedSection == .inventorySoilComponents
+            || appState.selectedSection == .inventorySoilMixes
+    }
+
+    /// Care → Fertilizing — sidebar + full-width lookup.
+    private var isCareFertilizingSelected: Bool {
+        appState.selectedSection == .careFertilizing
+    }
+
+    /// Care → Repotting — needs list + recent Work + register.
+    private var isCareRepottingSelected: Bool {
+        appState.selectedSection == .careRepotting
+    }
+
+    /// Care → Watering — due today + instant register.
+    private var isCareWateringSelected: Bool {
+        appState.selectedSection == .careWatering
+    }
+
+    /// Care → Health — attention trees + Health Tasks.
+    private var isCareHealthSelected: Bool {
+        appState.selectedSection == .careTreeHealth
+    }
+
+    /// Care → Seasonal Care — Seasonal Tasks due.
+    private var isCareSeasonalSelected: Bool {
+        appState.selectedSection == .careSeasonal
+    }
+
+    /// Care → Placement — trees missing Location.
+    private var isCarePlacementSelected: Bool {
+        appState.selectedSection == .carePlacement
+    }
+
+    /// Care → Winter Care — Winter / Frost Tasks due.
+    private var isCareWinterSelected: Bool {
+        appState.selectedSection == .careWinter
+    }
+
+    private var isCareTodaySelected: Bool {
+        appState.selectedSection == .careToday
+    }
+
+    private var isLocationsGardensSelected: Bool {
+        appState.selectedSection == .locationsGardens
+    }
+
+    private var selectedMediaLibraryKind: MediaLibraryKind? {
+        switch appState.selectedSection {
+        case .mediaDocuments: .document
+        case .mediaVideo: .video
+        case .mediaNotes: .note
+        case .mediaAudio: .audio
+        default: nil
+        }
+    }
+
+    private var selectedKnowledgeResourceKind: KnowledgeResourceKind? {
+        switch appState.selectedSection {
+        case .knowledgeQuickGuides: .quickGuide
+        case .knowledgeFAQ: .faq
+        case .knowledgeCourses: .course
+        case .knowledgeVideos: .videoTutorial
+        case .knowledgeExternalLinks: .externalLink
+        default: nil
+        }
+    }
+
+    private var selectedSimpleCatalogKind: SimpleCatalogKind? {
+        SimpleCatalogKind.allCases.first { $0.route == appState.selectedSection }
+    }
+
+    private var isSocialSharedTreesSelected: Bool {
+        appState.selectedSection == .socialSharedTrees
+    }
+
     var body: some View {
         @Bindable var appState = appState
 
-        Group {
-            if isDashboardSelected {
-                // Sidebar + Dashboard only — no Detail column.
-                NavigationSplitView {
-                    SidebarView()
-                } detail: {
-                    DashboardView()
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(.windowBackground)
-                }
-            } else if isMediaImagesSelected {
-                NavigationSplitView {
-                    SidebarView()
-                } detail: {
-                    mediaImagesContent
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(.windowBackground)
-                }
-            } else if isTreesSectionSelected {
-                NavigationSplitView {
-                    SidebarView()
-                } detail: {
-                    treesContent
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(.windowBackground)
-                }
-            } else if isTasksSectionSelected {
-                NavigationSplitView {
-                    SidebarView()
-                } detail: {
-                    tasksContent
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(.windowBackground)
-                }
-            } else {
-                // Original three-column layout for every other module.
-                NavigationSplitView {
-                    SidebarView()
-                } content: {
-                    contentColumn
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(.windowBackground)
-                } detail: {
-                    detailColumn
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(.windowBackground)
-                }
-            }
+        // One persistent NavigationSplitView for the whole app. Recreating it per
+        // section (or swapping two- vs three-column shells) leaves a stale toolbar
+        // tracking separator after visiting Pots / Collections / Settings / etc.
+        NavigationSplitView {
+            SidebarView()
+        } detail: {
+            splitDetail { twoColumnWorkspace }
         }
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text(WorldIdentity.appName)
-                    .font(FaloTypography.headline)
-            }
-        }
+        .bonsaiWorldChrome()
         .sheet(item: $appState.locationEditor) { mode in
             LocationEditorView(mode: mode)
         }
@@ -110,11 +193,41 @@ struct ContentView: View {
                 .environment(treeService)
                 .environment(referenceData)
         }
+        .sheet(item: $appState.potEditor) { _ in
+            NewPotView()
+                .environment(appState)
+                .environment(appSettings)
+                .environment(potService)
+                .environment(referenceData)
+        }
+        .sheet(item: $appState.soilStockEditor) { _ in
+            AddSoilStockView()
+        }
+        .sheet(item: $appState.inventoryStockEditorKind) { kind in
+            AddInventoryStockView(kind: kind)
+        }
+        .sheet(isPresented: $appState.isSoilStocktakePresented) {
+            SoilStocktakeView()
+        }
+        .sheet(item: $appState.yamadoriEditor) { _ in
+            NewYamadoriView()
+                .environment(appState)
+                .environment(yamadoriService)
+                .environment(referenceData)
+        }
         .sheet(isPresented: $appState.isCopyExistingTreePresented) {
             CopyExistingTreeSheet()
                 .environment(appState)
                 .environment(treeService)
                 .environment(referenceData)
+        }
+        .sheet(isPresented: $appState.isSearchPresented) {
+            SearchSheet()
+                .environment(appState)
+                .environment(treeService)
+                .environment(referenceData)
+                .environment(taskService)
+                .environment(imageService)
         }
         .onChange(of: appState.selectedSection) { _, newValue in
             // Sidebar already wrote `selectedSection`. Defer dependent clears so we
@@ -123,6 +236,102 @@ struct ContentView: View {
                 appState.handleSelectedSectionChange(newValue)
             }
         }
+    }
+
+    /// Detail destination inside the persistent two-column `NavigationSplitView`.
+    @ViewBuilder
+    private var twoColumnWorkspace: some View {
+        if isDashboardSelected {
+            DashboardView()
+        } else if isMediaImagesSelected {
+            mediaImagesContent
+        } else if isTreesSectionSelected {
+            treesContent
+        } else if isYamadoriSectionSelected {
+            yamadoriContent
+        } else if isTasksSectionSelected {
+            tasksContent
+        } else if isKnowledgeHandbookSelected {
+            BonsaiHandbookView()
+        } else if isKnowledgeFertilizerGuidesSelected {
+            FertilizerGuidesView()
+        } else if isKnowledgeSeedStratificationSelected {
+            SeedStratificationView()
+        } else if isKnowledgeSpeciesLibrarySelected {
+            speciesLibraryContent
+        } else if isNurserySeedsSelected {
+            SeedWorkspaceView(
+                selectedTab: Binding(
+                    get: { appState.selectedSeedWorkspaceTab },
+                    set: { appState.selectedSeedWorkspaceTab = $0 }
+                )
+            )
+        } else if isNurseryCuttingsSelected {
+            NurseryPropagationWorkspaceView(kind: .cutting)
+        } else if isNurseryAirLayersSelected {
+            NurseryPropagationWorkspaceView(kind: .airLayer)
+        } else if isNurseryGraftingSelected {
+            // Grafting removed from Nursery — AppState redirects to Tasks.
+            Color.clear
+                .onAppear { appState.selectSection(.tasksToday) }
+        } else if isNurseryFieldTreeSelected {
+            NurseryPropagationWorkspaceView(kind: .fieldTree)
+        } else if isInventorySoilSelected {
+            SoilWorkspaceView(
+                selectedTab: Binding(
+                    get: { appState.selectedSoilWorkspaceTab },
+                    set: { appState.selectedSoilWorkspaceTab = $0 }
+                )
+            )
+        } else if let section = appState.selectedSection,
+                  let stockKind = InventoryStockKind.kind(for: section) {
+            InventoryStockWorkspaceView(kind: stockKind)
+        } else if appState.selectedSection == .inventoryStockReport {
+            StockReportView()
+        } else if isCareFertilizingSelected {
+            CareFertilizingView()
+        } else if isCareRepottingSelected {
+            CareRepottingView()
+        } else if isCareWateringSelected {
+            CareWateringView()
+        } else if isCareHealthSelected {
+            CareHealthView()
+        } else if isCareSeasonalSelected {
+            CareSeasonalView()
+        } else if isCarePlacementSelected {
+            CarePlacementView()
+        } else if isCareWinterSelected {
+            CareWinterView()
+        } else if isCareTodaySelected {
+            CareTodayView()
+        } else if isLocationsGardensSelected {
+            GardensWorkspaceView()
+        } else if let mediaKind = selectedMediaLibraryKind {
+            MediaLibraryWorkspaceView(kind: mediaKind)
+        } else if let knowledgeKind = selectedKnowledgeResourceKind {
+            KnowledgeResourceWorkspaceView(kind: knowledgeKind)
+        } else if let catalogKind = selectedSimpleCatalogKind {
+            SimpleCatalogWorkspaceView(kind: catalogKind)
+        } else if isSocialSharedTreesSelected {
+            SocialSharedTreesWorkspaceView()
+        } else {
+            masterDetailWorkspace
+        }
+    }
+
+    /// Former three-column modules (Pots, Collections, Settings, …) as list + detail
+    /// inside the same two-column shell — no second `NavigationSplitView` teardown.
+    @ViewBuilder
+    private var masterDetailWorkspace: some View {
+        HSplitView {
+            contentColumn
+                .frame(minWidth: 220, idealWidth: 320, maxWidth: 520)
+            detailColumn
+                .frame(minWidth: 400)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(BonsaiWorldColors.canvas)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     /// Library: Images browse. Image Workspace: one image fills the content area.
@@ -135,6 +344,36 @@ struct ContentView: View {
         }
     }
 
+    /// Same air beside the sidebar and at the trailing edge as Dashboard (``DashboardSpacing/pageInset``).
+    /// Marks the environment so ``FaloAdaptiveDesktopWorkspace`` does not double-pad horizontally.
+    ///
+    /// Inset is applied *inside* a full-bleed column fill. Padding the column root itself
+    /// shifts macOS’s sidebar tracking separator away from the green edge (gap then line).
+    /// Plain padding (not leading ``safeAreaInset``) — inset overlays were clipping Tables.
+    private func splitDetail<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        ZStack(alignment: .topLeading) {
+            BonsaiWorldColors.canvas
+            content()
+                .padding(.horizontal, DashboardSpacing.pageInset)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .environment(\.faloShellProvidesLeadingInset, true)
+    }
+
+    /// Species Library list + profile in one inset workspace — avoids the three-column title separator.
+    @ViewBuilder
+    private var speciesLibraryContent: some View {
+        HSplitView {
+            SpeciesLibraryView()
+                .frame(minWidth: 280, idealWidth: 360, maxWidth: 480)
+            SpeciesProfileDetailView()
+                .frame(minWidth: 400)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .bonsaiWorkspaceNavigationTitle("Species Library")
+    }
+
     /// Library: list + embedded Overview. Tree Workspace: one Tree fills the content area.
     @ViewBuilder
     private var treesContent: some View {
@@ -145,22 +384,34 @@ struct ContentView: View {
         }
     }
 
+    /// Library: tabs + list/detail. Trip/Find Workspace: one record fills the content area.
+    @ViewBuilder
+    private var yamadoriContent: some View {
+        if appState.yamadoriWorkspaceTripID != nil {
+            YamadoriDetailView()
+        } else if appState.yamadoriWorkspaceFindID != nil {
+            YamadoriFindDetailView()
+        } else {
+            YamadoriWorkspaceView()
+        }
+    }
+
     /// Tasks horizons — full-width card workspace in the detail column.
     @ViewBuilder
     private var tasksContent: some View {
         switch appState.selectedSection {
         case .tasksOverdue:
-            TasksPlaceholderViews.overdue
+            TasksHorizonViews.overdue
         case .tasksToday:
-            TasksPlaceholderViews.today
+            TasksHorizonViews.today
         case .tasksThisWeek:
-            TasksPlaceholderViews.thisWeek
+            TasksHorizonViews.thisWeek
         case .tasksThisMonth:
-            TasksPlaceholderViews.thisMonth
+            TasksHorizonViews.thisMonth
         case .tasksThisYear:
-            TasksPlaceholderViews.thisYear
+            TasksHorizonViews.thisYear
         case .tasksNextYear:
-            TasksPlaceholderViews.nextYear
+            TasksHorizonViews.nextYear
         default:
             EmptyView()
         }
@@ -186,167 +437,107 @@ struct ContentView: View {
             // Unreachable while `isMediaImagesSelected` uses the two-column shell.
             EmptyView()
 
-        case .mediaDocuments:
-            ModulePlaceholderView(
-                title: "Documents",
-                systemImage: "doc",
-                purpose: "Future document browse under Media — not implemented yet."
-            )
-        case .mediaNotes:
-            ModulePlaceholderView(
-                title: "Notes",
-                systemImage: "note.text",
-                purpose: "Future notes browse under Media — not implemented yet."
-            )
-        case .mediaVideo:
-            ModulePlaceholderView(
-                title: "Videos",
-                systemImage: "video",
-                purpose: "Future video browse under Media — not implemented yet."
-            )
-        case .mediaAudio:
-            ModulePlaceholderView(
-                title: "Audio",
-                systemImage: "waveform",
-                purpose: "Future audio browse under Media — not implemented yet."
-            )
+        case .mediaDocuments, .mediaNotes, .mediaVideo, .mediaAudio:
+            // Unreachable while media catalog routes use the two-column shell.
+            EmptyView()
 
         case .locationsGardens:
-            ModulePlaceholderView(
-                title: "Gardens",
-                systemImage: "house.lodge",
-                purpose: "Physical properties where trees grow. Garden definitions remain the framing layer for Locations.",
-                items: ["Address framing", "Garden Position", "Climate context"]
-            )
+            // Unreachable while Gardens uses the two-column shell.
+            EmptyView()
         case .locationsPlaces, .locationsMap:
             LocationsListView()
 
         case .workshopWork:
             WorkBrowserView()
-        case .workshopCalendar:
-            ModulePlaceholderView(
-                title: "Calendar",
-                systemImage: "calendar",
-                purpose: "Workshop schedule for practical bonsai work.",
-                items: ["Work events", "Seasonal windows", "Reminders"]
-            )
-        case .workshopTasks:
-            ModulePlaceholderView(
-                title: "Tasks",
-                systemImage: "checklist",
-                purpose: "Actionable Workshop tasks tied to trees and work types.",
-                items: ["Due work", "Batch tasks", "Follow-ups"]
-            )
+        case .workshopCalendar, .workshopTasks:
+            // Unreachable while Workshop catalog routes use the two-column shell.
+            EmptyView()
 
         case .nurserySeeds:
-            nurseryPlaceholder("Seeds", "leaf.circle", "Seed sowing and germination tracking.")
-        case .nurseryCuttings:
-            nurseryPlaceholder("Cuttings", "scissors", "Cutting propagation and rooting.")
-        case .nurseryAirLayers:
-            nurseryPlaceholder("Air Layers", "arrow.triangle.branch", "Air layer projects and development.")
-        case .nurseryGrafting:
-            nurseryPlaceholder("Grafting", "arrow.triangle.merge", "Grafting projects and aftercare.")
+            // Unreachable while `isNurserySeedsSelected` uses the two-column shell.
+            EmptyView()
+        case .nurseryCuttings, .nurseryAirLayers, .nurseryGrafting, .nurseryFieldTree:
+            // Unreachable while nursery propagation routes use the two-column shell.
+            EmptyView()
         case .nurseryYamadori:
-            nurseryPlaceholder("Yamadori", "mountain.2", "Collected material and recovery.")
-        case .nurseryDevelopment:
-            nurseryPlaceholder(
-                "Development",
-                "chart.line.uptrend.xyaxis",
-                "Young tree development formerly under Propagation — trunk building, ramification, refinement."
-            )
+            // Unreachable while `isYamadoriSectionSelected` uses the two-column shell.
+            EmptyView()
 
         case .careToday:
-            carePlaceholder("Today", "Daily care overview and recommendations.")
+            // Unreachable while `isCareTodaySelected` uses the two-column shell.
+            EmptyView()
         case .careWatering:
-            carePlaceholder("Watering", "Watering guidance from Growing Intelligence.")
+            // Unreachable while `isCareWateringSelected` uses the two-column shell.
+            EmptyView()
         case .careFertilizing:
-            carePlaceholder("Fertilizing", "Fertilizing guidance from Growing Intelligence.")
+            // Unreachable while `isCareFertilizingSelected` uses the two-column shell.
+            EmptyView()
         case .careRepotting:
-            carePlaceholder("Repotting", "Repotting windows and aftercare guidance.")
+            // Unreachable while `isCareRepottingSelected` uses the two-column shell.
+            EmptyView()
         case .carePlacement:
-            carePlaceholder("Placement", "Placement and microclimate guidance.")
+            // Unreachable while `isCarePlacementSelected` uses the two-column shell.
+            EmptyView()
         case .careTreeHealth:
-            carePlaceholder("Health", "Health signals and recovery cues.")
+            // Unreachable while `isCareHealthSelected` uses the two-column shell.
+            EmptyView()
         case .careSeasonal:
-            carePlaceholder("Seasonal Care", "Season-aware care recommendations.")
+            // Unreachable while `isCareSeasonalSelected` uses the two-column shell.
+            EmptyView()
         case .careWinter:
-            carePlaceholder("Winter Care", "Winter protection and winter wash guidance.")
-
-        case .designVision:
-            shapingPlaceholder("Vision", "Long-term artistic intention for a tree.")
-        case .designStyle:
-            shapingPlaceholder("Style", "Style classification and planning.")
-        case .designFrontSelection:
-            shapingPlaceholder("Front Selection", "Choosing and refining the front.")
-        case .designVirtual:
-            shapingPlaceholder("Virtual Design", "Digital design exploration.")
-        case .designBranchPlan:
-            shapingPlaceholder("Branch Plan", "Primary and secondary branch planning.")
-        case .designTrunkDevelopment:
-            shapingPlaceholder("Trunk Development", "Trunk movement and taper planning.")
-        case .designRamification:
-            shapingPlaceholder("Ramification", "Fine branching development plans.")
-        case .designApex:
-            shapingPlaceholder("Apex", "Apex design and refinement.")
-        case .designDeadwood:
-            shapingPlaceholder("Deadwood", "Jin, shari, and deadwood design.")
-        case .designTimeline:
-            shapingPlaceholder("Timeline", "Multi-year design milestones.")
+            // Unreachable while `isCareWinterSelected` uses the two-column shell.
+            EmptyView()
+        case .designVision,
+             .designStyle, .designFrontSelection, .designVirtual,
+             .designBranchPlan, .designTrunkDevelopment, .designRamification,
+             .designApex, .designDeadwood, .designTimeline, .shaping:
+            // Unreachable — Shaping uses the Trees shell; legacy design routes are not in navigation.
+            EmptyView()
 
         case .inventoryPots:
-            inventoryPlaceholder("Pots", "Pot inventory — single source of truth.")
-        case .inventorySoil:
-            inventoryPlaceholder("Soil", "Bulk soil stock.")
-        case .inventorySoilComponents:
-            inventoryPlaceholder("Soil Components", "Individual soil ingredients.")
-        case .inventorySoilMixes:
-            inventoryPlaceholder("Soil Mixes", "Named mixes composed of components.")
-        case .inventoryFertilizers:
-            inventoryPlaceholder("Fertilizers", "Fertilizer stock.")
-        case .inventoryWire:
-            inventoryPlaceholder("Wire", "Wiring stock by gauge and material.")
-        case .inventoryTools:
-            inventoryPlaceholder("Tools", "Tools inventory.")
-        case .inventoryChemicals:
-            inventoryPlaceholder("Chemicals", "Treatments and chemicals.")
-        case .inventoryConsumables:
-            inventoryPlaceholder("Consumables", "Other consumable supplies.")
+            PotListView()
+        case .inventorySoil, .inventorySoilComponents, .inventorySoilMixes:
+            EmptyView()
+        case .inventoryFertilizers, .inventoryWire, .inventoryTools, .inventoryChemicals, .inventoryConsumables:
+            // Unreachable while inventory stock uses the two-column shell.
+            EmptyView()
+        case .inventoryStockReport:
+            // Unreachable while Stock Report uses the two-column shell.
+            EmptyView()
 
-        case .knowledgeQuickGuides:
-            knowledgePlaceholder("Quick Guides", "Short practical guides.")
+        case .knowledgeQuickGuides, .knowledgeVideos, .knowledgeCourses, .knowledgeFAQ, .knowledgeExternalLinks:
+            // Unreachable while knowledge resource routes use the two-column shell.
+            EmptyView()
         case .knowledgeHandbook:
-            knowledgePlaceholder("Bonsai Handbook", "Structured handbook content.")
+            // Unreachable while `isKnowledgeHandbookSelected` uses the two-column shell.
+            EmptyView()
+        case .knowledgePotGuidelines:
+            // Redirected to Handbook → Pots & Containers in `AppState.handleSelectedSectionChange`.
+            EmptyView()
         case .knowledgeSpeciesLibrary:
-            knowledgePlaceholder("Species Library", "Species care and characteristics.")
+            // Unreachable while `isKnowledgeSpeciesLibrarySelected` uses the two-column shell.
+            EmptyView()
         case .knowledgeSoilGuides:
-            knowledgePlaceholder("Soil Guides", "Soil education.")
+            // Redirected to Handbook → Soil & Substrate in `AppState.handleSelectedSectionChange`.
+            EmptyView()
         case .knowledgeFertilizerGuides:
-            knowledgePlaceholder("Fertilizer Guides", "Fertilizer education.")
-        case .knowledgeVideos:
-            knowledgePlaceholder("Video Tutorials", "Video learning resources.")
-        case .knowledgeCourses:
-            knowledgePlaceholder("Courses", "Structured courses.")
-        case .knowledgeFAQ:
-            knowledgePlaceholder("FAQ", "Frequently asked questions.")
-        case .knowledgeExternalLinks:
-            knowledgePlaceholder("External Links", "Curated external references.")
+            // Unreachable while `isKnowledgeFertilizerGuidesSelected` uses the two-column shell.
+            EmptyView()
+        case .knowledgeSeedStratification:
+            // Unreachable while `isKnowledgeSeedStratificationSelected` uses the two-column shell.
+            EmptyView()
 
-        case .economyPurchases:
-            economyPlaceholder("Purchases", "Purchase records.")
-        case .economySales:
-            economyPlaceholder("Sales", "Sales records.")
-        case .economyExpenses:
-            economyPlaceholder("Expenses", "Expense tracking.")
-        case .economyIncome:
-            economyPlaceholder("Income", "Income tracking.")
-        case .economyTreeValue:
-            economyPlaceholder("Tree Value", "Estimated tree values.")
-        case .economyPotValue:
-            economyPlaceholder("Pot Value", "Estimated pot values.")
-        case .economyInventoryValue:
-            economyPlaceholder("Inventory Value", "Stock valuation.")
-        case .economyReports:
-            economyPlaceholder("Reports", "Financial reports.")
+        case .economyPurchases, .economySales, .economyExpenses, .economyIncome,
+             .economyTreeValue, .economyPotValue, .economyInventoryValue, .economyReports:
+            // Unreachable while Economy catalog routes use the two-column shell.
+            EmptyView()
+
+        case .socialContacts, .socialLinks:
+            // Unreachable while Social catalog routes use the two-column shell.
+            EmptyView()
+        case .socialSharedTrees:
+            // Unreachable while Shared Trees uses the two-column shell.
+            EmptyView()
 
         case .settings:
             SettingsView()
@@ -377,6 +568,12 @@ struct ContentView: View {
             }
         case .workshopWork:
             WorkTypeDetailView()
+        case .inventoryPots:
+            PotDetailView()
+        case .nurseryYamadori:
+            EmptyView()
+        case .knowledgeSpeciesLibrary:
+            EmptyView()
         case .settings:
             settingsDetail
         default:
@@ -397,20 +594,20 @@ struct ContentView: View {
             RegionalSettingsView()
         case .referenceData:
             ReferenceDataManagerView()
+        case .potBrandsAndMakers:
+            PotBrandsAndMakersView()
         case .appearance:
             AppearanceSettingsView()
+        case .experience:
+            ExperienceEditionSettingsView()
         case .notifications:
-            ModulePlaceholderView(
-                title: "Notifications",
-                systemImage: "bell",
-                purpose: "Notification preferences for care and workshop reminders."
-            )
-        case .backup:
-            ModulePlaceholderView(
-                title: "Backup",
-                systemImage: "externaldrive",
-                purpose: "Backup and restore of the grower’s library."
-            )
+            NotificationsSettingsView()
+        case .social:
+            SocialSettingsView()
+        case .libraryManagement:
+            LibraryManagementView()
+        case .seedStratificationKnowledge:
+            SeedStratificationSettingsView()
         case .none:
             ContentUnavailableView(
                 "Settings",
@@ -418,54 +615,6 @@ struct ContentView: View {
                 description: Text("Choose a settings pane.")
             )
         }
-    }
-
-    private func nurseryPlaceholder(_ title: String, _ image: String, _ purpose: String) -> ModulePlaceholderView {
-        ModulePlaceholderView(
-            title: title,
-            systemImage: image,
-            purpose: purpose + " Moved from Propagation into Nursery."
-        )
-    }
-
-    private func carePlaceholder(_ title: String, _ purpose: String) -> ModulePlaceholderView {
-        ModulePlaceholderView(
-            title: title,
-            systemImage: "drop",
-            purpose: purpose + " Recommendations will come from Growing Intelligence — not implemented yet."
-        )
-    }
-
-    private func shapingPlaceholder(_ title: String, _ purpose: String) -> ModulePlaceholderView {
-        ModulePlaceholderView(
-            title: title,
-            systemImage: "pencil.and.outline",
-            purpose: purpose + " Shaping tools are not implemented yet."
-        )
-    }
-
-    private func inventoryPlaceholder(_ title: String, _ purpose: String) -> ModulePlaceholderView {
-        ModulePlaceholderView(
-            title: title,
-            systemImage: "shippingbox",
-            purpose: purpose + " Stock management is not implemented yet."
-        )
-    }
-
-    private func knowledgePlaceholder(_ title: String, _ purpose: String) -> ModulePlaceholderView {
-        ModulePlaceholderView(
-            title: title,
-            systemImage: "book",
-            purpose: purpose + " Content is not added yet."
-        )
-    }
-
-    private func economyPlaceholder(_ title: String, _ purpose: String) -> ModulePlaceholderView {
-        ModulePlaceholderView(
-            title: title,
-            systemImage: "sterlingsign.circle",
-            purpose: purpose + " Calculations are not implemented yet."
-        )
     }
 }
 

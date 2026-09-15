@@ -130,6 +130,12 @@ enum WeatherRiskAssessment {
 
     static let noRisksMessage = "No significant Bonsai weather risks today."
 
+    /// High-heat day for Collection Heat watch (same threshold as ``todaysRisks`` heat line).
+    static func isHeatWatchCondition(snapshot: WeatherSnapshot) -> Bool {
+        guard let today = snapshot.today else { return false }
+        return today.maxTemperatureCelsius >= 30
+    }
+
     /// Location-specific risk bullets combining a Location's `LocationEnvironmentProfile`
     /// with today's/tomorrow's forecast. Complements ``todaysRisks(for:)``, which only
     /// looks at the Garden-wide forecast — this adds context from how exposed/protected

@@ -15,6 +15,8 @@ struct CropWorkspacePreviewPanel: View {
     @Binding var selectedPreview: CropLivePreviewSurface
     let imageSize: CGSize
     let experienceLevel: CropWorkspaceExperienceLevel
+    var rotationDegrees: Int = 0
+    var isMirroredHorizontally: Bool = false
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: true) {
@@ -34,7 +36,7 @@ struct CropWorkspacePreviewPanel: View {
             .padding(FaloSpacing.large)
         }
         .frame(width: CropWorkspaceLayout.previewPanelWidth)
-        .background(.background)
+        .background(BonsaiWorldColors.canvas)
         .overlay(alignment: .leading) {
             Rectangle()
                 .fill(FaloColors.borderSubtle)
@@ -59,12 +61,12 @@ struct CropWorkspacePreviewPanel: View {
             HStack {
                 Text(mode.title)
                     .font(FaloTypography.body)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(BonsaiWorldColors.textPrimary)
                 Spacer(minLength: 0)
                 if aspectMode == mode {
                     Image(systemName: "checkmark")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(BonsaiWorldColors.accent)
                 }
             }
             .padding(.vertical, FaloSpacing.xSmall)
@@ -82,7 +84,7 @@ struct CropWorkspacePreviewPanel: View {
 
             Text("Each frame has its own crop. Drag to pan that frame.")
                 .font(FaloTypography.caption)
-                .foregroundStyle(FaloColors.textSecondary)
+                .foregroundStyle(BonsaiWorldColors.textSecondary)
 
             ForEach(CropLivePreviewSurface.allCases) { surface in
                 previewTile(surface)
@@ -95,7 +97,7 @@ struct CropWorkspacePreviewPanel: View {
             Text(surface.title)
                 .font(FaloTypography.caption.weight(.medium))
                 .foregroundStyle(
-                    selectedPreview == surface ? Color.accentColor : FaloColors.textSecondary
+                    selectedPreview == surface ? BonsaiWorldColors.accent : BonsaiWorldColors.textSecondary
                 )
 
             CroppedImagePreviewLoader(
@@ -104,6 +106,8 @@ struct CropWorkspacePreviewPanel: View {
                 frameSize: surface.frameSize,
                 cornerRadius: surface.cornerRadius,
                 isActive: selectedPreview == surface,
+                rotationDegrees: rotationDegrees,
+                isMirroredHorizontally: isMirroredHorizontally,
                 onActivate: { activate(surface) }
             )
         }
@@ -155,7 +159,7 @@ struct CropWorkspacePreviewPanel: View {
     private func sectionTitle(_ title: String) -> some View {
         Text(title)
             .font(FaloCardTypography.sectionTitle)
-            .foregroundStyle(.secondary)
+            .foregroundStyle(BonsaiWorldColors.textSecondary)
             .textCase(.uppercase)
             .tracking(FaloCardTypography.sectionTitleTracking)
     }
@@ -163,7 +167,7 @@ struct CropWorkspacePreviewPanel: View {
     private func mutedText(_ text: String) -> some View {
         Text(text)
             .font(FaloTypography.body)
-            .foregroundStyle(FaloColors.textSecondary)
+            .foregroundStyle(BonsaiWorldColors.textSecondary)
     }
 }
 

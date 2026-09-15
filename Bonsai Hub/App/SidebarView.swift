@@ -4,93 +4,108 @@
 //
 //  Architecture Version 3 — workflow-first sidebar (Tasks, Garden + Locations, Shaping).
 //  Visual hierarchy: Section → Module → Subpage (typography & spacing only).
-//  User actions live in Quick Actions only (no duplicate toolbars).
+//  User actions live in Context Tools only (no duplicate toolbars).
 //
 
+import AppKit
 import SwiftUI
 
 struct SidebarView: View {
     @Environment(AppState.self) private var appState
     @Environment(TreeService.self) private var treeService
     @Environment(TaskService.self) private var taskService
+    @Environment(PotService.self) private var potService
+    @Environment(YamadoriService.self) private var yamadoriService
+    @Environment(SeedBatchService.self) private var seedBatchService
+    @Environment(UserProfileStore.self) private var profile
+    @Environment(ImageService.self) private var imageService
+    @Environment(GalleryService.self) private var galleryService
+    @Environment(AppSettings.self) private var appSettings
     @Environment(\.openWindow) private var openWindow
-    @State private var expandedModules: Set<AppModule> = [
-        .tasks, .garden, .media, .nursery
-    ]
+    /// Modules with a disclosure start expanded — same rule for every Workspace group.
+    @State private var expandedModules: Set<AppModule> = Set(
+        AppModule.workspaceModules.filter(\.showsChildNavigation)
+    )
 
     private let sidebarWidth: CGFloat = 220
+    private static let contextToolsMaxHeightFraction: CGFloat = 0.5
 
     var body: some View {
         @Bindable var appState = appState
 
-        List(selection: $appState.selectedSection) {
-            Section {
-                ForEach(AppModule.primaryWorkspaceModules) { module in
-                    moduleNavigation(module)
+        VStack(spacing: 0) {
+            sidebarBranding
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, FaloSpacing.medium)
+                .padding(.vertical, FaloSpacing.xxxLarge)
+
+            Divider()
+                .opacity(0.35)
+
+            // Middle only (Workspace list + Context Tools). Tools may use at most
+            // half of *this* region — not half of the whole column with brand/profile.
+            GeometryReader { mid in
+                let toolsCap = mid.size.height * Self.contextToolsMaxHeightFraction
+
+                VStack(spacing: 0) {
+                    List(selection: $appState.selectedSection) {
+                        Section {
+                            ForEach(AppModule.primaryWorkspaceModules) { module in
+                                moduleNavigation(module)
+                            }
+                        } header: {
+                            SidebarSectionHeader(title: "Workspace", topPadding: FaloSpacing.small)
+                        }
+
+                        Section {
+                            ForEach(AppModule.libraryWorkspaceModules) { module in
+                                moduleNavigation(module)
+                            }
+                        } header: {
+                            SidebarSectionHeader(title: "Library", topPadding: FaloSpacing.xxLarge)
+                        }
+
+                        if !AppModule.toolsModules.isEmpty {
+                            Section {
+                                ForEach(AppModule.toolsModules) { module in
+                                    moduleNavigation(module)
+                                }
+                            } header: {
+                                SidebarSectionHeader(
+                                    title: "Tools",
+                                    topPadding: FaloSpacing.xxLarge
+                                )
+                            }
+                        }
+                    }
+                    .listStyle(.sidebar)
+                    .faloScrollSurface()
+                    .scrollContentBackground(.hidden)
+                    .listRowSeparator(.hidden)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .layoutPriority(1)
+
+                    Divider()
+                        .opacity(0.35)
+
+                    pinnedContextTools(maxHeight: toolsCap)
                 }
-
-                Divider()
-                    .padding(.vertical, FaloSpacing.xSmall)
-
-                ForEach(AppModule.libraryWorkspaceModules) { module in
-                    moduleNavigation(module)
-                }
-            } header: {
-                SidebarSectionHeader(title: "Workspace")
+                .frame(width: mid.size.width, height: mid.size.height, alignment: .top)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .layoutPriority(1)
 
-            if appState.isImageWorkspaceWindow {
-                QuickActionsView(
-                    sectionTitle: "Image Tools",
-                    globalActions: [],
-                    contextActions: ImageWorkspaceToolsCatalog.actions(
-                        for: ImageWorkspaceExperienceLevel.current
-                    ),
-                    onAction: handleImageWorkspaceTool
-                )
-            } else {
-                QuickActionsView(
-                    globalActions: GlobalQuickActionsCatalog.actions,
-                    contextActions: ContextQuickActionsCatalog.actions(
-                        for: appState.selectedSection,
-                        treesContext: ContextQuickActionsCatalog.TreesContext(
-                            selectedTreeID: appState.selectedTreeID,
-                            interactionMode: appState.treeDetailInteractionMode,
-                            isInCare: appState.selectedTreeID.flatMap {
-                                treeService.getTree(id: $0)?.isInCare
-                            } ?? true,
-                            isFavorite: appState.selectedTreeID.map {
-                                treeService.isFavoriteTree($0)
-                            } ?? false
-                        ),
-                        collectionsContext: ContextQuickActionsCatalog.CollectionsContext(
-                            selectedCollectionID: appState.selectedCollectionID,
-                            selectedCollectionIsManual: appState.selectedCollectionID.flatMap {
-                                treeService.collection(id: $0)?.isManual
-                            } ?? false,
-                            interactionMode: appState.collectionDetailInteractionMode
-                        ),
-                        mediaSelectedImageID: appState.selectedMediaImageID
-                    ),
-                    onAction: handleQuickAction
-                )
-            }
+            Divider()
+                .opacity(0.35)
 
-            Section {
-                ForEach(AppModule.toolsModules) { module in
-                    moduleNavigation(module)
-                }
-            } header: {
-                SidebarSectionHeader(
-                    title: "Tools",
-                    topPadding: FaloSpacing.xxLarge
-                )
-            }
+            // Profile stays below tools — never overlapped by scrolling tools.
+            sidebarProfileFooter
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, FaloSpacing.medium)
+                .padding(.vertical, FaloSpacing.xxxLarge)
         }
-        .listStyle(.sidebar)
-        .faloScrollSurface()
-        .background(.windowBackground)
-        .navigationTitle(WorldIdentity.appName)
+        .background(BonsaiWorldColors.sidebar)
+        .tint(BonsaiWorldColors.sidebarAccent)
         .navigationSplitViewColumnWidth(min: 180, ideal: sidebarWidth, max: 280)
         .onChange(of: appState.selectedSection) { _, newValue in
             if let module = newValue?.module, module.showsChildNavigation {
@@ -100,10 +115,204 @@ struct SidebarView: View {
     }
 
     @ViewBuilder
+    private func pinnedContextTools(maxHeight: CGFloat) -> some View {
+        if appState.isImageWorkspaceWindow {
+            let _ = appSettings.experienceEdition
+            let canSetPrimary = appState.imageWorkspaceImageID
+                .flatMap { galleryService.entry(for: $0)?.treeID } != nil
+            QuickActionsView(
+                sectionTitle: "Image Tools",
+                globalActions: [],
+                contextActions: ImageWorkspaceToolsCatalog.actions(
+                    for: ImageWorkspaceExperienceLevel.current,
+                    canSetPrimary: canSetPrimary
+                ),
+                maxHeight: maxHeight,
+                onAction: handleImageWorkspaceTool
+            )
+        } else {
+            let sectionActions = ContextQuickActionsCatalog.actions(
+                for: appState.selectedSection,
+                treesContext: ContextQuickActionsCatalog.TreesContext(
+                    selectedTreeID: appState.selectedTreeID,
+                    interactionMode: appState.treeDetailInteractionMode,
+                    isInCare: appState.selectedTreeID.flatMap {
+                        treeService.getTree(id: $0)?.isInCare
+                    } ?? true,
+                    isFavorite: appState.selectedTreeID.map {
+                        treeService.isFavoriteTree($0)
+                    } ?? false,
+                    isTreeWorkspaceWindow: appState.isTreeWorkspaceWindow
+                ),
+                collectionsContext: ContextQuickActionsCatalog.CollectionsContext(
+                    selectedCollectionID: appState.selectedCollectionID,
+                    selectedCollectionIsManual: appState.selectedCollectionID.flatMap {
+                        treeService.collection(id: $0)?.isManual
+                    } ?? false,
+                    interactionMode: appState.collectionDetailInteractionMode
+                ),
+                potsContext: ContextQuickActionsCatalog.PotsContext(
+                    selectedPotID: appState.selectedPotID,
+                    interactionMode: appState.potDetailInteractionMode,
+                    status: appState.selectedPotID.flatMap { potService.getPot(id: $0)?.status }
+                ),
+                yamadoriContext: ContextQuickActionsCatalog.YamadoriContext(
+                    selectedYamadoriID: appState.selectedYamadoriID,
+                    selectedYamadoriFindID: appState.selectedYamadoriFindID,
+                    interactionMode: appState.yamadoriDetailInteractionMode,
+                    status: appState.selectedYamadoriFindID.flatMap {
+                        yamadoriService.getFind(id: $0)?.status
+                    }
+                ),
+                fieldTreeContext: ContextQuickActionsCatalog.FieldTreeContext(
+                    selectedProjectID: appState.selectedFieldTreeProjectID,
+                    interactionMode: appState.fieldTreeDetailInteractionMode
+                ),
+                vegetativeContext: {
+                    let kind: NurseryPropagationKind? = switch appState.selectedSection {
+                    case .nurseryCuttings: .cutting
+                    case .nurseryAirLayers: .airLayer
+                    case .nurseryGrafting: .grafting
+                    default: nil
+                    }
+                    guard let kind else { return .none }
+                    return ContextQuickActionsCatalog.VegetativePropagationContext(
+                        selectedProjectID: appState.selectedNurseryPropagationProjectID(for: kind),
+                        interactionMode: appState.nurseryPropagationDetailInteractionMode,
+                        singularTitle: kind.singularTitle
+                    )
+                }(),
+                seedsContext: {
+                    let batch = appState.selectedSeedBatchID.flatMap { seedBatchService.batch(id: $0) }
+                    return ContextQuickActionsCatalog.SeedsContext(
+                        selectedBatchID: batch?.id,
+                        stage: batch?.stage,
+                        canCreateTrees: batch.map {
+                            $0.stage == .developing
+                                || $0.stage == .seedling
+                                || $0.selectedTreeCount > $0.createdTreeIDs.count
+                        } ?? false
+                    )
+                }(),
+                mediaSelectedImageID: appState.selectedMediaImageID
+            )
+            // Search is cross-module; creates (Add Tree / Pot / Yamadori) come only from
+            // sectionActions — never a separate global create block.
+            QuickActionsView(
+                sectionTitle: "Context Tools",
+                globalActions: [],
+                contextActions: GlobalQuickActionsCatalog.actions + sectionActions,
+                maxHeight: maxHeight,
+                onAction: handleQuickAction
+            )
+            .id(appState.selectedSection)
+        }
+    }
+
+    private var sidebarBranding: some View {
+        HStack(alignment: .center, spacing: FaloSpacing.small) {
+            Image(systemName: "leaf.circle.fill")
+                .font(.system(size: 30, weight: .regular))
+                .symbolRenderingMode(.monochrome)
+                .foregroundStyle(BonsaiWorldColors.sidebarAccent)
+                .accessibilityHidden(true)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(WorldIdentity.appName)
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(BonsaiWorldColors.sidebarTextPrimary)
+                    .lineLimit(1)
+
+                Text(appSettings.experienceEdition.menuTitle)
+                    .font(SidebarChrome.subpageFont)
+                    .foregroundStyle(BonsaiWorldColors.sidebarTextSecondary)
+                    .lineLimit(1)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+        .accessibilityLabel("\(WorldIdentity.appName), \(appSettings.experienceEdition.menuTitle)")
+    }
+
+    private var sidebarProfileFooter: some View {
+        HStack(alignment: .center, spacing: FaloSpacing.small) {
+            profileAvatar
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(profileDisplayName)
+                    .font(SidebarChrome.moduleFont)
+                    .foregroundStyle(BonsaiWorldColors.sidebarTextPrimary)
+                    .lineLimit(1)
+                Text(profileGardenName)
+                    .font(SidebarChrome.subpageFont)
+                    .foregroundStyle(BonsaiWorldColors.sidebarTextSecondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                appState.selectSection(.settings)
+            } label: {
+                Image(systemName: "gear")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundStyle(BonsaiWorldColors.sidebarTextSecondary)
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Settings")
+            .accessibilityLabel("Settings")
+        }
+        .accessibilityElement(children: .contain)
+    }
+
+    /// Profile mark — library image when ``UserProfileStore/profileImageID`` is set; otherwise SF Symbol.
+    private var profileAvatar: some View {
+        SidebarProfileAvatar(
+            imageID: profile.profileImageID,
+            imageService: imageService,
+            size: SidebarChrome.profileAvatarSize
+        )
+    }
+
+    private var profileDisplayName: String {
+        FaloDisplayValue.text(profile.name)
+    }
+
+    private var profileGardenName: String {
+        FaloDisplayValue.text(profile.defaultGarden?.name)
+    }
+
+    @ViewBuilder
     private func moduleNavigation(_ module: AppModule) -> some View {
         let routes = module.routes
         if module.showsChildNavigation {
-            DisclosureGroup(isExpanded: expansionBinding(for: module)) {
+            let isExpanded = expansionBinding(for: module)
+            Button {
+                isExpanded.wrappedValue.toggle()
+            } label: {
+                HStack(spacing: FaloSpacing.xSmall) {
+                    Image(systemName: isExpanded.wrappedValue ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                        .foregroundStyle(BonsaiWorldColors.sidebarTextPrimary)
+                        .frame(width: 12, alignment: .center)
+                        .accessibilityHidden(true)
+                    moduleLabel(title: module.title, systemImage: module.systemImage)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(module.title)
+            .accessibilityValue(isExpanded.wrappedValue ? "Expanded" : "Collapsed")
+            .listRowInsets(SidebarChrome.moduleInsets)
+            .listRowBackground(
+                SidebarRowBackground(
+                    isSelected: appState.selectedSection?.module == module
+                        && !(module.showsChildNavigation)
+                )
+            )
+
+            if isExpanded.wrappedValue {
                 ForEach(routes) { route in
                     navigationRow(
                         route,
@@ -112,10 +321,7 @@ struct SidebarView: View {
                         level: .subpage
                     )
                 }
-            } label: {
-                moduleLabel(title: module.title, systemImage: module.systemImage)
             }
-            .listRowInsets(SidebarChrome.moduleInsets)
         } else if let route = routes.first {
             navigationRow(
                 route,
@@ -127,18 +333,20 @@ struct SidebarView: View {
     }
 
     private func moduleLabel(title: String, systemImage: String) -> some View {
-        Label {
-            Text(title)
-                .font(SidebarChrome.moduleFont)
-                .foregroundStyle(.primary)
-        } icon: {
+        // HStack (not Label) so Dark Theme colors are not overridden by system Label styling.
+        HStack(spacing: FaloSpacing.small) {
             Image(systemName: systemImage)
                 .font(.system(size: SidebarChrome.iconSize, weight: .regular))
-                .symbolRenderingMode(.hierarchical)
-                .foregroundStyle(.secondary.opacity(0.75))
+                .symbolRenderingMode(.monochrome)
+                .foregroundStyle(BonsaiWorldColors.sidebarAccent)
                 .frame(width: SidebarChrome.iconFrame, height: SidebarChrome.iconFrame, alignment: .center)
+            Text(title)
+                .font(SidebarChrome.moduleFont)
+                .foregroundStyle(BonsaiWorldColors.sidebarTextPrimary)
+            Spacer(minLength: 0)
         }
         .padding(.vertical, FaloSpacing.xSmall)
+        .contentShape(Rectangle())
     }
 
     private func expansionBinding(for module: AppModule) -> Binding<Bool> {
@@ -157,12 +365,24 @@ struct SidebarView: View {
         )
     }
 
+    private func requestSeedBatchQuickAction(_ command: SeedBatchQuickActionCommand) {
+        appState.selectedSeedWorkspaceTab = .seedWork
+        appState.requestSeedBatchQuickAction(command)
+    }
+
     private func handleQuickAction(_ definition: ActionDefinition) {
+        guard definition.kind == .action else { return }
         switch definition.id {
         case GlobalQuickActionsCatalog.newTreeID:
             appState.presentNewTree()
         case GlobalQuickActionsCatalog.copyExistingTreeID:
             appState.presentCopyExistingTree()
+        case GlobalQuickActionsCatalog.newPotID:
+            appState.presentNewPot()
+        case GlobalQuickActionsCatalog.newYamadoriID:
+            appState.presentNewYamadori()
+        case GlobalQuickActionsCatalog.searchID:
+            appState.presentSearch()
         case ContextQuickActionsCatalog.newLocationID:
             appState.presentNewLocation()
         case ContextQuickActionsCatalog.newCollectionID:
@@ -173,15 +393,34 @@ struct SidebarView: View {
                 appState.presentAddTreeToSelectedCollection()
             }
         case ContextQuickActionsCatalog.editCollectionID:
-            appState.requestCollectionQuickAction(.editCollection)
+            if appState.selectedCollectionID.flatMap({ treeService.collection(id: $0)?.isManual }) == true {
+                appState.requestCollectionQuickAction(.editCollection)
+            }
+        case ContextQuickActionsCatalog.deleteCollectionID:
+            if appState.selectedCollectionID.flatMap({ treeService.collection(id: $0)?.isManual }) == true {
+                appState.requestCollectionQuickAction(.deleteCollection)
+            }
         case ContextQuickActionsCatalog.finishCollectionEditID:
             appState.requestCollectionQuickAction(.finish)
         case ContextQuickActionsCatalog.editTreeID:
             appState.requestTreeQuickAction(.editTree)
+        case ContextQuickActionsCatalog.addActivityID:
+            appState.requestTreeQuickAction(.addActivity)
         case ContextQuickActionsCatalog.addImageID:
             appState.requestTreeQuickAction(.addImage)
         case ContextQuickActionsCatalog.addMeasurementID:
             appState.requestTreeQuickAction(.addMeasurement)
+        case ContextQuickActionsCatalog.addJournalID:
+            appState.requestTreeQuickAction(.addJournal)
+        case ContextQuickActionsCatalog.viewTreeHistoryID:
+            appState.requestTreeQuickAction(.viewTreeHistory)
+        case ContextQuickActionsCatalog.openTreeWorkspaceID:
+            if let treeID = appState.selectedTreeID {
+                openWindow(
+                    id: TreeWorkspaceWindowContext.windowID,
+                    value: TreeWorkspaceWindowContext(treeID: treeID)
+                )
+            }
         case ContextQuickActionsCatalog.showOnMapID:
             appState.requestTreeQuickAction(.showOnMap)
         case ContextQuickActionsCatalog.viewImagesID:
@@ -209,6 +448,168 @@ struct SidebarView: View {
                     value: CropWorkspaceWindowContext(imageID: imageID)
                 )
             }
+        case ContextQuickActionsCatalog.deleteImageID:
+            appState.requestDeleteSelectedMediaImage()
+        case ContextQuickActionsCatalog.importPhotosID:
+            appState.presentImportImage()
+        case ContextQuickActionsCatalog.nurseryNewItemID:
+            switch appState.selectedSection {
+            case .nurserySeeds:
+                appState.presentNewSeedBatch()
+            case .nurseryCuttings:
+                appState.presentNewNurseryPropagation(kind: .cutting)
+            case .nurseryAirLayers:
+                appState.presentNewNurseryPropagation(kind: .airLayer)
+            case .nurseryGrafting:
+                appState.presentNewNurseryPropagation(kind: .grafting)
+            case .nurseryFieldTree:
+                appState.presentNewNurseryPropagation(kind: .fieldTree)
+            default:
+                break
+            }
+        case ContextQuickActionsCatalog.seedStartStratificationID:
+            requestSeedBatchQuickAction(.startStratification)
+        case ContextQuickActionsCatalog.seedShowAllBatchesID:
+            appState.selectedSeedBatchID = nil
+            appState.selectedSeedWorkspaceTab = .seedWork
+        case ContextQuickActionsCatalog.seedSkipToReadyToSowID:
+            requestSeedBatchQuickAction(.skipToReadyToSow)
+        case ContextQuickActionsCatalog.seedCompleteCurrentPhaseID:
+            requestSeedBatchQuickAction(.completeCurrentPhase)
+        case ContextQuickActionsCatalog.seedExtendPhaseID:
+            requestSeedBatchQuickAction(.extendPhase)
+        case ContextQuickActionsCatalog.seedChangeTimeID:
+            requestSeedBatchQuickAction(.changeTime)
+        case ContextQuickActionsCatalog.seedRecordSowingID:
+            requestSeedBatchQuickAction(.recordSowing)
+        case ContextQuickActionsCatalog.seedRecordGerminationID:
+            requestSeedBatchQuickAction(.recordGermination)
+        case ContextQuickActionsCatalog.seedUpdateSurvivalID:
+            requestSeedBatchQuickAction(.updateSurvival)
+        case ContextQuickActionsCatalog.seedSeparateSeedlingsID:
+            requestSeedBatchQuickAction(.separateSeedlings)
+        case ContextQuickActionsCatalog.seedCreateTreesID:
+            requestSeedBatchQuickAction(.createTrees)
+        case ContextQuickActionsCatalog.seedMarkFailedID:
+            requestSeedBatchQuickAction(.markFailed)
+        case ContextQuickActionsCatalog.editFieldTreeID:
+            appState.fieldTreeDetailInteractionMode = .editing
+        case ContextQuickActionsCatalog.finishFieldTreeEditID:
+            appState.fieldTreeDetailInteractionMode = .viewing
+        case ContextQuickActionsCatalog.editNurseryPropagationID:
+            appState.nurseryPropagationDetailInteractionMode = .editing
+        case ContextQuickActionsCatalog.finishNurseryPropagationEditID:
+            appState.nurseryPropagationDetailInteractionMode = .viewing
+        case ContextQuickActionsCatalog.showAllNurseryProjectsID:
+            switch appState.selectedSection {
+            case .nurseryCuttings:
+                appState.setSelectedNurseryPropagationProjectID(nil, for: .cutting)
+            case .nurseryAirLayers:
+                appState.setSelectedNurseryPropagationProjectID(nil, for: .airLayer)
+            case .nurseryGrafting:
+                appState.setSelectedNurseryPropagationProjectID(nil, for: .grafting)
+            default:
+                break
+            }
+            appState.nurseryPropagationDetailInteractionMode = .viewing
+        case ContextQuickActionsCatalog.addFieldTreeTaskID:
+            appState.wantsAddFieldTreeTask = true
+        case ContextQuickActionsCatalog.editPotID:
+            appState.requestPotQuickAction(.editPot)
+        case ContextQuickActionsCatalog.addPotImageID:
+            appState.requestPotQuickAction(.addImage)
+        case ContextQuickActionsCatalog.markPotSoldID:
+            appState.requestPotQuickAction(.markSold)
+        case ContextQuickActionsCatalog.markPotBrokenID:
+            appState.requestPotQuickAction(.markBroken)
+        case ContextQuickActionsCatalog.markPotRetiredID:
+            appState.requestPotQuickAction(.markRetired)
+        case ContextQuickActionsCatalog.returnPotToAvailableID:
+            appState.requestPotQuickAction(.returnToAvailable)
+        case ContextQuickActionsCatalog.deletePotID:
+            appState.requestPotQuickAction(.deletePot)
+        case ContextQuickActionsCatalog.cancelPotEditID:
+            appState.requestPotQuickAction(.cancel)
+        case ContextQuickActionsCatalog.addSoilID:
+            appState.presentAddSoil()
+        case ContextQuickActionsCatalog.newSoilMixID:
+            appState.selectedSection = .inventorySoil
+            appState.selectedSoilWorkspaceTab = .mixes
+            appState.wantsNewSoilMix = true
+        case ContextQuickActionsCatalog.startSoilStocktakeID:
+            appState.presentSoilStocktake()
+        case ContextQuickActionsCatalog.stockReportID:
+            let area: StockReportArea? = switch appState.selectedSection {
+            case .inventorySoil, .inventorySoilComponents, .inventorySoilMixes: .soil
+            case .inventoryPots: .pots
+            case .inventoryWire: .wire
+            case .inventoryTools: .tools
+            case .inventoryChemicals: .chemicals
+            case .inventoryConsumables: .consumables
+            case .inventoryFertilizers: .fertilizers
+            default: nil
+            }
+            appState.presentStockReport(focusing: area)
+        case ContextQuickActionsCatalog.soilGuidesID:
+            appState.openHandbook(chapter: .soilGuides)
+        case ContextQuickActionsCatalog.addInventoryStockID:
+            if let kind = appState.selectedSection.flatMap(InventoryStockKind.kind(for:)) {
+                appState.presentAddInventoryStock(kind: kind)
+            }
+        case ContextQuickActionsCatalog.exportStockReportID:
+            appState.wantsExportStockReport = true
+        case ContextQuickActionsCatalog.newGardenID:
+            appState.wantsNewGarden = true
+            appState.selectSection(.locationsGardens)
+        case ContextQuickActionsCatalog.newTaskID:
+            appState.wantsNewTask = true
+        case ContextQuickActionsCatalog.manageSchedulesID:
+            appState.wantsManageSchedules = true
+        case ContextQuickActionsCatalog.completeAllTasksID:
+            appState.wantsCompleteAllTasks = true
+        case ContextQuickActionsCatalog.addMediaLibraryItemID:
+            switch appState.selectedSection {
+            case .mediaDocuments: appState.wantsNewMediaLibraryKind = .document
+            case .mediaNotes: appState.wantsNewMediaLibraryKind = .note
+            case .mediaVideo: appState.wantsNewMediaLibraryKind = .video
+            case .mediaAudio: appState.wantsNewMediaLibraryKind = .audio
+            default: break
+            }
+        case ContextQuickActionsCatalog.addKnowledgeResourceID:
+            switch appState.selectedSection {
+            case .knowledgeQuickGuides: appState.wantsNewKnowledgeResourceKind = .quickGuide
+            case .knowledgeFAQ: appState.wantsNewKnowledgeResourceKind = .faq
+            case .knowledgeCourses: appState.wantsNewKnowledgeResourceKind = .course
+            case .knowledgeVideos: appState.wantsNewKnowledgeResourceKind = .videoTutorial
+            case .knowledgeExternalLinks: appState.wantsNewKnowledgeResourceKind = .externalLink
+            default: break
+            }
+        case ContextQuickActionsCatalog.addSimpleCatalogEntryID:
+            if let kind = SimpleCatalogKind.allCases.first(where: { $0.route == appState.selectedSection }) {
+                appState.wantsNewSimpleCatalogKind = kind
+            }
+        case ContextQuickActionsCatalog.editYamadoriID:
+            appState.requestYamadoriQuickAction(.editYamadori)
+        case ContextQuickActionsCatalog.addYamadoriFindID:
+            appState.requestYamadoriQuickAction(.addFind)
+        case ContextQuickActionsCatalog.addYamadoriObservationID:
+            appState.requestYamadoriQuickAction(.addObservation)
+        case ContextQuickActionsCatalog.addYamadoriImageID:
+            appState.requestYamadoriQuickAction(.addImage)
+        case ContextQuickActionsCatalog.advanceYamadoriStatusID:
+            appState.requestYamadoriQuickAction(.advanceStatus)
+        case ContextQuickActionsCatalog.markYamadoriCollectedID:
+            appState.requestYamadoriQuickAction(.markCollected)
+        case ContextQuickActionsCatalog.transferYamadoriToTreeID:
+            appState.requestYamadoriQuickAction(.transferToTree)
+        case ContextQuickActionsCatalog.abandonYamadoriID:
+            appState.requestYamadoriQuickAction(.abandon)
+        case ContextQuickActionsCatalog.archiveYamadoriID:
+            appState.requestYamadoriQuickAction(.archive)
+        case ContextQuickActionsCatalog.deleteYamadoriID:
+            appState.requestYamadoriQuickAction(.deleteYamadori)
+        case ContextQuickActionsCatalog.cancelYamadoriEditID:
+            appState.requestYamadoriQuickAction(.cancel)
         default:
             break
         }
@@ -218,18 +619,12 @@ struct SidebarView: View {
         switch definition.id {
         case ImageWorkspaceToolsCatalog.importID:
             appState.requestImageQuickAction(.importPhotos)
-        case ImageWorkspaceToolsCatalog.attachToTreeID:
-            appState.requestImageQuickAction(.attachToTree)
         case ImageWorkspaceToolsCatalog.cropID:
             appState.requestImageQuickAction(.crop)
         case ImageWorkspaceToolsCatalog.rotateID:
             appState.requestImageQuickAction(.rotate)
         case ImageWorkspaceToolsCatalog.setPrimaryID:
             appState.requestImageQuickAction(.setPrimary)
-        case ImageWorkspaceToolsCatalog.setFeaturedID:
-            appState.requestImageQuickAction(.setFeatured)
-        case ImageWorkspaceToolsCatalog.compareID:
-            appState.requestImageQuickAction(.compare)
         case ImageWorkspaceToolsCatalog.deleteID:
             appState.requestImageQuickAction(.delete)
         default:
@@ -243,38 +638,49 @@ struct SidebarView: View {
         systemImage: String?,
         level: SidebarNavLevel
     ) -> some View {
-        Group {
+        let isSelected = appState.selectedSection == route
+        return Group {
             if route == .tasksOverdue {
                 overdueRow
             } else if let systemImage {
                 Label {
                     Text(title)
                         .font(level.titleFont)
-                        .foregroundStyle(level.titleColor)
+                        .foregroundStyle(isSelected ? BonsaiWorldColors.sidebarTextPrimary : level.titleColor)
                 } icon: {
                     Image(systemName: systemImage)
                         .font(.system(size: SidebarChrome.iconSize, weight: .regular))
-                        .symbolRenderingMode(.hierarchical)
-                        .foregroundStyle(.secondary.opacity(0.75))
+                        .symbolRenderingMode(.monochrome)
+                        .foregroundStyle(
+                            isSelected
+                                ? BonsaiWorldColors.sidebarAccent
+                                : BonsaiWorldColors.sidebarAccent.opacity(0.85)
+                        )
                         .frame(width: SidebarChrome.iconFrame, height: SidebarChrome.iconFrame, alignment: .center)
                 }
             } else {
                 Text(title)
                     .font(level.titleFont)
-                    .foregroundStyle(level.titleColor)
+                    .foregroundStyle(isSelected ? BonsaiWorldColors.sidebarTextPrimary : level.titleColor)
             }
         }
         .padding(.vertical, level.verticalPadding)
         .tag(route)
         .listRowInsets(level.rowInsets)
+        .listRowBackground(SidebarRowBackground(isSelected: isSelected))
     }
 
     private var overdueRow: some View {
         let count = taskService.pendingOccurrences(due: .overdue).count
+        let isSelected = appState.selectedSection == .tasksOverdue
         return HStack {
             Text("Overdue")
                 .font(SidebarNavLevel.subpage.titleFont)
-                .foregroundStyle(count > 0 ? Color.orange : SidebarNavLevel.subpage.titleColor)
+                .foregroundStyle(
+                    count > 0
+                        ? BonsaiWorldColors.statusAttention
+                        : (isSelected ? BonsaiWorldColors.sidebarTextPrimary : SidebarNavLevel.subpage.titleColor)
+                )
             Spacer(minLength: FaloSpacing.xSmall)
             if count > 0 {
                 Text("\(count)")
@@ -282,7 +688,7 @@ struct SidebarView: View {
                     .foregroundStyle(.white)
                     .padding(.horizontal, 6)
                     .padding(.vertical, 1)
-                    .background(Capsule().fill(Color.orange))
+                    .background(Capsule().fill(BonsaiWorldColors.statusAttention))
                     .accessibilityLabel("\(count) overdue")
             }
         }
@@ -304,8 +710,8 @@ private enum SidebarNavLevel {
 
     var titleColor: Color {
         switch self {
-        case .module: .primary
-        case .subpage: .secondary
+        case .module: BonsaiWorldColors.sidebarTextPrimary
+        case .subpage: BonsaiWorldColors.sidebarTextSecondary
         }
     }
 
@@ -330,8 +736,10 @@ private enum SidebarChrome {
     /// Level 3 — subpages under a module.
     static let subpageFont = Font.system(size: 12, weight: .regular)
 
-    static let iconSize: CGFloat = 13
+    static let iconSize: CGFloat = FaloIconSize.navigation
     static let iconFrame: CGFloat = 20
+    /// Profile footer avatar — fits existing footer height (32–36 px target).
+    static let profileAvatarSize: CGFloat = 36
 
     /// More air between modules; keeps groups readable.
     static let moduleInsets = EdgeInsets(
@@ -350,6 +758,54 @@ private enum SidebarChrome {
     )
 }
 
+/// Circular profile avatar — display crop via ImageService; SF Symbol when no image.
+private struct SidebarProfileAvatar: View {
+    var imageID: UUID?
+    let imageService: ImageService
+    var size: CGFloat
+
+    @State private var thumbnail: NSImage?
+
+    var body: some View {
+        let _ = imageService.presentationRevision
+        Group {
+            if let thumbnail {
+                Image(nsImage: thumbnail)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: "person.crop.circle.fill")
+                    .font(.system(size: size * 0.92, weight: .regular))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(BonsaiWorldColors.accent.opacity(0.75))
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .accessibilityHidden(true)
+        .task(id: "\(imageID?.uuidString ?? "")-\(size)-\(imageService.presentationRevision)") {
+            await loadThumbnail()
+        }
+    }
+
+    private func loadThumbnail() async {
+        guard let imageID else {
+            thumbnail = nil
+            return
+        }
+        let maxPixel = Int(size * 2.5)
+        do {
+            thumbnail = try await imageService.loadDisplayNSImage(
+                for: imageID,
+                context: .treeThumbnail,
+                maxPixelSize: max(96, maxPixel)
+            )
+        } catch {
+            thumbnail = nil
+        }
+    }
+}
+
 #Preview {
     NavigationSplitView {
         SidebarView()
@@ -358,5 +814,7 @@ private enum SidebarChrome {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
     .environment(AppState())
+    .environment(UserProfileStore())
+    .environment(ImageService(storage: .shared, previewData: ImagePreviewData()))
     .frame(width: 720, height: 560)
 }

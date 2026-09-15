@@ -16,6 +16,9 @@ final class ImagePreviewData {
     /// All known image assets keyed by identity.
     var assets: [UUID: ImageAsset]
 
+    /// Called after catalog mutations so ``ImageService`` can notify Gallery.
+    var onCatalogChanged: (() -> Void)?
+
     private weak var storage: StorageService?
 
     init(assets: [ImageAsset] = ImagePreviewSeed.all, storage: StorageService? = nil) {
@@ -143,6 +146,7 @@ final class ImagePreviewData {
         } catch {
             // Best-effort persistence; bytes on disk remain authoritative for pixels.
         }
+        onCatalogChanged?()
     }
 }
 

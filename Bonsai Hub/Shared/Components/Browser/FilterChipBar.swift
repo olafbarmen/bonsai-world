@@ -30,9 +30,9 @@ struct FilterChipLabel: View {
         .padding(.vertical, FaloSpacing.small)
         .background(
             Capsule(style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.18) : Color.primary.opacity(0.06))
+                .fill(isSelected ? BonsaiWorldColors.accentSubtle : Color.primary.opacity(0.06))
         )
-        .foregroundStyle(isSelected ? Color.accentColor : Color.primary)
+        .foregroundStyle(isSelected ? BonsaiWorldColors.accent : Color.primary)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }

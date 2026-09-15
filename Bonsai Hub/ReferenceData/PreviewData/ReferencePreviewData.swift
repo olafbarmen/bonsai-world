@@ -24,14 +24,18 @@ final class ReferencePreviewData {
 
     var styles: [Style]
     var sizeClasses: [SizeClass]
-    var treeStatuses: [TreeStatus]
+    var treeStages: [TreeStage]
     var workTypes: [WorkType]
-    var developmentStages: [DevelopmentStage]
 
     var locations: [LocationReference]
     var locationTypes: [LocationType]
     var potTypes: [PotType]
     var lightConditions: [LightCondition]
+
+    /// Curated seed plus user additions — Settings → Pot Brands & Makers.
+    /// Library migration copies seed once when the catalog file is absent.
+    var potBrands: [PotBrand]
+    var potMakers: [PotMaker]
 
     var soilComponents: [SoilComponent]
     var soilMixes: [SoilMix]
@@ -42,6 +46,7 @@ final class ReferencePreviewData {
     var tools: [Tool]
     var wire: [Wire]
     var chemicals: [Chemical]
+    var consumables: [Consumable]
 
     /// Incremented on catalog mutations so readers (Service / Manager) refresh.
     private(set) var revision: Int = 0
@@ -58,14 +63,16 @@ final class ReferencePreviewData {
 
         styles = StylePreviewData.all
         sizeClasses = SizeClassPreviewData.all
-        treeStatuses = TreeStatusPreviewData.all
+        treeStages = TreeStagePreviewData.all
         workTypes = WorkTypePreviewData.all
-        developmentStages = DevelopmentStagePreviewData.all
 
         locations = LocationReferencePreviewData.all
         locationTypes = LocationTypePreviewData.all
         potTypes = PotTypePreviewData.all
         lightConditions = LightConditionPreviewData.all
+
+        potBrands = PotBrandPreviewData.all
+        potMakers = PotMakerPreviewData.all
 
         soilComponents = SoilComponentPreviewData.all
         soilMixes = SoilMixPreviewData.all
@@ -76,6 +83,7 @@ final class ReferencePreviewData {
         tools = ToolPreviewData.all
         wire = WirePreviewData.all
         chemicals = ChemicalPreviewData.all
+        consumables = ConsumablePreviewData.all
     }
 
     func noteMutation() {

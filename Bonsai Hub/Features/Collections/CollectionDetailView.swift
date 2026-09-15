@@ -24,6 +24,7 @@ struct CollectionDetailView: View {
     @State private var autoSaveStatus: TreeAutoSaveStatus = .idle
     @State private var autoSaveTask: Task<Void, Never>?
     @State private var savedIndicatorTask: Task<Void, Never>?
+    @State private var confirmDelete = false
 
     private var collection: Collection? {
         guard let id = appState.selectedCollectionID else { return nil }
@@ -32,23 +33,6 @@ struct CollectionDetailView: View {
 
     private var isEditing: Bool {
         interactionMode.isEditing
-    }
-
-    /// Detail header menu: membership only for Manual Collections.
-    /// Edit Collection lives in sidebar Quick Actions.
-    private var detailQuickActions: [ActionDefinition] {
-        guard !isEditing, let collection, collection.isManual else { return [] }
-        return ContextQuickActionsCatalog.actions(
-            for: .gardenCollections,
-            collectionsContext: ContextQuickActionsCatalog.CollectionsContext(
-                selectedCollectionID: collection.id,
-                selectedCollectionIsManual: true,
-                interactionMode: .viewing
-            )
-        )
-        .filter {
-            $0.id == ContextQuickActionsCatalog.addTreeToCollectionID
-        }
     }
 
     private var headerTitle: String {
@@ -84,6 +68,18 @@ struct CollectionDetailView: View {
                             appState.clearPendingCollectionQuickAction()
                         }
                     }
+                    .confirmationDialog(
+                        "Delete this collection?",
+                        isPresented: $confirmDelete,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Delete", role: .destructive) {
+                            deleteSelectedCollection()
+                        }
+                        Button("Cancel", role: .cancel) {}
+                    } message: {
+                        Text("Trees stay in the library. Only this collection grouping is removed.")
+                    }
                     .onChange(of: draft) { _, newDraft in
                         guard isEditing, newDraft != nil else { return }
                         scheduleAutoSave()
@@ -100,7 +96,7 @@ struct CollectionDetailView: View {
                 FeaturedEmptyState(
                     title: "Select a Collection",
                     systemImage: "square.stack.3d.up",
-                    description: "Choose a collection from the list, or create one with Quick Actions → New Collection."
+                    description: "Choose a collection from the list, or create one with Context Tools → New Collection."
                 )
                 .onAppear {
                     publishInteractionMode(.viewing)
@@ -108,7 +104,7 @@ struct CollectionDetailView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.windowBackground)
+        .faloWorkspaceCanvas()
         .navigationTitle(headerTitle)
         .sheet(isPresented: $appState.isCollectionAddTreePresented) {
             if let collectionID = appState.selectedCollectionID {
@@ -129,16 +125,32 @@ struct CollectionDetailView: View {
             VStack(alignment: .leading, spacing: FaloSpacing.xxLarge) {
                 DetailHeader(
                     title: headerTitle,
-                    subtitle: headerSubtitle,
-                    quickActions: detailQuickActions,
-                    onQuickAction: handleDetailMenuAction
+                    subtitle: headerSubtitle
                 )
 
                 if isEditing {
                     editingStatusRow
                     metadataEditorCard
+                    if collection.isManual {
+                        CollectionCareWateringSection(
+                            isCarePolicyCollection: carePolicyBinding,
+                            wateringMode: wateringModeBinding,
+                            autoTimesPerDay: autoTimesBinding,
+                            heatWatchEnabled: heatWatchBinding,
+                            isEditing: true
+                        )
+                    }
                 } else {
                     metadataViewCard(collection)
+                    if collection.isManual {
+                        CollectionCareWateringSection(
+                            isCarePolicyCollection: .constant(collection.isCarePolicyCollection),
+                            wateringMode: .constant(collection.wateringMode),
+                            autoTimesPerDay: .constant(collection.autoTimesPerDay),
+                            heatWatchEnabled: .constant(collection.heatWatchEnabled),
+                            isEditing: false
+                        )
+                    }
                 }
 
                 DetailCard(title: membersHeading(for: members.count)) {
@@ -193,7 +205,7 @@ struct CollectionDetailView: View {
             case .failed:
                 Text("Couldn’t save")
                     .font(FaloTypography.caption)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(BonsaiWorldColors.statusCritical)
             }
         }
     }
@@ -308,6 +320,34 @@ struct CollectionDetailView: View {
         )
     }
 
+    private var carePolicyBinding: Binding<Bool> {
+        Binding(
+            get: { draft?.isCarePolicyCollection ?? false },
+            set: { draft?.isCarePolicyCollection = $0 }
+        )
+    }
+
+    private var wateringModeBinding: Binding<WateringMode> {
+        Binding(
+            get: { draft?.wateringMode ?? .silent },
+            set: { draft?.wateringMode = $0 }
+        )
+    }
+
+    private var autoTimesBinding: Binding<Int> {
+        Binding(
+            get: { draft?.autoTimesPerDay ?? 1 },
+            set: { draft?.autoTimesPerDay = TreeWateringPolicyResolver.clampedTimes($0) }
+        )
+    }
+
+    private var heatWatchBinding: Binding<Bool> {
+        Binding(
+            get: { draft?.heatWatchEnabled ?? false },
+            set: { draft?.heatWatchEnabled = $0 }
+        )
+    }
+
     private func membersHeading(for count: Int) -> String {
         count == 1 ? "1 Member" : "\(count) Members"
     }
@@ -329,12 +369,9 @@ struct CollectionDetailView: View {
             return "My Trees without a photo appear here automatically — the same gap as Dashboard → Library."
         }
         if SystemSmartCollections.isFavoriteTrees(collection.id) {
-            return "Use Quick Actions → Add to Favorite Trees on a tree."
+            return "Use Context Tools → Add to Favorite Trees on a tree."
         }
-        if collection.isSmart {
-            return "Membership rules are not evaluated yet. This placeholder establishes Collections navigation."
-        }
-        return "Use Quick Actions → Add Existing Tree to organise trees into this collection."
+        return "Use Context Tools → Add Existing Tree to organise trees into this collection."
     }
 
     // MARK: - Quick Actions
@@ -342,25 +379,37 @@ struct CollectionDetailView: View {
     private func handleQuickAction(_ command: CollectionQuickActionCommand) {
         switch command {
         case .editCollection:
+            guard collection?.isManual == true else { return }
             beginEditing()
+        case .deleteCollection:
+            guard collection?.isManual == true else { return }
+            confirmDelete = true
         case .finish:
             finishEditing()
         }
     }
 
-    private func handleDetailMenuAction(_ action: ActionDefinition) {
-        switch action.id {
-        case ContextQuickActionsCatalog.addTreeToCollectionID:
-            appState.presentAddTreeToSelectedCollection()
-        default:
-            break
+    private func deleteSelectedCollection() {
+        guard let collection, collection.isManual else { return }
+        let id = collection.id
+        do {
+            try treeService.deleteCollection(id: id)
+            if appState.selectedCollectionID == id {
+                appState.selectedCollectionID = nil
+            }
+            if appState.lastOpenedCollectionID == id {
+                appState.lastOpenedCollectionID = nil
+            }
+            discardDraftAndReturnToViewing()
+        } catch {
+            // Keep selection; grower can retry.
         }
     }
 
     // MARK: - View / Edit
 
     private func beginEditing() {
-        guard let collection else { return }
+        guard let collection, collection.isManual else { return }
         let captured = CollectionDetailDraft.capture(from: collection)
         draft = captured
         lastPersistedDraft = captured

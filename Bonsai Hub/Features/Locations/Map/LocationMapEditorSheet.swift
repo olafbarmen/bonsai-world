@@ -175,7 +175,7 @@ struct LocationMapEditorSheet: View {
         }
         .padding(FaloSpacing.xLarge)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.windowBackground)
+        .faloWorkspaceCanvas()
     }
 
     private func loadInitialState() async {

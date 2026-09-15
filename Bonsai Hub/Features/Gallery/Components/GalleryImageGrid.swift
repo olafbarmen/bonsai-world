@@ -13,6 +13,8 @@ struct GalleryImageGrid: View {
     let showsFeaturedBadge: Bool
     let onSelect: (GalleryEntry) -> Void
     let onOpenWorkspace: (GalleryEntry) -> Void
+    var onCrop: (GalleryEntry) -> Void = { _ in }
+    var onDelete: (GalleryEntry) -> Void = { _ in }
 
     private var columns: [GridItem] {
         [
@@ -35,7 +37,9 @@ struct GalleryImageGrid: View {
                     isSelected: entry.id == selectedImageID,
                     showsFeaturedBadge: showsFeaturedBadge,
                     onSelect: { onSelect(entry) },
-                    onOpenWorkspace: { onOpenWorkspace(entry) }
+                    onOpenWorkspace: { onOpenWorkspace(entry) },
+                    onCrop: { onCrop(entry) },
+                    onDelete: { onDelete(entry) }
                 )
             }
         }

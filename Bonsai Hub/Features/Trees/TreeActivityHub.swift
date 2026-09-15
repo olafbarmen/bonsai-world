@@ -2,8 +2,9 @@
 //  TreeActivityHub.swift
 //  Bonsai World
 //
-//  Tree Activity Hub — architecture placeholders.
-//  No registration engine, models, or navigation yet.
+//  Tree activity kinds — registration is owned by the Tree; other modules consume.
+//  Grower entry point: Context Tools → Add Work / Add Measurement / Add Photo
+//  (not an in-page registration menu on Tree Detail).
 //
 //  Ownership rule (one action, one registration, many consumers):
 //  • Tree — register activities on this bonsai
@@ -15,9 +16,9 @@
 //  • Timeline — chronological history (read-only consumer; never registers)
 //
 
-import SwiftUI
+import Foundation
 
-/// Future activity kinds reachable from the Tree registration entry point.
+/// Activity kinds for Tree registration (Context Tools and future hubs).
 enum TreeActivityKind: String, CaseIterable, Identifiable {
     case work
     case care
@@ -39,86 +40,11 @@ enum TreeActivityKind: String, CaseIterable, Identifiable {
         }
     }
 
-    var systemImage: String {
+    /// Work, Measurement, Photo, and Journal have live Context Tools / sheet paths today.
+    var isImplemented: Bool {
         switch self {
-        case .work: "wrench.and.screwdriver"
-        case .care: "drop"
-        case .measurement: "ruler"
-        case .photo: "photo"
-        case .journal: "book"
-        case .document: "doc"
+        case .work, .measurement, .photo, .journal: true
+        case .care, .document: false
         }
-    }
-}
-
-/// Tree header — identity line + registration action (not a content card).
-struct TreeDetailActivityHeader: View {
-    let tree: Tree
-    /// Hidden for Former Trees — no new work on trees that have left care.
-    var showsAddActivity: Bool = true
-    /// Fires when the grower chooses Work from Add Activity. Other kinds stay
-    /// placeholders until their registration flows land.
-    var onSelectWork: () -> Void = {}
-
-    private var displayName: String {
-        let nickname = tree.nickname.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !nickname.isEmpty { return nickname }
-        return tree.botanicalName
-    }
-
-    var body: some View {
-        HStack(alignment: .center, spacing: FaloSpacing.medium) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(displayName)
-                    .font(FaloTypography.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-
-                if !tree.bonsaiName.isEmpty {
-                    Text(tree.bonsaiName)
-                        .font(FaloTypography.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .truncationMode(.tail)
-                }
-            }
-
-            Spacer(minLength: FaloSpacing.medium)
-
-            if showsAddActivity {
-                TreeAddActivityToolbarAction(onSelectWork: onSelectWork)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityElement(children: .contain)
-    }
-}
-
-/// Compact tree-specific registration action — header / toolbar placement only.
-/// Work is live; the remaining kinds stay visual placeholders until their
-/// registration flows land.
-struct TreeAddActivityToolbarAction: View {
-    var onSelectWork: () -> Void = {}
-
-    var body: some View {
-        Menu {
-            Section("Register on this tree") {
-                ForEach(TreeActivityKind.allCases) { kind in
-                    Button {
-                        if kind == .work { onSelectWork() }
-                    } label: {
-                        Label(kind.title, systemImage: kind.systemImage)
-                    }
-                    .disabled(kind != .work)
-                }
-            }
-        } label: {
-            Label("Add Activity", systemImage: "plus")
-        }
-        .buttonStyle(.bordered)
-        .help("Register work, care, measurements, photos, journal entries, and documents on this tree.")
-        .accessibilityLabel("Add Activity")
-        .accessibilityHint("Register Work on this tree. Other activity kinds are not implemented yet.")
     }
 }

@@ -10,25 +10,32 @@
 import SwiftUI
 
 struct DetailLabeledRow: View {
+    /// Shared label column so cards keep one rhythm (not a 50/50 split).
+    private static let labelColumnWidth: CGFloat = 140
+
     let label: String
     var value: String
     /// Shown when `value` is blank. Defaults to ``FaloDisplayValue/empty``.
     var emptyDisplay: String
     var monospaced: Bool
     var allowsSelection: Bool
+    /// Max lines for the value. `nil` wraps without truncation.
+    var valueLineLimit: Int?
 
     init(
         label: String,
         value: String,
         emptyDisplay: String = FaloDisplayValue.empty,
         monospaced: Bool = false,
-        allowsSelection: Bool = true
+        allowsSelection: Bool = true,
+        valueLineLimit: Int? = nil
     ) {
         self.label = label
         self.value = value
         self.emptyDisplay = Self.normalizedEmpty(emptyDisplay)
         self.monospaced = monospaced
         self.allowsSelection = allowsSelection
+        self.valueLineLimit = valueLineLimit
     }
 
     var body: some View {
@@ -36,9 +43,10 @@ struct DetailLabeledRow: View {
             Text(label)
                 .font(FaloCardTypography.fieldLabel)
                 .foregroundStyle(.secondary)
-                .lineLimit(1)
+                .lineLimit(2)
                 .truncationMode(.tail)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(width: Self.labelColumnWidth, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
 
             Group {
                 if allowsSelection {
@@ -48,7 +56,7 @@ struct DetailLabeledRow: View {
                     valueText
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(label), \(displayValue)")
@@ -58,9 +66,10 @@ struct DetailLabeledRow: View {
         Text(displayValue)
             .font(valueFont)
             .foregroundStyle(isEmpty ? .secondary : .primary)
-            .multilineTextAlignment(.trailing)
-            .lineLimit(1)
+            .multilineTextAlignment(.leading)
+            .lineLimit(valueLineLimit)
             .truncationMode(.tail)
+            .fixedSize(horizontal: false, vertical: true)
     }
 
     private var valueFont: Font {
@@ -92,6 +101,11 @@ struct DetailLabeledRow: View {
         DetailLabeledRow(label: "Tree Name", value: "Dragon")
         DetailLabeledRow(label: "Nickname", value: "")
         DetailLabeledRow(label: "Cultivar", value: "", emptyDisplay: FaloDisplayValue.empty)
+        DetailLabeledRow(
+            label: "Attention",
+            value: "• Strong growth\n• High water demand"
+        )
     }
     .padding()
+    .frame(width: 360)
 }

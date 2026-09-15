@@ -45,6 +45,15 @@ final class PreviewTreeRepository: TreeRepository {
         return previewData.replaceTree(tree)
     }
 
+    func repairBotanicalIdentities(_ trees: [Tree]) throws {
+        for tree in trees {
+            guard previewData.tree(id: tree.id) != nil else {
+                throw TreeRepositoryError.notFound(tree.id)
+            }
+            _ = previewData.repairBotanicalIdentity(tree)
+        }
+    }
+
     func deleteTree(id: UUID) throws {
         guard previewData.tree(id: id) != nil else {
             throw TreeRepositoryError.notFound(id)

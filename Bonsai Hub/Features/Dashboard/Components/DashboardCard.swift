@@ -14,6 +14,9 @@ struct DashboardCard<Content: View>: View {
     var fillsRowHeight: Bool = false
     /// Denser internal metric rows only — does not change outer padding.
     var compact: Bool = false
+    /// When set, replaces ``DashboardCardID/title``.
+    var titleOverride: String? = nil
+    var showsHeader: Bool = true
     @ViewBuilder var content: () -> Content
 
     var onActivate: (() -> Void)?
@@ -22,14 +25,22 @@ struct DashboardCard<Content: View>: View {
         DashboardPlaceholderData.hoverInfo(for: id)
     }
 
+    private var resolvedTitle: String { titleOverride ?? id.title }
+
     var body: some View {
         VStack(alignment: .leading, spacing: DashboardSpacing.titleToContent) {
-            header
+            if showsHeader {
+                header
+            }
 
             VStack(alignment: .leading, spacing: compact ? FaloSpacing.xSmall : FaloSpacing.small) {
                 content()
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            if fillsRowHeight {
+                Spacer(minLength: 0)
+            }
         }
         .padding(DashboardSpacing.cardPadding)
         .frame(
@@ -41,15 +52,15 @@ struct DashboardCard<Content: View>: View {
         .contentShape(RoundedRectangle(cornerRadius: DashboardCardSurface.cornerRadius, style: .continuous))
         .help(hoverInfo.helpText)
         .accessibilityElement(children: .contain)
-        .accessibilityLabel(id.title)
+        .accessibilityLabel(resolvedTitle)
         .accessibilityValue(hoverInfo.lines.joined(separator: ", "))
         .accessibilityAddTraits(onActivate == nil ? [] : .isButton)
     }
 
     private var header: some View {
-        Text(id.title)
-            .font(FaloTypography.headline)
-            .foregroundStyle(.primary)
+        Text(resolvedTitle)
+            .font(FaloTypography.sectionHeading)
+            .foregroundStyle(BonsaiWorldColors.textPrimary)
             .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
@@ -67,18 +78,21 @@ struct DashboardMetricRow: View {
         HStack(alignment: .firstTextBaseline, spacing: compact ? FaloSpacing.small : FaloSpacing.medium) {
             if let systemImage {
                 Image(systemName: systemImage)
-                    .font(.system(size: compact ? 12 : 13, weight: .regular))
-                    .foregroundStyle(.tertiary)
-                    .frame(width: compact ? 16 : 20, alignment: .center)
+                    .font(.system(size: compact ? FaloIconSize.row : FaloIconSize.informational, weight: .medium))
+                    .symbolRenderingMode(.hierarchical)
+                    .foregroundStyle(BonsaiWorldColors.accent)
+                    .frame(width: compact ? 22 : 24, alignment: .center)
+                    .accessibilityHidden(true)
             }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(isEmphasized ? FaloTypography.headline : FaloTypography.body)
+                    .font(isEmphasized ? FaloTypography.sectionHeading : FaloTypography.body)
+                    .foregroundStyle(BonsaiWorldColors.textPrimary)
                 if let detail {
                     Text(detail)
                         .font(FaloTypography.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(BonsaiWorldColors.textSecondary)
                 }
             }
 
@@ -86,8 +100,8 @@ struct DashboardMetricRow: View {
 
             if let value {
                 Text(value)
-                    .font(FaloTypography.headline)
-                    .foregroundStyle(.primary)
+                    .font(FaloTypography.sectionHeading)
+                    .foregroundStyle(BonsaiWorldColors.textPrimary)
                     .monospacedDigit()
             }
         }

@@ -16,11 +16,22 @@ struct MeasurementHistorySection: View {
     let records: [TreeMeasurementRecord]
     /// Opens Add Measurement (Edit Mode only). Nil hides the button.
     var onAddMeasurement: (() -> Void)? = nil
+    var showsCardChrome: Bool = true
 
     private var system: MeasurementSystem { appSettings.measurementSystem }
 
     var body: some View {
-        DetailCard(title: "Measurement History") {
+        Group {
+            if showsCardChrome {
+                DetailCard(title: "Measurement History") { measurementBody }
+            } else {
+                measurementBody
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var measurementBody: some View {
             if records.isEmpty {
                 emptyState
             } else {
@@ -29,7 +40,10 @@ struct MeasurementHistorySection: View {
                         ForEach(Array(records.enumerated()), id: \.element.id) { index, record in
                             timelineColumn(record, isLatest: index == 0)
                                 .frame(
-                                    width: TreeDetailCardGridMetrics.columnWidth(in: contentWidth),
+                                    width: min(
+                                        220,
+                                        TreeDetailCardGridMetrics.columnWidth(in: max(contentWidth, 640))
+                                    ),
                                     alignment: .leading
                                 )
                         }
@@ -50,7 +64,6 @@ struct MeasurementHistorySection: View {
                 .help("Record a new dated measurement session")
                 .accessibilityLabel("Add Measurement")
             }
-        }
     }
 
     private var emptyState: some View {

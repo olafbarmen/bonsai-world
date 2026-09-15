@@ -10,6 +10,7 @@ import SwiftUI
 
 struct UpcomingDashboardCard: View {
     var prominence: DashboardCardProminence = .primary
+    var fillsRowHeight: Bool = false
 
     @Environment(TaskService.self) private var taskService
     @Environment(AppState.self) private var appState
@@ -24,7 +25,7 @@ struct UpcomingDashboardCard: View {
     }
 
     var body: some View {
-        DashboardCard(id: .upcoming, prominence: prominence, compact: true) {
+        DashboardCard(id: .upcoming, prominence: prominence, fillsRowHeight: fillsRowHeight, compact: true) {
             VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
                 ForEach(buckets, id: \.horizon) { bucket in
                     let count = taskService.pendingOccurrences(due: bucket.horizon).count

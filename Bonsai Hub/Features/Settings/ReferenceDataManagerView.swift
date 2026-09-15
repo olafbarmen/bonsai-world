@@ -49,7 +49,7 @@ struct ReferenceDataManagerView: View {
             }
             .frame(minWidth: 360)
         }
-        .navigationTitle("Reference Data")
+        .bonsaiWorkspaceNavigationTitle("Reference Data")
         .sheet(item: $editorDraft) { draft in
             ReferenceDataEditorSheet(category: selectedCategory, draft: draft)
         }
@@ -105,12 +105,19 @@ struct ReferenceDataManagerView: View {
                 Section(group.title) {
                     ForEach(group.categories) { category in
                         Text(category.title)
+                            .foregroundStyle(BonsaiWorldColors.textPrimary)
                             .tag(category)
+                            .listRowBackground(
+                                SidebarRowBackground(
+                                    isSelected: selectedCategory == category,
+                                    baseFill: BonsaiWorldColors.canvas
+                                )
+                            )
                     }
                 }
             }
         }
-        .faloScrollSurface()
+        .faloWarmContentList()
         .listStyle(.sidebar)
     }
 
@@ -124,6 +131,12 @@ struct ReferenceDataManagerView: View {
                         manager.setActive(record.id, in: selectedCategory, isActive: isActive)
                     }
                     .tag(record.id)
+                    .listRowBackground(
+                        SidebarRowBackground(
+                            isSelected: selectedItemID == record.id,
+                            baseFill: BonsaiWorldColors.canvas
+                        )
+                    )
                     .contextMenu {
                         Button("Edit…") {
                             presentEdit(record)
@@ -134,7 +147,7 @@ struct ReferenceDataManagerView: View {
                     }
                 }
             }
-            .faloScrollSurface()
+            .faloWarmContentList()
             .overlay {
                 if records.isEmpty {
                     ContentUnavailableView(

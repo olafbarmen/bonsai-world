@@ -23,9 +23,20 @@ struct AddTaskSheet: View {
     @Environment(ReferenceDataService.self) private var referenceData
     @Environment(ReferenceDataManager.self) private var referenceDataManager
     @Environment(BotanicalService.self) private var botanicalService
+    @Environment(ImageService.self) private var imageService
+    @Environment(SeedBatchService.self) private var seedBatchService
+    @Environment(YamadoriService.self) private var yamadoriService
+    @Environment(NurseryPropagationService.self) private var nurseryPropagationService
 
     /// Preselects a tree when opened from Tree Detail; otherwise the grower picks a target.
     var preselectedTreeID: UUID?
+    var preselectedShapingAreaID: ShapingAreaID?
+    /// Prefills Work Type (e.g. Care → Fertilizing → Add Task).
+    var preselectedWorkTypeID: UUID?
+    /// Preselects a Field Tree / Propagation project (from Field Tree detail).
+    var preselectedNurseryPropagationProjectID: UUID?
+    var prefillTitle: String?
+    var prefillNotes: String?
     var onSave: (CareTask) -> Void = { _ in }
 
     @State private var title: String = ""
@@ -40,6 +51,9 @@ struct AddTaskSheet: View {
         case trees
         case location
         case genus
+        case yamadori
+        case seedBatch
+        case fieldTree
 
         var id: Self { self }
 
@@ -48,6 +62,16 @@ struct AddTaskSheet: View {
             case .trees: "Trees"
             case .location: "Location"
             case .genus: "Genus"
+            case .yamadori: "Yamadori"
+            case .seedBatch: "Seed Batch"
+            case .fieldTree: "Field Tree"
+            }
+        }
+
+        var allowsRecurring: Bool {
+            switch self {
+            case .trees, .location, .genus: true
+            case .yamadori, .seedBatch, .fieldTree: false
             }
         }
     }
@@ -56,6 +80,9 @@ struct AddTaskSheet: View {
     @State private var selectedTreeIDs: Set<UUID> = []
     @State private var selectedLocationID: UUID?
     @State private var selectedGenusID: UUID?
+    @State private var selectedYamadoriIDs: Set<UUID> = []
+    @State private var selectedSeedBatchIDs: Set<UUID> = []
+    @State private var selectedNurseryPropagationProjectIDs: Set<UUID> = []
 
     private enum RepeatMode: String, CaseIterable, Identifiable {
         case interval
@@ -93,7 +120,8 @@ struct AddTaskSheet: View {
     }
 
     /// The target as the grower currently has it configured. `nil` when incomplete.
-    private var currentTarget: CareScheduleTarget? {
+    /// Only tree / location / genus targets can become Schedules.
+    private var currentScheduleTarget: CareScheduleTarget? {
         switch targetMode {
         case .trees:
             return selectedTreeIDs.isEmpty ? nil : .trees(selectedTreeIDs)
@@ -101,21 +129,64 @@ struct AddTaskSheet: View {
             return selectedLocationID.map(CareScheduleTarget.location)
         case .genus:
             return selectedGenusID.map(CareScheduleTarget.genus)
+        case .yamadori, .seedBatch, .fieldTree:
+            return nil
+        }
+    }
+
+    private var hasNurseryTargets: Bool {
+        switch targetMode {
+        case .yamadori: !selectedYamadoriIDs.isEmpty
+        case .seedBatch: !selectedSeedBatchIDs.isEmpty
+        case .fieldTree: !selectedNurseryPropagationProjectIDs.isEmpty
+        default: false
         }
     }
 
     private var canSave: Bool {
-        guard workTypeID != nil, currentTarget != nil else { return false }
+        guard workTypeID != nil else { return false }
+        if targetMode.allowsRecurring {
+            guard currentScheduleTarget != nil else { return false }
+        } else {
+            guard hasNurseryTargets else { return false }
+        }
         if isRecurring, repeatMode == .multipleTimesPerDay {
             return !selectedDayParts.isEmpty
         }
         return true
     }
 
-    init(preselectedTreeID: UUID? = nil, onSave: @escaping (CareTask) -> Void = { _ in }) {
+    init(
+        preselectedTreeID: UUID? = nil,
+        preselectedShapingAreaID: ShapingAreaID? = nil,
+        preselectedWorkTypeID: UUID? = nil,
+        preselectedNurseryPropagationProjectID: UUID? = nil,
+        prefillTitle: String? = nil,
+        prefillNotes: String? = nil,
+        onSave: @escaping (CareTask) -> Void = { _ in }
+    ) {
         self.preselectedTreeID = preselectedTreeID
+        self.preselectedShapingAreaID = preselectedShapingAreaID
+        self.preselectedWorkTypeID = preselectedWorkTypeID
+        self.preselectedNurseryPropagationProjectID = preselectedNurseryPropagationProjectID
+        self.prefillTitle = prefillTitle
+        self.prefillNotes = prefillNotes
         self.onSave = onSave
         _selectedTreeIDs = State(initialValue: preselectedTreeID.map { [$0] } ?? [])
+        _selectedNurseryPropagationProjectIDs = State(
+            initialValue: preselectedNurseryPropagationProjectID.map { [$0] } ?? []
+        )
+        _targetMode = State(
+            initialValue: preselectedNurseryPropagationProjectID != nil ? .fieldTree : .trees
+        )
+        _workTypeID = State(initialValue: preselectedWorkTypeID)
+        let trimmedPrefillTitle = prefillTitle?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        _title = State(
+            initialValue: trimmedPrefillTitle.isEmpty
+                ? ""
+                : trimmedPrefillTitle
+        )
+        _notes = State(initialValue: prefillNotes ?? "")
     }
 
     var body: some View {
@@ -145,7 +216,7 @@ struct AddTaskSheet: View {
                             Picker("Fertilizer", selection: $fertilizerTypeID) {
                                 Text("Choose…").tag(UUID?.none)
                                 ForEach(referenceData.fertilizerTypes) { fertilizer in
-                                    Text("\(fertilizer.name) — \(fertilizer.classificationSummary)")
+                                    Text("\(fertilizer.displayName) — \(fertilizer.classificationSummary)")
                                         .tag(Optional(fertilizer.id))
                                 }
                             }
@@ -161,15 +232,24 @@ struct AddTaskSheet: View {
                     }
                 }
 
-                if preselectedTreeID == nil {
+                if preselectedShapingAreaID != nil {
+                    Section("Shaping Area") {
+                        Text(preselectedShapingAreaID?.title ?? "")
+                    }
+                }
+
+                if preselectedTreeID == nil && preselectedNurseryPropagationProjectID == nil {
                     Section {
                         Picker("Applies to", selection: $targetMode) {
                             ForEach(TargetMode.allCases) { mode in
                                 Text(mode.title).tag(mode)
                             }
                         }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
+                        .onChange(of: targetMode) { _, newMode in
+                            if !newMode.allowsRecurring {
+                                isRecurring = false
+                            }
+                        }
 
                         switch targetMode {
                         case .trees:
@@ -188,6 +268,12 @@ struct AddTaskSheet: View {
                                     Text(genus.name).tag(Optional(genus.id))
                                 }
                             }
+                        case .yamadori:
+                            yamadoriMultiSelect
+                        case .seedBatch:
+                            seedBatchMultiSelect
+                        case .fieldTree:
+                            fieldTreeMultiSelect
                         }
                     } header: {
                         Text("Applies to")
@@ -199,6 +285,20 @@ struct AddTaskSheet: View {
                             Text("Every tree at this Location — now, and any added later.")
                         case .genus:
                             Text("Every tree of this Genus — now, and any added later.")
+                        case .yamadori:
+                            Text("\(selectedYamadoriIDs.count) Yamadori trip\(selectedYamadoriIDs.count == 1 ? "" : "s") selected. One-off Task only.")
+                        case .seedBatch:
+                            Text("\(selectedSeedBatchIDs.count) Seed Batch\(selectedSeedBatchIDs.count == 1 ? "" : "es") selected. One-off Task only.")
+                        case .fieldTree:
+                            Text("\(selectedNurseryPropagationProjectIDs.count) Field Tree\(selectedNurseryPropagationProjectIDs.count == 1 ? "" : "s") selected. One-off Task only.")
+                        }
+                    }
+                } else if let preselectedNurseryPropagationProjectID {
+                    Section("Applies to") {
+                        if let project = nurseryPropagationService.project(id: preselectedNurseryPropagationProjectID) {
+                            Text("\(project.botanicalName) · \(project.projectCode)")
+                        } else {
+                            Text("Field Tree")
                         }
                     }
                 }
@@ -208,59 +308,65 @@ struct AddTaskSheet: View {
                 }
 
                 Section {
-                    Toggle("Repeats", isOn: $isRecurring.animation())
-
-                    if isRecurring {
-                        Picker("Repeat mode", selection: $repeatMode) {
-                            ForEach(RepeatMode.allCases) { mode in
-                                Text(mode.title).tag(mode)
-                            }
+                    if preselectedShapingAreaID == nil {
+                        if targetMode.allowsRecurring {
+                            Toggle("Repeats", isOn: $isRecurring.animation())
                         }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
 
-                        switch repeatMode {
-                        case .interval:
-                            Stepper(value: $recurrenceInterval, in: 1...99) {
-                                Text("Every \(recurrenceInterval) \((recurrenceInterval == 1 ? recurrenceUnit.singular : recurrenceUnit.plural).lowercased())")
-                            }
-
-                            Picker("Unit", selection: $recurrenceUnit) {
-                                ForEach(CareRecurrenceUnit.allCases) { unit in
-                                    Text(unit.plural).tag(unit)
+                        if isRecurring, targetMode.allowsRecurring {
+                            Picker("Repeat mode", selection: $repeatMode) {
+                                ForEach(RepeatMode.allCases) { mode in
+                                    Text(mode.title).tag(mode)
                                 }
                             }
+                            .pickerStyle(.segmented)
                             .labelsHidden()
 
-                        case .multipleTimesPerDay:
-                            VStack(alignment: .leading, spacing: FaloSpacing.small) {
-                                Text("Which times of day?")
-                                    .font(FaloTypography.caption)
-                                    .foregroundStyle(.secondary)
-                                ForEach(CareDayPart.allCases) { part in
-                                    Toggle(part.title, isOn: Binding(
-                                        get: { selectedDayParts.contains(part) },
-                                        set: { isOn in
-                                            if isOn { selectedDayParts.insert(part) } else { selectedDayParts.remove(part) }
-                                        }
-                                    ))
+                            switch repeatMode {
+                            case .interval:
+                                Stepper(value: $recurrenceInterval, in: 1...99) {
+                                    Text("Every \(recurrenceInterval) \((recurrenceInterval == 1 ? recurrenceUnit.singular : recurrenceUnit.plural).lowercased())")
                                 }
-                            }
-                        }
 
-                        Toggle("Limit to a season", isOn: $hasSeasonalWindow.animation())
+                                Picker("Unit", selection: $recurrenceUnit) {
+                                    ForEach(CareRecurrenceUnit.allCases) { unit in
+                                        Text(unit.plural).tag(unit)
+                                    }
+                                }
+                                .labelsHidden()
 
-                        if hasSeasonalWindow {
-                            Picker("From", selection: $seasonFromMonth) {
-                                ForEach(CareScheduleSeasonalWindow.allMonths, id: \.self) { month in
-                                    Text(CareScheduleSeasonalWindow.monthName(month)).tag(month)
+                            case .multipleTimesPerDay:
+                                VStack(alignment: .leading, spacing: FaloSpacing.small) {
+                                    Text("Which times of day?")
+                                        .font(FaloTypography.caption)
+                                        .foregroundStyle(.secondary)
+                                    ForEach(CareDayPart.allCases) { part in
+                                        Toggle(part.title, isOn: Binding(
+                                            get: { selectedDayParts.contains(part) },
+                                            set: { isOn in
+                                                if isOn { selectedDayParts.insert(part) } else { selectedDayParts.remove(part) }
+                                            }
+                                        ))
+                                    }
                                 }
                             }
-                            Picker("To", selection: $seasonToMonth) {
-                                ForEach(CareScheduleSeasonalWindow.allMonths, id: \.self) { month in
-                                    Text(CareScheduleSeasonalWindow.monthName(month)).tag(month)
+
+                            Toggle("Limit to a season", isOn: $hasSeasonalWindow.animation())
+
+                            if hasSeasonalWindow {
+                                Picker("From", selection: $seasonFromMonth) {
+                                    ForEach(CareScheduleSeasonalWindow.allMonths, id: \.self) { month in
+                                        Text(CareScheduleSeasonalWindow.monthName(month)).tag(month)
+                                    }
+                                }
+                                Picker("To", selection: $seasonToMonth) {
+                                    ForEach(CareScheduleSeasonalWindow.allMonths, id: \.self) { month in
+                                        Text(CareScheduleSeasonalWindow.monthName(month)).tag(month)
+                                    }
                                 }
                             }
+                        } else {
+                            DatePicker("Due", selection: $dueDate, displayedComponents: [.date])
                         }
                     } else {
                         DatePicker("Due", selection: $dueDate, displayedComponents: [.date])
@@ -268,7 +374,7 @@ struct AddTaskSheet: View {
                 } header: {
                     Text("Scheduling")
                 } footer: {
-                    if isRecurring {
+                    if preselectedShapingAreaID == nil, isRecurring, targetMode.allowsRecurring {
                         Text("This becomes a recurring rule instead of a single task — every future occurrence completes in one action. A Tree covered by more than one active rule at the same time is never double-counted.")
                     }
                 }
@@ -282,7 +388,7 @@ struct AddTaskSheet: View {
                     Section {
                         Text(errorMessage)
                             .font(FaloTypography.caption)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(BonsaiWorldColors.statusCritical)
                     }
                 }
             }
@@ -301,6 +407,11 @@ struct AddTaskSheet: View {
         }
         .frame(minWidth: 460, minHeight: 520)
         .navigationTitle(isRecurring ? "New Schedule" : "New Task")
+        .onAppear {
+            if trimmedTitle.isEmpty, let workTypeID {
+                title = taskService.workType(id: workTypeID)?.name ?? ""
+            }
+        }
         .sheet(item: $newFertilizerDraft) { draft in
             FertilizerTypeEditorSheet(draft: draft) { created in
                 fertilizerTypeID = created.id
@@ -314,38 +425,110 @@ struct AddTaskSheet: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(treeService.treesInCare.sorted { $0.bonsaiName.localizedStandardCompare($1.bonsaiName) == .orderedAscending }) { tree in
-                    Button {
-                        if selectedTreeIDs.contains(tree.id) {
-                            selectedTreeIDs.remove(tree.id)
-                        } else {
-                            selectedTreeIDs.insert(tree.id)
-                        }
-                    } label: {
-                        HStack(alignment: .center, spacing: FaloSpacing.medium) {
-                            Image(systemName: selectedTreeIDs.contains(tree.id) ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(selectedTreeIDs.contains(tree.id) ? Color.accentColor : .secondary)
-                            TreeListThumbnail(imageID: tree.listImageID)
-                            Text(tree.bonsaiName)
-                                .foregroundStyle(.primary)
-                            Spacer()
-                        }
-                        .contentShape(Rectangle())
+                    multiSelectRow(
+                        title: tree.bonsaiName,
+                        isSelected: selectedTreeIDs.contains(tree.id),
+                        thumbnail: { TreeListThumbnail(imageID: tree.listImageID, imageService: imageService) }
+                    ) {
+                        toggle(tree.id, in: &selectedTreeIDs)
                     }
-                    .buttonStyle(.plain)
-                    .padding(.vertical, 4)
                 }
             }
         }
         .frame(height: 160)
     }
 
+    private var yamadoriMultiSelect: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(yamadoriService.getAllYamadori().sorted {
+                    $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
+                }) { trip in
+                    let name = trip.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    multiSelectRow(
+                        title: name.isEmpty ? "Yamadori trip" : name,
+                        isSelected: selectedYamadoriIDs.contains(trip.id)
+                    ) {
+                        toggle(trip.id, in: &selectedYamadoriIDs)
+                    }
+                }
+            }
+        }
+        .frame(height: 160)
+    }
+
+    private var seedBatchMultiSelect: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(seedBatchService.batches.filter(\.stage.isActive).sorted {
+                    $0.botanicalName.localizedStandardCompare($1.botanicalName) == .orderedAscending
+                }) { batch in
+                    multiSelectRow(
+                        title: "\(batch.botanicalName) · \(batch.batchCode)",
+                        isSelected: selectedSeedBatchIDs.contains(batch.id)
+                    ) {
+                        toggle(batch.id, in: &selectedSeedBatchIDs)
+                    }
+                }
+            }
+        }
+        .frame(height: 160)
+    }
+
+    private var fieldTreeMultiSelect: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(nurseryPropagationService.activeProjects(kind: .fieldTree).sorted {
+                    $0.botanicalName.localizedStandardCompare($1.botanicalName) == .orderedAscending
+                }) { project in
+                    multiSelectRow(
+                        title: "\(project.botanicalName) · \(project.projectCode)",
+                        isSelected: selectedNurseryPropagationProjectIDs.contains(project.id)
+                    ) {
+                        toggle(project.id, in: &selectedNurseryPropagationProjectIDs)
+                    }
+                }
+            }
+        }
+        .frame(height: 160)
+    }
+
+    private func multiSelectRow<Thumbnail: View>(
+        title: String,
+        isSelected: Bool,
+        @ViewBuilder thumbnail: () -> Thumbnail = { EmptyView() },
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(alignment: .center, spacing: FaloSpacing.medium) {
+                Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                    .foregroundStyle(isSelected ? BonsaiWorldColors.accent : .secondary)
+                thumbnail()
+                Text(title)
+                    .foregroundStyle(.primary)
+                Spacer()
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, 4)
+    }
+
+    private func toggle(_ id: UUID, in set: inout Set<UUID>) {
+        if set.contains(id) {
+            set.remove(id)
+        } else {
+            set.insert(id)
+        }
+    }
+
     private func save() {
-        guard let workTypeID, let target = currentTarget else { return }
+        guard let workTypeID else { return }
         let resolvedTitle = trimmedTitle.isEmpty
             ? (taskService.workType(id: workTypeID)?.name ?? "Task")
             : trimmedTitle
 
-        if isRecurring {
+        if isRecurring, targetMode.allowsRecurring, let target = currentScheduleTarget {
             let recurrence = repeatMode == .multipleTimesPerDay
                 ? CareRecurrenceRule(unit: .day, interval: 1, dayParts: selectedDayParts)
                 : CareRecurrenceRule(unit: recurrenceUnit, interval: recurrenceInterval)
@@ -369,13 +552,43 @@ struct AddTaskSheet: View {
         }
 
         do {
-            let task = try taskService.createTask(
-                title: resolvedTitle,
-                workTypeID: workTypeID,
-                treeIDs: taskService.resolvedTreeIDs(for: target),
-                dueDate: dueDate,
-                notes: notes
-            )
+            let task: CareTask
+            switch targetMode {
+            case .yamadori:
+                task = try taskService.createTask(
+                    title: resolvedTitle,
+                    workTypeID: workTypeID,
+                    yamadoriIDs: Array(selectedYamadoriIDs),
+                    dueDate: dueDate,
+                    notes: notes
+                )
+            case .seedBatch:
+                task = try taskService.createTask(
+                    title: resolvedTitle,
+                    workTypeID: workTypeID,
+                    seedBatchIDs: Array(selectedSeedBatchIDs),
+                    dueDate: dueDate,
+                    notes: notes
+                )
+            case .fieldTree:
+                task = try taskService.createTask(
+                    title: resolvedTitle,
+                    workTypeID: workTypeID,
+                    nurseryPropagationProjectIDs: Array(selectedNurseryPropagationProjectIDs),
+                    dueDate: dueDate,
+                    notes: notes
+                )
+            case .trees, .location, .genus:
+                guard let target = currentScheduleTarget else { return }
+                task = try taskService.createTask(
+                    title: resolvedTitle,
+                    workTypeID: workTypeID,
+                    treeIDs: taskService.resolvedTreeIDs(for: target),
+                    dueDate: dueDate,
+                    notes: notes,
+                    shapingAreaID: preselectedShapingAreaID?.rawValue
+                )
+            }
             onSave(task)
             dismiss()
         } catch {

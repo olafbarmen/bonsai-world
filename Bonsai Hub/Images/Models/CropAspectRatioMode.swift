@@ -34,7 +34,7 @@ enum CropAspectRatioMode: String, Codable, CaseIterable, Hashable, Sendable {
         case .original, .custom: nil
         case .square: 1
         case .landscape: 4.0 / 3.0
-        case .portrait: 3.0 / 4.0
+        case .portrait: 5.0 / 6.0
         case .treePortrait: 2.0 / 3.0
         }
     }

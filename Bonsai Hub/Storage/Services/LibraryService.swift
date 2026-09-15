@@ -24,6 +24,9 @@ final class LibraryService {
     /// When `false`, the First Launch Wizard should be shown.
     private(set) var isLibraryReady = false
 
+    /// Increments when the active library package changes while the app is running.
+    private(set) var librarySessionRevision = 0
+
     init(storage: StorageService, directoryPicker: DirectoryPicking = MacDirectoryPicker()) {
         self.storage = storage
         self.directoryPicker = directoryPicker
@@ -54,18 +57,25 @@ final class LibraryService {
 
     /// Presents a folder picker, then creates `Bonsai World Library` inside the chosen parent.
     @discardableResult
-    func createNewLibraryUsingFolderPicker() async throws -> Library {
+    func createNewLibraryUsingFolderPicker(kind: LibraryLocationKind = .customFolder) async throws -> Library {
         let parentURL = try await pickDirectory(
             title: "Choose a Location for Your Library",
             message: "Bonsai World will create a “\(Library.defaultName)” folder here.",
             prompt: "Choose"
         )
-        return try createNewLibrary(inParentDirectory: parentURL)
+        return try createNewLibrary(inParentDirectory: parentURL, kind: kind)
     }
 
     /// Creates a new library package inside `parentDirectory`.
     @discardableResult
-    func createNewLibrary(inParentDirectory parentDirectory: URL) throws -> Library {
+    func createNewLibrary(
+        inParentDirectory parentDirectory: URL,
+        kind: LibraryLocationKind = .customFolder
+    ) throws -> Library {
+        guard kind.isPhase1Local else {
+            throw StorageError.providerUnavailable(kind)
+        }
+
         let didAccess = parentDirectory.startAccessingSecurityScopedResource()
         defer {
             if didAccess { parentDirectory.stopAccessingSecurityScopedResource() }
@@ -80,7 +90,7 @@ final class LibraryService {
 
         let libraryRoot = parentDirectory.appendingPathComponent(Library.defaultName, isDirectory: true)
         do {
-            try storage.useLibraryRootURL(libraryRoot, kind: .customFolder)
+            try storage.useLibraryRootURL(libraryRoot, kind: kind)
             try storage.ensureLibraryFolderStructure()
         } catch let error as LibraryError {
             throw error
@@ -173,6 +183,20 @@ final class LibraryService {
         if !missing.isEmpty {
             throw LibraryError.invalidStructure(missingFolders: missing)
         }
+    }
+
+    /// Switches the running app to another on-disk library package.
+    @discardableResult
+    func switchToLibrary(at url: URL) throws -> Library {
+        let library = try openExistingLibrary(at: url)
+        librarySessionRevision += 1
+        return library
+    }
+
+    /// Reloads in-memory services after on-disk library contents change without switching packages.
+    func notifyLibraryContentsChanged() {
+        guard isLibraryReady else { return }
+        librarySessionRevision += 1
     }
 
     /// Creates any missing folders on an already-selected library (repair).

@@ -56,8 +56,22 @@ final class ImageImportService {
 
     /// Opens the macOS open panel, copies one image into the library, and returns metadata.
     func importPrimaryImageFromFinder() async throws -> ImageAsset {
-        let url = try await pickSingleImageURL()
+        let url = try await pickSingleImageURL(
+            title: "Choose a Tree Image",
+            message: "Select a HEIC, JPEG, PNG, or TIFF image.",
+            prompt: "Import"
+        )
         return try await importImage(from: url, asPrimary: true)
+    }
+
+    /// Profile / sidebar avatar — same library import path, profile-oriented picker copy.
+    func importProfileImageFromFinder() async throws -> ImageAsset {
+        let url = try await pickSingleImageURL(
+            title: "Choose Profile Photo",
+            message: "Select a HEIC, JPEG, PNG, or TIFF image.",
+            prompt: "Choose"
+        )
+        return try await importImage(from: url, asPrimary: false)
     }
 
     /// Copies `url` into the library (security-scoped). Used by the Finder picker path.
@@ -120,18 +134,22 @@ final class ImageImportService {
 
     /// Imports a gallery photo without forcing Primary (unless `asPrimary` is true).
     func importGalleryImageFromFinder() async throws -> ImageAsset {
-        let url = try await pickSingleImageURL()
+        let url = try await pickSingleImageURL(
+            title: "Choose a Tree Image",
+            message: "Select a HEIC, JPEG, PNG, or TIFF image.",
+            prompt: "Import"
+        )
         return try await importImage(from: url, asPrimary: false)
     }
 
     // MARK: - Finder
 
-    private func pickSingleImageURL() async throws -> URL {
+    private func pickSingleImageURL(title: String, message: String, prompt: String) async throws -> URL {
         do {
             return try await filePicker.pickImageFile(
-                title: "Choose a Tree Image",
-                message: "Select a HEIC, JPEG, PNG, or TIFF image.",
-                prompt: "Import"
+                title: title,
+                message: message,
+                prompt: prompt
             )
         } catch is ImageFilePickingCancelled {
             throw ImageImportError.cancelled

@@ -25,7 +25,7 @@ struct CollectionSummaryHeroCard: View {
     private var heroMetrics: [DashboardCollectionSummary.Metric] {
         DashboardCollectionSummary.heroMetrics(
             trees: treeService.trees,
-            treeStatuses: referenceData.treeStatuses,
+            treeStages: referenceData.treeStages,
             acquisitionMethods: referenceData.acquisitionMethods,
             disposalMethods: referenceData.disposalMethods
         )

@@ -35,9 +35,18 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
 
     var styleID: UUID?
     var sizeClassID: UUID?
-    var treeStatusID: UUID?
+    /// Reference Data — Tree Stage (authoritative development position).
+    var treeStageID: UUID?
     /// Grower-facing health assessment (not botanical identity).
     var healthStatus: TreeHealthStatus
+
+    // MARK: - Fertilization plan inputs
+    // Tree Stage drives fertilization mode. Condition is explicit — never assumed healthy.
+
+    /// Explicit condition for feeding. Nil = unknown — never assumed healthy.
+    var fertilizerHealth: FertilizerHealth?
+    /// Optional kind when species mapping is missing or pine flush must be chosen.
+    var fertilizerKindOverride: FertilizerKind?
 
     // MARK: - Growing
 
@@ -46,6 +55,9 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
     var locationID: UUID
     /// Reference Data — Soil Mix (composition lives on the mix, not the tree).
     var soilMixID: UUID?
+    /// Tree Pot Description — generic container type (Reference Data Pot Type).
+    /// Always available as fallback when no Inventory Pot is assigned.
+    /// Not cleared when an Inventory Pot is linked; Inventory Pot wins for display only.
     var potTypeID: UUID?
     var lightConditionID: UUID?
 
@@ -58,13 +70,26 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
     var nebariWidthMillimetres: Int?
     var trunkDiameterMillimetres: Int?
 
-    // MARK: - Pot (current size on this Tree — not Measurement History)
+    // MARK: - Pot (Tree Pot Description + optional Inventory Pot)
 
-    /// Current pot footprint / profile (mm). Editable in Edit Mode; future Pot entity candidate.
+    /// Optional dimensions for Tree Pot Description (mm). Independent of Inventory Pot.
     var potLengthMillimetres: Int?
     var potWidthMillimetres: Int?
     var potHeightMillimetres: Int?
     var potDiameterMillimetres: Int?
+
+    /// Optional Inventory Pot currently in use. Owned/synced by PotService — never edit
+    /// directly. When set, Inventory Pot details override Tree Pot Description for
+    /// display; ``potTypeID`` and description dimensions remain stored as fallback.
+    var currentPotID: UUID?
+
+    /// Origin Yamadori record when this Tree was created via collection or Transfer.
+    /// Never equals the Yamadori display code — links by UUID only.
+    var sourceYamadoriID: UUID?
+    /// Origin Seed Batch when this Tree was created from Seed Work.
+    var sourceSeedBatchID: UUID?
+    /// When true, this Tree appears in Nursery → Yamadori Trees until moved to My Trees.
+    var yamadoriNursery: Bool
 
     // MARK: - Acquisition (start of ownership)
 
@@ -91,6 +116,28 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
     // MARK: - Notes
 
     var notes: String
+    /// Short summary of what is known about this tree before it entered the grower’s care.
+    var knownHistory: String
+
+    // MARK: - Social
+
+    /// Per-tree Social share level. Effective only when App Settings → Social is on.
+    var socialShareLevel: SocialShareLevel
+
+    // MARK: - Watering policy
+
+    /// The one Care-policy Collection this tree inherits watering from (optional).
+    var carePolicyCollectionID: UUID?
+    /// When set, overrides Collection watering mode.
+    var wateringModeOverride: WateringMode?
+    /// When mode override is ``WateringMode/auto``, times per day (1…3).
+    var autoTimesPerDayOverride: Int?
+
+    /// Shaping → Vision. Nil on trees that have never opened Vision.
+    var vision: TreeVision?
+
+    /// Shaping → practical development workbook (observations, plans, history).
+    var shaping: TreeShaping?
 
     // MARK: - Images (identifiers only — never absolute paths)
 
@@ -125,8 +172,10 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
         cultivarID: UUID? = nil,
         styleID: UUID? = nil,
         sizeClassID: UUID? = nil,
-        treeStatusID: UUID? = nil,
+        treeStageID: UUID? = nil,
         healthStatus: TreeHealthStatus = .stable,
+        fertilizerHealth: FertilizerHealth? = nil,
+        fertilizerKindOverride: FertilizerKind? = nil,
         locationID: UUID,
         soilMixID: UUID? = nil,
         potTypeID: UUID? = nil,
@@ -139,6 +188,10 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
         potWidthMillimetres: Int? = nil,
         potHeightMillimetres: Int? = nil,
         potDiameterMillimetres: Int? = nil,
+        currentPotID: UUID? = nil,
+        sourceYamadoriID: UUID? = nil,
+        sourceSeedBatchID: UUID? = nil,
+        yamadoriNursery: Bool = false,
         acquisitionDate: Date? = nil,
         acquisitionMethodID: UUID? = nil,
         acquisitionSourceName: String = "",
@@ -150,6 +203,13 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
         disposalPrice: Decimal? = nil,
         disposalNotes: String = "",
         notes: String = "",
+        knownHistory: String = "",
+        socialShareLevel: SocialShareLevel = .off,
+        carePolicyCollectionID: UUID? = nil,
+        wateringModeOverride: WateringMode? = nil,
+        autoTimesPerDayOverride: Int? = nil,
+        vision: TreeVision? = nil,
+        shaping: TreeShaping? = nil,
         primaryImageID: UUID? = nil,
         imageIDs: [UUID] = [],
         projectIDs: [UUID] = [],
@@ -167,8 +227,10 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
         self.cultivarID = cultivarID
         self.styleID = styleID
         self.sizeClassID = sizeClassID
-        self.treeStatusID = treeStatusID
+        self.treeStageID = treeStageID
         self.healthStatus = healthStatus
+        self.fertilizerHealth = fertilizerHealth
+        self.fertilizerKindOverride = fertilizerKindOverride
         self.locationID = locationID
         self.soilMixID = soilMixID
         self.potTypeID = potTypeID
@@ -181,6 +243,10 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
         self.potWidthMillimetres = potWidthMillimetres
         self.potHeightMillimetres = potHeightMillimetres
         self.potDiameterMillimetres = potDiameterMillimetres
+        self.currentPotID = currentPotID
+        self.sourceYamadoriID = sourceYamadoriID
+        self.sourceSeedBatchID = sourceSeedBatchID
+        self.yamadoriNursery = yamadoriNursery
         self.acquisitionDate = acquisitionDate
         self.acquisitionMethodID = acquisitionMethodID
         self.acquisitionSourceName = acquisitionSourceName
@@ -192,6 +258,13 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
         self.disposalPrice = disposalPrice
         self.disposalNotes = disposalNotes
         self.notes = notes
+        self.knownHistory = knownHistory
+        self.socialShareLevel = socialShareLevel
+        self.carePolicyCollectionID = carePolicyCollectionID
+        self.wateringModeOverride = wateringModeOverride
+        self.autoTimesPerDayOverride = autoTimesPerDayOverride.map(TreeWateringPolicyResolver.clampedTimes)
+        self.vision = vision
+        self.shaping = shaping
         self.primaryImageID = primaryImageID
         self.imageIDs = imageIDs
         self.projectIDs = projectIDs
@@ -204,6 +277,13 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
     /// Photo for tree lists: primary, otherwise the first gallery image.
     var listImageID: UUID? { primaryImageID ?? imageIDs.first }
 
+    /// No primary and no gallery images — single source of truth for Library /
+    /// Needs Photos / Trees ``withoutPhoto`` (reference/shaping images stay off this list).
+    var lacksPhoto: Bool { primaryImageID == nil && imageIDs.isEmpty }
+
+    /// Inverse of ``lacksPhoto``.
+    var hasPhoto: Bool { !lacksPhoto }
+
     /// In the grower’s care — no disposal method recorded (Blueprint §4.5 Active).
     var isInCare: Bool { disposalMethodID == nil }
 
@@ -214,5 +294,148 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
             || !disposalPartyName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             || disposalPrice != nil
             || !disposalNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+}
+
+// MARK: - Codable (Tree Stage migration)
+
+extension Tree {
+    private enum CodingKeys: String, CodingKey {
+        case id, botanicalName, nickname, bonsaiName
+        case genusID, speciesID, cultivarID, styleID, sizeClassID
+        case treeStageID
+        case treeStatusID
+        case healthStatus
+        case fertilizerHealth, fertilizerKindOverride
+        case fertilizerStage, fertilizerGrowth
+        case locationID, soilMixID, potTypeID, lightConditionID
+        case heightMillimetres, crownWidthMillimetres, nebariWidthMillimetres, trunkDiameterMillimetres
+        case potLengthMillimetres, potWidthMillimetres, potHeightMillimetres, potDiameterMillimetres
+        case currentPotID, sourceYamadoriID, sourceSeedBatchID, yamadoriNursery
+        case acquisitionDate, acquisitionMethodID, acquisitionSourceName, purchasePrice, acquisitionNotes
+        case disposalDate, disposalMethodID, disposalPartyName, disposalPrice, disposalNotes
+        case notes, knownHistory, socialShareLevel
+        case carePolicyCollectionID, wateringModeOverride, autoTimesPerDayOverride
+        case vision, shaping
+        case primaryImageID, imageIDs, projectIDs, journalEntryIDs, taskIDs
+        case createdDate, modifiedDate
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        botanicalName = try c.decode(String.self, forKey: .botanicalName)
+        nickname = try c.decodeIfPresent(String.self, forKey: .nickname) ?? ""
+        bonsaiName = try c.decodeIfPresent(String.self, forKey: .bonsaiName) ?? ""
+        genusID = try c.decodeIfPresent(UUID.self, forKey: .genusID)
+        speciesID = try c.decodeIfPresent(UUID.self, forKey: .speciesID)
+        cultivarID = try c.decodeIfPresent(UUID.self, forKey: .cultivarID)
+        styleID = try c.decodeIfPresent(UUID.self, forKey: .styleID)
+        sizeClassID = try c.decodeIfPresent(UUID.self, forKey: .sizeClassID)
+        treeStageID = try c.decodeIfPresent(UUID.self, forKey: .treeStageID)
+            ?? c.decodeIfPresent(UUID.self, forKey: .treeStatusID)
+        healthStatus = try c.decodeIfPresent(TreeHealthStatus.self, forKey: .healthStatus) ?? .stable
+        fertilizerHealth = try c.decodeIfPresent(FertilizerHealth.self, forKey: .fertilizerHealth)
+        fertilizerKindOverride = try c.decodeIfPresent(FertilizerKind.self, forKey: .fertilizerKindOverride)
+        locationID = try c.decode(UUID.self, forKey: .locationID)
+        soilMixID = try c.decodeIfPresent(UUID.self, forKey: .soilMixID)
+        potTypeID = try c.decodeIfPresent(UUID.self, forKey: .potTypeID)
+        lightConditionID = try c.decodeIfPresent(UUID.self, forKey: .lightConditionID)
+        heightMillimetres = try c.decodeIfPresent(Int.self, forKey: .heightMillimetres)
+        crownWidthMillimetres = try c.decodeIfPresent(Int.self, forKey: .crownWidthMillimetres)
+        nebariWidthMillimetres = try c.decodeIfPresent(Int.self, forKey: .nebariWidthMillimetres)
+        trunkDiameterMillimetres = try c.decodeIfPresent(Int.self, forKey: .trunkDiameterMillimetres)
+        potLengthMillimetres = try c.decodeIfPresent(Int.self, forKey: .potLengthMillimetres)
+        potWidthMillimetres = try c.decodeIfPresent(Int.self, forKey: .potWidthMillimetres)
+        potHeightMillimetres = try c.decodeIfPresent(Int.self, forKey: .potHeightMillimetres)
+        potDiameterMillimetres = try c.decodeIfPresent(Int.self, forKey: .potDiameterMillimetres)
+        currentPotID = try c.decodeIfPresent(UUID.self, forKey: .currentPotID)
+        sourceYamadoriID = try c.decodeIfPresent(UUID.self, forKey: .sourceYamadoriID)
+        sourceSeedBatchID = try c.decodeIfPresent(UUID.self, forKey: .sourceSeedBatchID)
+        yamadoriNursery = try c.decodeIfPresent(Bool.self, forKey: .yamadoriNursery) ?? false
+        acquisitionDate = try c.decodeIfPresent(Date.self, forKey: .acquisitionDate)
+        acquisitionMethodID = try c.decodeIfPresent(UUID.self, forKey: .acquisitionMethodID)
+        acquisitionSourceName = try c.decodeIfPresent(String.self, forKey: .acquisitionSourceName) ?? ""
+        purchasePrice = try c.decodeIfPresent(Decimal.self, forKey: .purchasePrice)
+        acquisitionNotes = try c.decodeIfPresent(String.self, forKey: .acquisitionNotes) ?? ""
+        disposalDate = try c.decodeIfPresent(Date.self, forKey: .disposalDate)
+        disposalMethodID = try c.decodeIfPresent(UUID.self, forKey: .disposalMethodID)
+        disposalPartyName = try c.decodeIfPresent(String.self, forKey: .disposalPartyName) ?? ""
+        disposalPrice = try c.decodeIfPresent(Decimal.self, forKey: .disposalPrice)
+        disposalNotes = try c.decodeIfPresent(String.self, forKey: .disposalNotes) ?? ""
+        notes = try c.decodeIfPresent(String.self, forKey: .notes) ?? ""
+        knownHistory = try c.decodeIfPresent(String.self, forKey: .knownHistory) ?? ""
+        socialShareLevel = try c.decodeIfPresent(SocialShareLevel.self, forKey: .socialShareLevel) ?? .off
+        carePolicyCollectionID = try c.decodeIfPresent(UUID.self, forKey: .carePolicyCollectionID)
+        wateringModeOverride = try c.decodeIfPresent(WateringMode.self, forKey: .wateringModeOverride)
+        autoTimesPerDayOverride = try c.decodeIfPresent(Int.self, forKey: .autoTimesPerDayOverride)
+            .map(TreeWateringPolicyResolver.clampedTimes)
+        vision = try c.decodeIfPresent(TreeVision.self, forKey: .vision)
+        shaping = try c.decodeIfPresent(TreeShaping.self, forKey: .shaping)
+        primaryImageID = try c.decodeIfPresent(UUID.self, forKey: .primaryImageID)
+        imageIDs = try c.decodeIfPresent([UUID].self, forKey: .imageIDs) ?? []
+        projectIDs = try c.decodeIfPresent([UUID].self, forKey: .projectIDs) ?? []
+        journalEntryIDs = try c.decodeIfPresent([UUID].self, forKey: .journalEntryIDs) ?? []
+        taskIDs = try c.decodeIfPresent([UUID].self, forKey: .taskIDs) ?? []
+        createdDate = try c.decodeIfPresent(Date.self, forKey: .createdDate) ?? .now
+        modifiedDate = try c.decodeIfPresent(Date.self, forKey: .modifiedDate) ?? .now
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(botanicalName, forKey: .botanicalName)
+        try c.encode(nickname, forKey: .nickname)
+        try c.encode(bonsaiName, forKey: .bonsaiName)
+        try c.encodeIfPresent(genusID, forKey: .genusID)
+        try c.encodeIfPresent(speciesID, forKey: .speciesID)
+        try c.encodeIfPresent(cultivarID, forKey: .cultivarID)
+        try c.encodeIfPresent(styleID, forKey: .styleID)
+        try c.encodeIfPresent(sizeClassID, forKey: .sizeClassID)
+        try c.encodeIfPresent(treeStageID, forKey: .treeStageID)
+        try c.encode(healthStatus, forKey: .healthStatus)
+        try c.encodeIfPresent(fertilizerHealth, forKey: .fertilizerHealth)
+        try c.encodeIfPresent(fertilizerKindOverride, forKey: .fertilizerKindOverride)
+        try c.encode(locationID, forKey: .locationID)
+        try c.encodeIfPresent(soilMixID, forKey: .soilMixID)
+        try c.encodeIfPresent(potTypeID, forKey: .potTypeID)
+        try c.encodeIfPresent(lightConditionID, forKey: .lightConditionID)
+        try c.encodeIfPresent(heightMillimetres, forKey: .heightMillimetres)
+        try c.encodeIfPresent(crownWidthMillimetres, forKey: .crownWidthMillimetres)
+        try c.encodeIfPresent(nebariWidthMillimetres, forKey: .nebariWidthMillimetres)
+        try c.encodeIfPresent(trunkDiameterMillimetres, forKey: .trunkDiameterMillimetres)
+        try c.encodeIfPresent(potLengthMillimetres, forKey: .potLengthMillimetres)
+        try c.encodeIfPresent(potWidthMillimetres, forKey: .potWidthMillimetres)
+        try c.encodeIfPresent(potHeightMillimetres, forKey: .potHeightMillimetres)
+        try c.encodeIfPresent(potDiameterMillimetres, forKey: .potDiameterMillimetres)
+        try c.encodeIfPresent(currentPotID, forKey: .currentPotID)
+        try c.encodeIfPresent(sourceYamadoriID, forKey: .sourceYamadoriID)
+        try c.encodeIfPresent(sourceSeedBatchID, forKey: .sourceSeedBatchID)
+        try c.encode(yamadoriNursery, forKey: .yamadoriNursery)
+        try c.encodeIfPresent(acquisitionDate, forKey: .acquisitionDate)
+        try c.encodeIfPresent(acquisitionMethodID, forKey: .acquisitionMethodID)
+        try c.encode(acquisitionSourceName, forKey: .acquisitionSourceName)
+        try c.encodeIfPresent(purchasePrice, forKey: .purchasePrice)
+        try c.encode(acquisitionNotes, forKey: .acquisitionNotes)
+        try c.encodeIfPresent(disposalDate, forKey: .disposalDate)
+        try c.encodeIfPresent(disposalMethodID, forKey: .disposalMethodID)
+        try c.encode(disposalPartyName, forKey: .disposalPartyName)
+        try c.encodeIfPresent(disposalPrice, forKey: .disposalPrice)
+        try c.encode(disposalNotes, forKey: .disposalNotes)
+        try c.encode(notes, forKey: .notes)
+        try c.encode(knownHistory, forKey: .knownHistory)
+        try c.encode(socialShareLevel, forKey: .socialShareLevel)
+        try c.encodeIfPresent(carePolicyCollectionID, forKey: .carePolicyCollectionID)
+        try c.encodeIfPresent(wateringModeOverride, forKey: .wateringModeOverride)
+        try c.encodeIfPresent(autoTimesPerDayOverride, forKey: .autoTimesPerDayOverride)
+        try c.encodeIfPresent(vision, forKey: .vision)
+        try c.encodeIfPresent(shaping, forKey: .shaping)
+        try c.encodeIfPresent(primaryImageID, forKey: .primaryImageID)
+        try c.encode(imageIDs, forKey: .imageIDs)
+        try c.encode(projectIDs, forKey: .projectIDs)
+        try c.encode(journalEntryIDs, forKey: .journalEntryIDs)
+        try c.encode(taskIDs, forKey: .taskIDs)
+        try c.encode(createdDate, forKey: .createdDate)
+        try c.encode(modifiedDate, forKey: .modifiedDate)
     }
 }

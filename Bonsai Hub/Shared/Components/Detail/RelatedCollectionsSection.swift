@@ -3,7 +3,7 @@
 //  Bonsai World
 //
 //  Reusable related-collections list for Falo Detail pages.
-//  Rows are prepared for future navigation via onSelect.
+//  Rows navigate via onSelect when provided.
 //
 
 import SwiftUI

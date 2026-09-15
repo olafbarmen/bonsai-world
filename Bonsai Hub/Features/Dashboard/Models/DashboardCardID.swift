@@ -23,6 +23,8 @@ enum DashboardCardID: String, CaseIterable, Identifiable, Hashable, Codable, Sen
     case tasks
     /// Live library record gaps (photo, status, species).
     case library
+    /// Knowledge module entry points (Handbook, Species, Fertilizer, Soil, …).
+    case knowledge
     /// Live recent Work history.
     case recentWork
 
@@ -34,13 +36,14 @@ enum DashboardCardID: String, CaseIterable, Identifiable, Hashable, Codable, Sen
         case .alerts: "Alerts"
         case .collectionOverview: "Collection Overview"
         case .upcoming: "Upcoming"
-        case .inventoryStatus: "Inventory Status"
+        case .inventoryStatus: "Inventory Alerts"
         case .repotting: "Repotting"
         case .treesRequiringAttention: "Trees Requiring Attention"
         case .weather: "Weather"
         case .quickStatistics: "Quick Statistics"
         case .tasks: "Tasks"
         case .library: "Library"
+        case .knowledge: "Knowledge"
         case .recentWork: "Recent Work"
         }
     }
@@ -58,6 +61,7 @@ enum DashboardCardID: String, CaseIterable, Identifiable, Hashable, Codable, Sen
         case .quickStatistics: "chart.bar"
         case .tasks: "checklist"
         case .library: "books.vertical"
+        case .knowledge: "book"
         case .recentWork: "clock.arrow.circlepath"
         }
     }
@@ -76,6 +80,7 @@ enum DashboardCardID: String, CaseIterable, Identifiable, Hashable, Codable, Sen
         case .quickStatistics: "Opens Garden"
         case .tasks: "Opens Tasks"
         case .library: "Opens Garden"
+        case .knowledge: "Opens Knowledge"
         case .recentWork: "Opens Tree"
         }
     }

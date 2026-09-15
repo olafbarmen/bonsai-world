@@ -2,7 +2,7 @@
 //  TreePhotoIndex.swift
 //  Bonsai World
 //
-//  Persists Tree ↔ photo membership until full Tree database persistence lands.
+//  Derived cache of Tree ↔ photo membership. Tree fields are the source of truth.
 //
 
 import Foundation
@@ -15,9 +15,24 @@ struct TreePhotoBinding: Codable, Hashable, Sendable {
 
 struct TreePhotoIndex: Codable, Hashable, Sendable {
     var bindings: [TreePhotoBinding]
+    /// When true, Tree is SSOT and the index must never fill Trees again.
+    /// Legacy libraries start false so empty Trees can import from the index once.
+    var treeIsPhotoSourceOfTruth: Bool
 
-    init(bindings: [TreePhotoBinding] = []) {
+    init(bindings: [TreePhotoBinding] = [], treeIsPhotoSourceOfTruth: Bool = false) {
         self.bindings = bindings
+        self.treeIsPhotoSourceOfTruth = treeIsPhotoSourceOfTruth
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case bindings
+        case treeIsPhotoSourceOfTruth
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        bindings = try container.decodeIfPresent([TreePhotoBinding].self, forKey: .bindings) ?? []
+        treeIsPhotoSourceOfTruth = try container.decodeIfPresent(Bool.self, forKey: .treeIsPhotoSourceOfTruth) ?? false
     }
 
     func binding(for treeID: UUID) -> TreePhotoBinding? {
@@ -30,5 +45,10 @@ struct TreePhotoIndex: Codable, Hashable, Sendable {
         } else {
             bindings.append(binding)
         }
+    }
+
+    /// Drops the binding for a deleted Tree. Gallery image assets are not affected.
+    mutating func removeBinding(treeID: UUID) {
+        bindings.removeAll { $0.treeID == treeID }
     }
 }

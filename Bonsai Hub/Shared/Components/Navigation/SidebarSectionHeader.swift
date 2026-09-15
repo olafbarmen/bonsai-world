@@ -14,9 +14,9 @@ struct SidebarSectionHeader: View {
     var topPadding: CGFloat = 0
 
     var body: some View {
-        Text(title)
+            Text(title)
             .font(.system(size: 10, weight: .medium))
-            .foregroundStyle(.secondary.opacity(0.85))
+            .foregroundStyle(BonsaiWorldColors.sidebarTextSecondary)
             .textCase(.uppercase)
             .tracking(1.1)
             .padding(.top, topPadding)

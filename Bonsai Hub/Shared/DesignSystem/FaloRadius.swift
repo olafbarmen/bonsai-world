@@ -12,6 +12,8 @@ enum FaloRadius {
     static let small: CGFloat = 6
     static let medium: CGFloat = 10
     static let large: CGFloat = 12
+    /// Alias for raised informational surfaces.
+    static var card: CGFloat { large }
     /// Primary media / hero surfaces (Photos-like inspector).
     static let hero: CGFloat = 16
 }

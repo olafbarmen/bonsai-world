@@ -1,0 +1,45 @@
+---
+description: Workspace page titles — VStack chrome, no under-toolbar clip
+alwaysApply: true
+---
+
+# Workspace navigation titles
+
+Every **main module page** (sidebar destination) must use the shared workspace title chrome.
+
+## Required pattern
+
+```swift
+.bonsaiWorkspaceNavigationTitle("Module Name")
+```
+
+Defined in `BonsaiWorldChrome.swift`. It:
+
+- Places the section title in a real `VStack` **above** workspace content (not `safeAreaInset`)
+- Hides the window title via `bonsaiWorldChrome()` → `.toolbar(removing: .title)`
+- Aligns leading inset with `DashboardSpacing.pageInset` (or 0 when `faloShellProvidesLeadingInset` is set)
+
+## Why VStack (not safeAreaInset)
+
+`HSplitView` / some split children **ignore** top `safeAreaInset` and draw under the window toolbar, clipping the first lines (seen on Species Library detail). A `VStack` forces content below the title on every page that uses the modifier.
+
+## Do
+
+- Use `bonsaiWorkspaceNavigationTitle` on Trees, Dashboard, Species Library, Knowledge pages, Tasks, Yamadori, Seeds, Soil, Images, Care, Inventory list hubs, Collections, Locations, Work, Settings roots, and new sidebar destinations
+- Keep sheet / dialog titles as `.navigationTitle("…")` (modals are not workspace pages)
+- When embedding `TreeDetailView` under library chrome, set `showsNavigationTitle: false` so it does not add a second title
+- For Settings panes that still clip under the toolbar without this modifier’s layout help, keep `.safeAreaPadding(.top)` (see Botanical Library)
+
+## Do not
+
+- Put the workspace title in `ToolbarItem(placement: .navigation)` — section separator after the label
+- Use `safeAreaInset(edge: .top)` for the workspace title around `HSplitView` / Species Library
+- Use `ignoresSafeArea(.container, edges: .top)` around `GeometryReader` workspaces (Dashboard crash)
+- Wrap title chrome in `GeometryReader` for height
+- Add horizontal rules under the page title
+
+## New pages
+
+1. Prefer the two-column shell (`NavigationSplitView` + `splitDetail`) used by Trees / Dashboard
+2. Apply `.bonsaiWorkspaceNavigationTitle("…")` once on the workspace root
+3. Do not add a title underline or column-title hairline

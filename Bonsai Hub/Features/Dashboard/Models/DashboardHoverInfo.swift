@@ -24,7 +24,7 @@ extension DashboardPlaceholderData {
         case .todaysCare:
             DashboardHoverInfo(
                 title: "Today’s Care",
-                lines: ["Replaced by the Tasks card.", "No function yet."]
+                lines: ["Replaced by the Tasks card.", "Hidden from the live Dashboard."]
             )
         case .alerts:
             DashboardHoverInfo(
@@ -54,13 +54,22 @@ extension DashboardPlaceholderData {
             )
         case .inventoryStatus:
             DashboardHoverInfo(
-                title: "Inventory Status",
-                lines: ["No function yet.", "Needs Inventory 2.0"]
+                title: "Inventory Alerts",
+                lines: [
+                    "Low stock across Soil, Wire, Tools, Chemicals, Consumables, Fertilizers",
+                    "Same Low rule as each Inventory stock list",
+                    "Tap opens the stock item"
+                ]
             )
         case .repotting:
             DashboardHoverInfo(
                 title: "Repotting",
-                lines: ["No function yet.", "Repot due will come from Tasks / Work Types"]
+                lines: [
+                    "Repotting Tasks overdue through This Month",
+                    "Same rule as Needs Repotting",
+                    "Overdue opens Tasks → Overdue",
+                    "This Month opens Tasks → This Month"
+                ]
             )
         case .treesRequiringAttention:
             DashboardHoverInfo(
@@ -82,8 +91,12 @@ extension DashboardPlaceholderData {
             )
         case .quickStatistics:
             DashboardHoverInfo(
-                title: "Quick statistics",
-                lines: ["No function yet."]
+                title: "Quick Statistics",
+                lines: [
+                    "Same counts as the Stat Strip",
+                    "My Trees, Development Trees, Yamadori, Tasks Today",
+                    "Tap opens the matching destination"
+                ]
             )
         case .tasks:
             DashboardHoverInfo(
@@ -101,6 +114,14 @@ extension DashboardPlaceholderData {
                 lines: [
                     "Trees missing photo, status, or species",
                     "Tap opens Garden → Trees"
+                ]
+            )
+        case .knowledge:
+            DashboardHoverInfo(
+                title: "Knowledge",
+                lines: [
+                    "Species Library, Bonsai Handbook, Fertilizer Guides",
+                    "Tap opens the Knowledge destination"
                 ]
             )
         case .recentWork:

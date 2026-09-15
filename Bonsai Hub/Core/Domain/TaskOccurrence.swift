@@ -20,7 +20,16 @@ struct TaskOccurrence: Identifiable, Hashable, Sendable {
     let source: Source
     let title: String
     let workTypeID: UUID
-    let treeID: UUID
+    /// Tree target when this occurrence is tree-scoped.
+    let treeID: UUID?
+    /// Seed Batch target when this occurrence is nursery-scoped.
+    let seedBatchID: UUID?
+    /// Yamadori trip target when this occurrence is nursery-scoped.
+    let yamadoriID: UUID?
+    /// Nursery Propagation / Field Tree project target.
+    let nurseryPropagationProjectID: UUID?
+    /// Library inventory scope when this occurrence is not tree/nursery-scoped.
+    let libraryInventoryKind: CareTaskLibraryInventoryKind?
     let dueDate: Date
     /// Fixes which fertilizer product this occurrence uses, when the source
     /// schedule pins one. Part of the de-duplication key — see
@@ -39,32 +48,110 @@ struct TaskOccurrence: Identifiable, Hashable, Sendable {
     }
 
     /// De-duplication key: two occurrences that would do the *same physical
-    /// thing* to the *same tree* collapse into one row, however many Tasks or
-    /// Schedules independently produced them (e.g. a Tree-level watering rule
-    /// and a Location-level watering rule covering the same tree).
+    /// thing* to the *same subject* collapse into one row.
     struct DedupeKey: Hashable {
-        let treeID: UUID
+        let treeID: UUID?
+        let seedBatchID: UUID?
+        let yamadoriID: UUID?
+        let nurseryPropagationProjectID: UUID?
+        let libraryInventoryKind: CareTaskLibraryInventoryKind?
         let workTypeID: UUID
         let fertilizerTypeID: UUID?
         let dayPart: CareDayPart?
     }
 
     var dedupeKey: DedupeKey {
-        DedupeKey(treeID: treeID, workTypeID: workTypeID, fertilizerTypeID: fertilizerTypeID, dayPart: dayPart)
+        DedupeKey(
+            treeID: treeID,
+            seedBatchID: seedBatchID,
+            yamadoriID: yamadoriID,
+            nurseryPropagationProjectID: nurseryPropagationProjectID,
+            libraryInventoryKind: libraryInventoryKind,
+            workTypeID: workTypeID,
+            fertilizerTypeID: fertilizerTypeID,
+            dayPart: dayPart
+        )
     }
 
-    /// One occurrence per Tree the Task covers (mirrors Schedules) — a Task
-    /// created for several Trees at once surfaces once per Tree, so it shows
-    /// up correctly in every one of those Trees' "Upcoming Tasks" and
-    /// participates in de-duplication per Tree. Completing any one of them
-    /// still completes the whole underlying Task (all Trees at once) — see
-    /// ``TaskService/completeTaskInstantly(_:)``.
+    /// One occurrence per Tree the Task covers (mirrors Schedules).
     init(task: CareTask, treeID: UUID, isInstant: Bool) {
         self.id = "\(task.id.uuidString)-\(treeID.uuidString)"
         self.source = .task(task)
         self.title = task.title
         self.workTypeID = task.workTypeID
         self.treeID = treeID
+        self.seedBatchID = nil
+        self.yamadoriID = nil
+        self.nurseryPropagationProjectID = nil
+        self.libraryInventoryKind = nil
+        self.dueDate = task.dueDate
+        self.fertilizerTypeID = nil
+        self.dayPart = nil
+        self.isInstant = isInstant
+    }
+
+    /// One occurrence per Seed Batch the Task covers.
+    init(task: CareTask, seedBatchID: UUID, isInstant: Bool) {
+        self.id = "\(task.id.uuidString)-seed-\(seedBatchID.uuidString)"
+        self.source = .task(task)
+        self.title = task.title
+        self.workTypeID = task.workTypeID
+        self.treeID = nil
+        self.seedBatchID = seedBatchID
+        self.yamadoriID = nil
+        self.nurseryPropagationProjectID = nil
+        self.libraryInventoryKind = nil
+        self.dueDate = task.dueDate
+        self.fertilizerTypeID = nil
+        self.dayPart = nil
+        self.isInstant = isInstant
+    }
+
+    /// One occurrence per Yamadori trip the Task covers.
+    init(task: CareTask, yamadoriID: UUID, isInstant: Bool) {
+        self.id = "\(task.id.uuidString)-yamadori-\(yamadoriID.uuidString)"
+        self.source = .task(task)
+        self.title = task.title
+        self.workTypeID = task.workTypeID
+        self.treeID = nil
+        self.seedBatchID = nil
+        self.yamadoriID = yamadoriID
+        self.nurseryPropagationProjectID = nil
+        self.libraryInventoryKind = nil
+        self.dueDate = task.dueDate
+        self.fertilizerTypeID = nil
+        self.dayPart = nil
+        self.isInstant = isInstant
+    }
+
+    /// One occurrence per Nursery Propagation / Field Tree project the Task covers.
+    init(task: CareTask, nurseryPropagationProjectID: UUID, isInstant: Bool) {
+        self.id = "\(task.id.uuidString)-prop-\(nurseryPropagationProjectID.uuidString)"
+        self.source = .task(task)
+        self.title = task.title
+        self.workTypeID = task.workTypeID
+        self.treeID = nil
+        self.seedBatchID = nil
+        self.yamadoriID = nil
+        self.nurseryPropagationProjectID = nurseryPropagationProjectID
+        self.libraryInventoryKind = nil
+        self.dueDate = task.dueDate
+        self.fertilizerTypeID = nil
+        self.dayPart = nil
+        self.isInstant = isInstant
+    }
+
+    /// Library inventory Task — one row for the whole library (no Tree).
+    init(task: CareTask, libraryInventoryKind: CareTaskLibraryInventoryKind, isInstant: Bool) {
+        self.id = "\(task.id.uuidString)-library-\(libraryInventoryKind.rawValue)"
+        self.source = .task(task)
+        self.title = task.title
+        self.workTypeID = task.workTypeID
+        self.treeID = nil
+        self.seedBatchID = nil
+        self.yamadoriID = nil
+        self.nurseryPropagationProjectID = nil
+        self.libraryInventoryKind = libraryInventoryKind
         self.dueDate = task.dueDate
         self.fertilizerTypeID = nil
         self.dayPart = nil
@@ -82,6 +169,10 @@ struct TaskOccurrence: Identifiable, Hashable, Sendable {
         self.source = .schedule(scheduleID: schedule.id)
         self.workTypeID = schedule.workTypeID
         self.treeID = treeID
+        self.seedBatchID = nil
+        self.yamadoriID = nil
+        self.nurseryPropagationProjectID = nil
+        self.libraryInventoryKind = nil
         self.dueDate = dueDate
         self.fertilizerTypeID = schedule.fertilizerTypeID
         self.dayPart = dayPart

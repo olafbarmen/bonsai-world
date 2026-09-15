@@ -2,7 +2,9 @@
 //  DetailHeader.swift
 //  Bonsai World
 //
-//  Reusable Detail page header: title, type/subtitle, Edit, Quick Actions menu.
+//  Reusable Detail page header: title, subtitle, optional Edit / quick-actions menu.
+//  Prefer Context Tools in the sidebar for module actions; leave quickActions empty
+//  when the header should show title only.
 //
 
 import SwiftUI
@@ -11,7 +13,7 @@ struct DetailHeader: View {
     let title: String
     var subtitle: String?
     var onEdit: (() -> Void)?
-    /// Placeholder Quick Actions for the current entity. Empty shows a disabled menu.
+    /// Context Tools for the current entity. Empty shows a disabled menu.
     var quickActions: [ActionDefinition] = []
     var onQuickAction: ((ActionDefinition) -> Void)?
 
@@ -40,10 +42,8 @@ struct DetailHeader: View {
                         .keyboardShortcut("e", modifiers: [.command])
                 }
 
-                Menu {
-                    if quickActions.isEmpty {
-                        Text("No Actions")
-                    } else {
+                if !quickActions.isEmpty {
+                    Menu {
                         ForEach(quickActions) { action in
                             Button {
                                 trigger(action)
@@ -52,14 +52,14 @@ struct DetailHeader: View {
                             }
                             .disabled(!action.isEnabled)
                         }
+                    } label: {
+                        Label("Context Tools", systemImage: "ellipsis.circle")
+                            .labelStyle(.iconOnly)
                     }
-                } label: {
-                    Label("Quick Actions", systemImage: "ellipsis.circle")
-                        .labelStyle(.iconOnly)
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .help("Context Tools")
                 }
-                .menuStyle(.borderlessButton)
-                .help("Quick Actions")
-                .disabled(quickActions.isEmpty)
             }
         }
         .accessibilityElement(children: .contain)

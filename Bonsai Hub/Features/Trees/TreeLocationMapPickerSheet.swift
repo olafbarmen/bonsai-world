@@ -205,7 +205,7 @@ struct TreeLocationMapPickerSheet: View {
             if let validationMessage {
                 Text(validationMessage)
                     .font(FaloTypography.caption)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(BonsaiWorldColors.statusAttention)
             }
 
             if let statusMessage {
@@ -220,7 +220,7 @@ struct TreeLocationMapPickerSheet: View {
         }
         .padding(FaloSpacing.xLarge)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(.windowBackground)
+        .faloWorkspaceCanvas()
     }
 
     private var createLocationForm: some View {

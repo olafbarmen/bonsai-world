@@ -3,9 +3,8 @@
 //  Bonsai World
 //
 //  Reference Data — Fertilizer — one entry per product the grower actually uses.
-//  Name carries product/brand identity together (e.g. "BioGold Original"); Form,
-//  Release, and Origin are independent, fixed classifications so future fertilizing
-//  rules per Tree can match on any axis without being locked to flat combinations.
+//  Brand (optional) + Name (product). Form, Release, and Origin are independent
+//  classifications so fertilizing rules can match on any axis.
 //
 
 import Foundation
@@ -66,21 +65,24 @@ enum FertilizerOrigin: String, CaseIterable, Codable, Identifiable, Hashable, Se
 }
 
 /// A specific fertilizer product the grower registers once and reuses everywhere
-/// (Work registration pickers, future fertilizing rules per Tree).
-struct FertilizerType: Identifiable, Codable, Hashable, Sendable {
+/// (Work registration pickers, Inventory stock, future fertilizing rules per Tree).
+struct FertilizerType: Identifiable, Hashable, Sendable {
     var id: UUID
-    /// Product identity as the grower knows it — carries brand, e.g. "BioGold Original".
+    /// Optional brand — e.g. "BioGold". Combined with ``name`` in ``displayName``.
+    var brand: String
+    /// Product name as the grower knows it — e.g. "Original".
     var name: String
     var form: FertilizerForm
     var release: FertilizerRelease
     var origin: FertilizerOrigin
-    /// Free-text NPK label, e.g. "6-3-6" — formats vary too much across brands for a strict numeric model.
+    /// Stored NPK label, e.g. "6-3-6" — built from editor N / P / K fields.
     var npk: String
     var sortOrder: Int
     var isActive: Bool
 
     init(
         id: UUID = UUID(),
+        brand: String = "",
         name: String,
         form: FertilizerForm = .pellet,
         release: FertilizerRelease = .slowRelease,
@@ -90,6 +92,7 @@ struct FertilizerType: Identifiable, Codable, Hashable, Sendable {
         isActive: Bool = true
     ) {
         self.id = id
+        self.brand = brand
         self.name = name
         self.form = form
         self.release = release
@@ -99,7 +102,16 @@ struct FertilizerType: Identifiable, Codable, Hashable, Sendable {
         self.isActive = isActive
     }
 
-    /// "Origin / Form / Release" summary for list rows and pickers, e.g. "Organic / Pellet / Slow Release".
+    /// Brand + Name for lists and pickers — e.g. "BioGold Original".
+    var displayName: String {
+        let brand = brand.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !brand.isEmpty, !name.isEmpty { return "\(brand) \(name)" }
+        if !name.isEmpty { return name }
+        return brand
+    }
+
+    /// "Origin / Form / Release" summary for list rows and pickers.
     var classificationSummary: String {
         "\(origin.title) / \(form.title) / \(release.title)"
     }
@@ -107,12 +119,17 @@ struct FertilizerType: Identifiable, Codable, Hashable, Sendable {
     static func mapRecords(_ items: [FertilizerType]) -> [ReferenceDataRecord] {
         items
             .map {
-                ReferenceDataRecord(
+                var subtitle = $0.classificationSummary
+                let npk = $0.npk.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !npk.isEmpty {
+                    subtitle = "\(subtitle) · \(npk)"
+                }
+                return ReferenceDataRecord(
                     id: $0.id,
-                    name: $0.name,
+                    name: $0.displayName,
                     sortOrder: $0.sortOrder,
                     isActive: $0.isActive,
-                    subtitle: $0.classificationSummary
+                    subtitle: subtitle
                 )
             }
             .sorted {
@@ -129,45 +146,120 @@ struct FertilizerType: Identifiable, Codable, Hashable, Sendable {
     static func delete(_ id: UUID, from array: inout [FertilizerType]) {
         array.removeAll { $0.id == id }
     }
+
+    /// Parse free-text NPK into N / P / K (supports "5.5-6.5-3.5").
+    static func parseNPK(_ npk: String) -> (n: Double?, p: Double?, k: Double?) {
+        let parts = npk
+            .split(separator: "-", omittingEmptySubsequences: false)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+        func value(at index: Int) -> Double? {
+            guard parts.indices.contains(index), !parts[index].isEmpty else { return nil }
+            return Double(parts[index].replacingOccurrences(of: ",", with: "."))
+        }
+        return (value(at: 0), value(at: 1), value(at: 2))
+    }
+
+    /// Build stored NPK from optional N / P / K. Empty when all unset.
+    static func formatNPK(n: Double?, p: Double?, k: Double?) -> String {
+        guard n != nil || p != nil || k != nil else { return "" }
+        func part(_ value: Double?) -> String {
+            guard let value else { return "" }
+            return Self.formatNPKComponent(value)
+        }
+        return "\(part(n))-\(part(p))-\(part(k))"
+    }
+
+    private static func formatNPKComponent(_ value: Double) -> String {
+        if value.rounded() == value {
+            return String(Int(value))
+        }
+        return String(format: "%g", value)
+    }
+}
+
+extension FertilizerType: Codable {
+    enum CodingKeys: String, CodingKey {
+        case id, brand, name, form, release, origin, npk, sortOrder, isActive
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        brand = try c.decodeIfPresent(String.self, forKey: .brand) ?? ""
+        name = try c.decode(String.self, forKey: .name)
+        form = try c.decodeIfPresent(FertilizerForm.self, forKey: .form) ?? .pellet
+        release = try c.decodeIfPresent(FertilizerRelease.self, forKey: .release) ?? .slowRelease
+        origin = try c.decodeIfPresent(FertilizerOrigin.self, forKey: .origin) ?? .organic
+        npk = try c.decodeIfPresent(String.self, forKey: .npk) ?? ""
+        sortOrder = try c.decodeIfPresent(Int.self, forKey: .sortOrder) ?? 0
+        isActive = try c.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encode(brand, forKey: .brand)
+        try c.encode(name, forKey: .name)
+        try c.encode(form, forKey: .form)
+        try c.encode(release, forKey: .release)
+        try c.encode(origin, forKey: .origin)
+        try c.encode(npk, forKey: .npk)
+        try c.encode(sortOrder, forKey: .sortOrder)
+        try c.encode(isActive, forKey: .isActive)
+    }
 }
 
 /// Editor draft for Add / Edit Fertilizer Type.
 struct FertilizerTypeDraft: Identifiable, Hashable, Sendable {
     var id: UUID
     var entityID: UUID?
+    var brand: String
     var name: String
     var form: FertilizerForm
     var release: FertilizerRelease
     var origin: FertilizerOrigin
-    var npk: String
+    var nitrogen: Double?
+    var phosphorus: Double?
+    var potassium: Double?
     var sortOrder: Int
     var isActive: Bool
 
     var isNew: Bool { entityID == nil }
 
+    var npk: String {
+        FertilizerType.formatNPK(n: nitrogen, p: phosphorus, k: potassium)
+    }
+
     static func blank(sortOrder: Int) -> FertilizerTypeDraft {
         FertilizerTypeDraft(
             id: UUID(),
             entityID: nil,
+            brand: "",
             name: "",
             form: .pellet,
             release: .slowRelease,
             origin: .organic,
-            npk: "",
+            nitrogen: nil,
+            phosphorus: nil,
+            potassium: nil,
             sortOrder: sortOrder,
             isActive: true
         )
     }
 
     static func from(_ fertilizerType: FertilizerType) -> FertilizerTypeDraft {
-        FertilizerTypeDraft(
+        let parsed = FertilizerType.parseNPK(fertilizerType.npk)
+        return FertilizerTypeDraft(
             id: UUID(),
             entityID: fertilizerType.id,
+            brand: fertilizerType.brand,
             name: fertilizerType.name,
             form: fertilizerType.form,
             release: fertilizerType.release,
             origin: fertilizerType.origin,
-            npk: fertilizerType.npk,
+            nitrogen: parsed.n,
+            phosphorus: parsed.p,
+            potassium: parsed.k,
             sortOrder: fertilizerType.sortOrder,
             isActive: fertilizerType.isActive
         )

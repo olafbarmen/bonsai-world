@@ -90,21 +90,14 @@ enum WorkingDomainCatalog {
                 status: .active,
                 futureResponsibilities: [
                     "Seeds",
+                    "Stratification",
                     "Germination",
                     "Cuttings",
-                    "Air Layers",
-                    "Grafting",
-                    "Yamadori",
-                    "Young Trees",
-                    "Development",
-                    "Trunk Building",
-                    "Ramification",
-                    "Refinement",
-                    "Exhibition Preparation"
+                    "Air Layers"
                 ],
                 contributingSections: [
-                    .nurserySeeds, .nurseryCuttings, .nurseryAirLayers,
-                    .nurseryGrafting, .nurseryYamadori, .nurseryDevelopment
+                    .nurserySeeds,
+                    .nurseryCuttings, .nurseryAirLayers
                 ],
                 feedsGrowingIntelligence: true
             )

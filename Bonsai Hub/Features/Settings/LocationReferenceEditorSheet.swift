@@ -89,7 +89,7 @@ struct LocationReferenceEditorSheet: View {
                 if let validationMessage {
                     Section {
                         Text(validationMessage)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(BonsaiWorldColors.statusAttention)
                             .font(FaloTypography.body)
                     }
                 }

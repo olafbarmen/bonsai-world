@@ -36,7 +36,7 @@ struct ModulePlaceholderView: View {
             .frame(maxWidth: 420, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(.windowBackground)
-        .navigationTitle(title)
+        .faloWorkspaceCanvas()
+        .bonsaiWorkspaceNavigationTitle(title)
     }
 }

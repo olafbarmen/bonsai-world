@@ -5,6 +5,9 @@
 //  Professional default Work Types library (Reference Data → Work → Work Types).
 //  Users may add unlimited custom types; there is no built-in vs custom split.
 //
+//  Seed IDs use sequential `n` — keep call order stable so existing Work / Task
+//  records keep resolving the same Work Type UUIDs.
+//
 
 import Foundation
 
@@ -51,22 +54,22 @@ enum WorkTypePreviewData {
         }
 
         return [
-            // Maintenance
+            // n = 1…17 — categories updated; order frozen for stable seed IDs
             next("Watering", .maintenance, behaviour: tasksCompleteInstantly),
             next("Fertilizing", .maintenance, behaviour: requiresFertilizer),
             next("Repotting", .maintenance),
             next("Root Pruning", .maintenance),
-            next("Branch Pruning", .maintenance),
-            next("Wiring", .maintenance),
-            next("Wire Removal", .maintenance),
-            next("Defoliation", .maintenance),
-            next("Partial Defoliation", .maintenance),
-            next("Pinching", .maintenance),
-            next("Candle Cutting", .maintenance),
-            next("Needle Plucking", .maintenance),
-            next("Bud Selection", .maintenance),
-            next("Deadwood Work", .maintenance),
-            next("Carving", .maintenance),
+            next("Branch Pruning", .shaping),
+            next("Wiring", .shaping),
+            next("Wire Removal", .shaping),
+            next("Defoliation", .shaping),
+            next("Partial Defoliation", .shaping),
+            next("Pinching", .shaping),
+            next("Candle Cutting", .shaping),
+            next("Needle Plucking", .shaping),
+            next("Bud Selection", .shaping),
+            next("Deadwood Work", .shaping),
+            next("Carving", .shaping),
             next("Cleaning", .maintenance),
             next("Moss Maintenance", .maintenance),
 
@@ -89,17 +92,17 @@ enum WorkTypePreviewData {
             next("Shade Removal", .seasonal),
             next("Heat Protection", .seasonal),
 
-            // Propagation
+            // Propagation — Grafting moved to Shaping (same seed n as before)
             next("Seed Sowing", .propagation),
             next("Stratification", .propagation),
             next("Scarification", .propagation),
             next("Cutting", .propagation),
             next("Air Layer", .propagation),
-            next("Grafting", .propagation),
+            next("Grafting", .shaping),
             next("Division", .propagation),
             next("Rooting", .propagation),
 
-            // Styling
+            // Styling — preparation / presentation
             next("Initial Styling", .styling),
             next("Restyling", .styling),
             next("Refinement", .styling),
@@ -111,6 +114,12 @@ enum WorkTypePreviewData {
             next("Measurement", .other),
             next("Valuation", .other),
             next("Collection Review", .other),
+            next("Soil Stocktake", .other, behaviour: {
+                var flags = WorkTypeBehaviourFlags.default
+                flags.affectsInventory = true
+                flags.createsTreeHistory = false
+                return flags
+            }()),
         ]
     }()
 }

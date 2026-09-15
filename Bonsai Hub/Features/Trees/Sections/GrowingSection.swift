@@ -13,7 +13,7 @@ struct GrowingSection: View {
     @Binding var styleID: UUID?
     @Binding var locationID: UUID?
     @Binding var healthStatus: TreeHealthStatus
-    @Binding var treeStatusID: UUID?
+    @Binding var treeStageID: UUID?
     @Binding var sizeClassID: UUID?
     @Binding var lightConditionID: UUID?
     @Binding var soilMixID: UUID?
@@ -21,7 +21,7 @@ struct GrowingSection: View {
     let styles: [DetailPickerOption]
     /// Active Locations from Reference Data (alternative picker).
     let locations: [DetailPickerOption]
-    let treeStatuses: [DetailPickerOption]
+    let treeStages: [DetailPickerOption]
     let sizeClasses: [DetailPickerOption]
     let lightConditions: [DetailPickerOption]
     let soilMixes: [DetailPickerOption]
@@ -88,10 +88,10 @@ struct GrowingSection: View {
                 locationPlacementBlock
                 healthPicker
                 DetailOptionPickerRow(
-                    label: "Growing Status",
-                    selection: $treeStatusID,
-                    placeholder: "Select Growing Status",
-                    options: treeStatuses
+                    label: "Tree Stage",
+                    selection: $treeStageID,
+                    placeholder: "Select Tree Stage",
+                    options: treeStages
                 )
                 DetailOptionPickerRow(
                     label: "Size Class",
@@ -115,8 +115,8 @@ struct GrowingSection: View {
                 DetailLabeledRow(label: "Location", value: locationDisplayName)
                 DetailLabeledRow(label: "Health", value: healthStatus.title)
                 DetailLabeledRow(
-                    label: "Growing Status",
-                    value: DetailOptionPickerRow.displayName(for: treeStatusID, in: treeStatuses)
+                    label: "Tree Stage",
+                    value: DetailOptionPickerRow.displayName(for: treeStageID, in: treeStages)
                 )
                 DetailLabeledRow(
                     label: "Size Class",

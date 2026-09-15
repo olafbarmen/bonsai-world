@@ -9,12 +9,9 @@ import Foundation
 
 enum ImageQuickActionCommand: String, Hashable, Sendable {
     case importPhotos
-    case attachToTree
     case crop
     case rotate
     case setPrimary
-    case setFeatured
-    case compare
     case delete
 }
 
