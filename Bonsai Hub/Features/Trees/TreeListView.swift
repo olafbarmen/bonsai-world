@@ -100,8 +100,11 @@ struct TreeListView: View {
     @Environment(\.openWindow) private var openWindow
 
     @State private var sortState = TreeListSortState()
-    /// Local selection — Table must not bind directly to `@Environment(AppState)` (recycles rows without environment during fast scroll).
-    @State private var tableSelection: Set<Tree.ID> = []
+    /// Separate selections per Table — sharing one Binding across My Trees + Former Trees can hang SwiftUI.
+    @State private var inCareSelection: Set<Tree.ID> = []
+    @State private var formerSelection: Set<Tree.ID> = []
+    /// True while syncing Table selection from AppState (ignore Table → AppState echoes).
+    @State private var isApplyingExternalSelection = false
 
     var body: some View {
         Group {
@@ -145,9 +148,11 @@ struct TreeListView: View {
         .padding(.horizontal, FaloSpacing.small)
     }
 
-    /// One scroll, two inset lists. Warm canvas fills the gap between them.
+    /// Vertical scroll only in the VSplit list pane. Dual-axis ScrollView clipped the
+    /// list and hid the scrollbar; nested horizontal ScrollView stole the wheel.
     private var listsScroll: some View {
-        ScrollView {
+        let minWidth = Self.tableMinimumWidth(for: columnConfiguration.visibleColumnIDs)
+        return ScrollView(.vertical, showsIndicators: true) {
             VStack(alignment: .leading, spacing: FaloSpacing.xxLarge) {
                 if showsOverviewFilterChip {
                     overviewFilterChipBar
@@ -157,6 +162,7 @@ struct TreeListView: View {
                     title: scope.inCareSectionTitle,
                     subtitle: nil,
                     rows: sortedInCareRows,
+                    selection: $inCareSelection,
                     emptyMessage: scope.emptyInCareMessage
                 )
                 if let formerTitle = scope.formerSectionTitle,
@@ -166,13 +172,14 @@ struct TreeListView: View {
                         title: formerTitle,
                         subtitle: scope.formerSectionSubtitle,
                         rows: sortedFormerRows,
+                        selection: $formerSelection,
                         emptyMessage: nil
                     )
                 }
             }
             .padding(.top, FaloSpacing.small)
             .padding(.bottom, FaloSpacing.xLarge)
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minWidth: minWidth, maxWidth: .infinity, alignment: .leading)
         }
         .faloScrollSurface()
         .onAppear {
@@ -181,10 +188,11 @@ struct TreeListView: View {
         .onChange(of: appState.selectedTreeID) { _, _ in
             syncTableSelectionFromAppState()
         }
-        .onChange(of: tableSelection) { _, newValue in
-            let nextID = newValue.first
-            guard appState.selectedTreeID != nextID else { return }
-            appState.selectedTreeID = nextID
+        .onChange(of: inCareSelection) { _, newValue in
+            handleTableSelectionChange(newValue, clearing: $formerSelection)
+        }
+        .onChange(of: formerSelection) { _, newValue in
+            handleTableSelectionChange(newValue, clearing: $inCareSelection)
         }
     }
 
@@ -193,6 +201,7 @@ struct TreeListView: View {
         title: String,
         subtitle: String?,
         rows: [TreeListRow],
+        selection: Binding<Set<Tree.ID>>,
         emptyMessage: String? = nil
     ) -> some View {
         VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
@@ -216,7 +225,8 @@ struct TreeListView: View {
                     .padding(.horizontal, FaloSpacing.medium)
                     .padding(.bottom, FaloSpacing.small)
             } else if !rows.isEmpty {
-                horizontallyScrollableTreesTable(rows)
+                treesTable(rows, selection: selection)
+                    .frame(height: tableHeight(for: rows.count))
             }
         }
     }
@@ -231,22 +241,12 @@ struct TreeListView: View {
         columns.reduce(CGFloat(24)) { $0 + $1.minimumWidth }
     }
 
-    /// Vertical list scroll stays outer; this enables sideways reading when columns exceed width.
-    private func horizontallyScrollableTreesTable(_ rows: [TreeListRow]) -> some View {
-        let minWidth = Self.tableMinimumWidth(for: columnConfiguration.visibleColumnIDs)
-        let height = tableHeight(for: rows.count)
-        return GeometryReader { geo in
-            ScrollView(.horizontal, showsIndicators: true) {
-                treesTable(rows)
-                    .frame(width: max(geo.size.width, minWidth), height: height)
-            }
-        }
-        .frame(height: height)
-    }
-
-    private func treesTable(_ rows: [TreeListRow]) -> some View {
+    private func treesTable(
+        _ rows: [TreeListRow],
+        selection: Binding<Set<Tree.ID>>
+    ) -> some View {
         let visibleColumns = columnConfiguration.visibleColumnIDs
-        return Table(rows, selection: $tableSelection, sortOrder: sortOrder) {
+        return Table(rows, selection: selection, sortOrder: sortOrder) {
             // Indexed optionals (not ForEach) so column order follows configuration
             // without TableColumnBuilder / ForEach overload ambiguity.
             tableColumn(at: 0, visibleColumns: visibleColumns)
@@ -260,6 +260,7 @@ struct TreeListView: View {
         .tableStyle(.inset(alternatesRowBackgrounds: false))
         .faloWarmTableZebraRows()
         .environment(imageService)
+        // Outer ScrollView owns scrolling — Table must not nest another scroll.
         .scrollDisabled(true)
         .contextMenu(forSelectionType: Tree.ID.self) { selection in
             if selection.count == 1, let id = selection.first,
@@ -341,7 +342,11 @@ struct TreeListView: View {
     /// Opens a dedicated Tree Workspace window for a single selected Tree.
     private func openTreeWorkspace(for treeIDs: Set<Tree.ID>) {
         guard treeIDs.count == 1, let treeID = treeIDs.first else { return }
-        appState.selectedTreeID = treeID
+        Task { @MainActor in
+            if appState.selectedTreeID != treeID {
+                appState.selectedTreeID = treeID
+            }
+        }
         openWindow(
             id: TreeWorkspaceWindowContext.windowID,
             value: TreeWorkspaceWindowContext(treeID: treeID)
@@ -359,10 +364,53 @@ struct TreeListView: View {
         }
     }
 
+    private func handleTableSelectionChange(
+        _ newValue: Set<Tree.ID>,
+        clearing other: Binding<Set<Tree.ID>>
+    ) {
+        guard !isApplyingExternalSelection else { return }
+        if let id = newValue.first {
+            if !other.wrappedValue.isEmpty {
+                isApplyingExternalSelection = true
+                other.wrappedValue = []
+                isApplyingExternalSelection = false
+            }
+            Task { @MainActor in
+                guard appState.selectedTreeID != id else { return }
+                appState.selectedTreeID = id
+            }
+            return
+        }
+        // Cleared by user (not by selecting the other table).
+        guard other.wrappedValue.isEmpty else { return }
+        Task { @MainActor in
+            guard appState.selectedTreeID != nil else { return }
+            appState.selectedTreeID = nil
+        }
+    }
+
     private func syncTableSelectionFromAppState() {
-        let next = appState.selectedTreeID.map { Set([$0]) } ?? []
-        guard tableSelection != next else { return }
-        tableSelection = next
+        isApplyingExternalSelection = true
+        defer { isApplyingExternalSelection = false }
+
+        guard let id = appState.selectedTreeID else {
+            if !inCareSelection.isEmpty { inCareSelection = [] }
+            if !formerSelection.isEmpty { formerSelection = [] }
+            return
+        }
+
+        if scopedInCareTrees.contains(where: { $0.id == id }) {
+            let next = Set([id])
+            if inCareSelection != next { inCareSelection = next }
+            if !formerSelection.isEmpty { formerSelection = [] }
+        } else if scopedFormerTrees.contains(where: { $0.id == id }) {
+            let next = Set([id])
+            if formerSelection != next { formerSelection = next }
+            if !inCareSelection.isEmpty { inCareSelection = [] }
+        } else {
+            if !inCareSelection.isEmpty { inCareSelection = [] }
+            if !formerSelection.isEmpty { formerSelection = [] }
+        }
     }
 
     @TableColumnBuilder<TreeListRow, KeyPathComparator<TreeListRow>>

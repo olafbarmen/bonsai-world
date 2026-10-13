@@ -45,7 +45,7 @@ struct CareSeasonalView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: FaloSpacing.xxLarge + FaloSpacing.large) {
-                CareHonestyLine(text: CareHonesty.trackingOnlyLine)
+                CareHonestyLine(text: CareHonesty.seasonalTrackingLine)
                 headerActions
 
                 CareTwoColumnLayout {

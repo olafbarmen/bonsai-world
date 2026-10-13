@@ -24,7 +24,9 @@ struct TreeWorkspaceView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .faloWorkspaceCanvas()
-        .bonsaiWorkspaceNavigationTitle("Trees")
+        .bonsaiWorkspaceNavigationTitle(
+            appState.selectedSection == .shaping ? "Shaping" : "Trees"
+        )
     }
 
     @ViewBuilder

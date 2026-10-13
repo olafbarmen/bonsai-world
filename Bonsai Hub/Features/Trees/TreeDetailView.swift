@@ -26,6 +26,9 @@ struct TreeDetailView: View {
     @Environment(PotService.self) private var potService
     @Environment(YamadoriService.self) private var yamadoriService
     @Environment(TaskService.self) private var taskService
+    @Environment(WinterCareService.self) private var winterCareService
+    @Environment(RepottingCareService.self) private var repottingCare
+    @Environment(WeatherService.self) private var weatherService
     @Environment(AppSettings.self) private var appSettings
     @Environment(\.scenePhase) private var scenePhase
 
@@ -535,6 +538,7 @@ struct TreeDetailView: View {
             currentDraft.photoCaptureDates = [:]
             currentDraft.imageIDs = sortedImageIDs(currentDraft.imageIDs)
             try treeService.applyDetailDraft(id: tree.id, draft: currentDraft)
+            try? repottingCare.syncSchedule(for: tree.id)
             if let primary = currentDraft.primaryImageID {
                 imageService.setPrimaryFlag(id: primary)
             }
@@ -648,11 +652,8 @@ struct TreeDetailView: View {
         switch segment {
         case .overview where appState.selectedSection == .shaping:
             appState.selectedSection = .gardenTrees
-        case .shaping:
-            // Stay on Garden → Trees — Shaping is a Tree segment, not a sidebar module.
-            if appState.selectedSection == .shaping {
-                appState.selectedSection = .gardenTrees
-            }
+        case .shaping where appState.selectedSection == .gardenTrees:
+            appState.selectedSection = .shaping
         default:
             break
         }
@@ -745,14 +746,6 @@ struct TreeDetailView: View {
                 .frame(width: column)
             }
 
-            TreeSocialShareCard(
-                level: tree.socialShareLevel,
-                isSocialEnabled: appSettings.isSocialEnabled,
-                isEditing: false,
-                onChange: { setSocialShareLevel($0, for: tree) }
-            )
-            .frame(width: fullWidth, alignment: .topLeading)
-
             // Row 2 — Work & Care: Health & Care (1) + Next Work (2) + Fertilization (1).
             FaloEqualHeightRow(spacing: gap) {
                 TreeOverviewHealthCareCard(
@@ -760,6 +753,14 @@ struct TreeDetailView: View {
                     healthSystemImage: tree.healthStatus.systemImage,
                     healthNeedsAttention: tree.healthStatus == .needsAttention
                         || tree.healthStatus == .recovering,
+                    placementStrategy: tree.placementStrategy,
+                    onPlacementStrategyChange: allowsEditing
+                        ? { newValue in setPlacementStrategy(newValue, for: tree.id) }
+                        : nil,
+                    seasonPlacement: tree.seasonPlacement,
+                    onSeasonPlacementChange: allowsEditing
+                        ? { newValue in setSeasonPlacement(newValue, for: tree.id) }
+                        : nil,
                     lastWateredLabel: overviewRelativeDateLabel(lastWateredAt(for: tree)),
                     lastFertilizedLabel: overviewRelativeDateLabel(lastFertilizedAt(for: tree)),
                     fillsRowHeight: true
@@ -799,6 +800,7 @@ struct TreeDetailView: View {
                 .frame(width: column)
             }
 
+            // Historical origin (Yamadori) — above Timeline, not part of Work & Care.
             if let find = sourceFind {
                 ExpandableSection(
                     title: "Found At",
@@ -851,6 +853,15 @@ struct TreeDetailView: View {
                 events: timelineEvents(for: tree),
                 usesRaisedChrome: true,
                 onViewTreeHistory: { isTreeHistoryPresented = true }
+            )
+            .frame(width: fullWidth, alignment: .topLeading)
+
+            // Social is neither tree metadata, work, nor history — after Timeline.
+            TreeSocialShareCard(
+                level: tree.socialShareLevel,
+                isSocialEnabled: appSettings.isSocialEnabled,
+                isEditing: false,
+                onChange: { setSocialShareLevel($0, for: tree) }
             )
             .frame(width: fullWidth, alignment: .topLeading)
         }
@@ -1080,6 +1091,10 @@ struct TreeDetailView: View {
                             styleID: styleIDBinding,
                             locationID: locationIDBinding(for: tree),
                             healthStatus: healthStatusBinding(for: tree),
+                            lastRepottedDate: lastRepottedDateBinding(for: tree),
+                            repottingIntervalYears: repottingIntervalYearsBinding(for: tree),
+                            placementStrategy: placementStrategyBinding(for: tree),
+                            seasonPlacement: seasonPlacementBinding(for: tree),
                             treeStageID: treeStageIDBinding,
                             sizeClassID: sizeClassIDBinding,
                             lightConditionID: lightConditionIDBinding,
@@ -1318,6 +1333,72 @@ struct TreeDetailView: View {
             get: { isEditing ? (draft?.healthStatus ?? tree.healthStatus) : tree.healthStatus },
             set: { draft?.healthStatus = $0 }
         )
+    }
+
+    private func lastRepottedDateBinding(for tree: Tree) -> Binding<Date?> {
+        Binding(
+            get: { isEditing ? (draft?.lastRepottedDate ?? tree.lastRepottedDate) : tree.lastRepottedDate },
+            set: { draft?.lastRepottedDate = $0 }
+        )
+    }
+
+    private func repottingIntervalYearsBinding(for tree: Tree) -> Binding<Int?> {
+        Binding(
+            get: {
+                isEditing
+                    ? (draft?.repottingIntervalYears ?? tree.repottingIntervalYears)
+                    : tree.repottingIntervalYears
+            },
+            set: { draft?.repottingIntervalYears = $0 }
+        )
+    }
+
+    private func placementStrategyBinding(for tree: Tree) -> Binding<TreePlacementStrategy> {
+        Binding(
+            get: { isEditing ? (draft?.placementStrategy ?? tree.placementStrategy) : tree.placementStrategy },
+            set: { newValue in
+                draft?.placementStrategy = newValue
+                if newValue == .alwaysOutdoors {
+                    draft?.winterCareCompletedSteps = WinterCareStep.allCases
+                    draft?.springCareCompletedSteps = SpringCareStep.allCases
+                }
+            }
+        )
+    }
+
+    private func seasonPlacementBinding(for tree: Tree) -> Binding<TreeSeasonPlacement> {
+        Binding(
+            get: { isEditing ? (draft?.seasonPlacement ?? tree.seasonPlacement) : tree.seasonPlacement },
+            set: { newValue in
+                draft?.seasonPlacement = newValue
+                if newValue == .summer {
+                    draft?.winterCareCompletedSteps = []
+                } else {
+                    draft?.winterCareCompletedSteps = WinterCareStep.allCases
+                    draft?.springCareCompletedSteps = []
+                }
+            }
+        )
+    }
+
+    private func setPlacementStrategy(_ strategy: TreePlacementStrategy, for treeID: UUID) {
+        do {
+            try winterCareService.setPlacementStrategy(
+                strategy,
+                for: treeID,
+                snapshot: weatherService.snapshot
+            )
+        } catch {}
+    }
+
+    private func setSeasonPlacement(_ season: TreeSeasonPlacement, for treeID: UUID) {
+        do {
+            try winterCareService.setSeasonPlacement(
+                season,
+                for: treeID,
+                snapshot: weatherService.snapshot
+            )
+        } catch {}
     }
 
     private func treeStageDisplayName(for tree: Tree) -> String {

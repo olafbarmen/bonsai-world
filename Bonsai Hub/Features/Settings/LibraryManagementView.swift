@@ -95,11 +95,41 @@ struct LibraryManagementView: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
 
+                if let warning = storageService.foreignWriterWarning {
+                    Text(warning)
+                        .font(FaloTypography.caption)
+                        .foregroundStyle(BonsaiWorldColors.statusAttention)
+                }
+
                 Button("Show this folder in Finder") {
                     revealOpenLibraryInFinder()
                 }
                 .buttonStyle(.link)
                 .disabled(storageService.libraryPackageRootURL == nil)
+
+                if storageService.libraryLocationConfiguration.kind != .iCloudDrive {
+                    Button("Use iCloud Drive with iPhone…") {
+                        Task { await switchToICloudDrive() }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isBusy || !BonsaiWorldICloudLibrary.isAvailable)
+                    .help(
+                        BonsaiWorldICloudLibrary.isAvailable
+                            ? "Open or create the shared library in iCloud for Mac and iPhone."
+                            : "Sign in to iCloud on this Mac to enable."
+                    )
+                } else {
+                    Button("Copy missing photos from Mac library…") {
+                        Task { await repairICloudPhotosFromLocalLibrary() }
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isBusy)
+                    .help("Copies Images and photo links from the Mac Application Support library into this iCloud package.")
+                }
+
+                Text("Avoid editing the same library on Mac and iPhone at the same time. ZIP backup remains the safety net.")
+                    .font(FaloTypography.caption)
+                    .foregroundStyle(.secondary)
             }
             .padding(FaloSpacing.medium)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -600,6 +630,48 @@ struct LibraryManagementView: View {
     private func revealOpenLibraryInFinder() {
         guard let root = storageService.libraryPackageRootURL else { return }
         NSWorkspace.shared.activateFileViewerSelecting([root])
+    }
+
+    @MainActor
+    private func switchToICloudDrive() async {
+        clearStatus()
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            let previousRoot = storageService.libraryPackageRootURL
+            _ = try libraryService.createOrOpenICloudLibrary(seedingFrom: previousRoot)
+            libraryService.notifyLibraryContentsChanged()
+            setStatus("Using iCloud Drive with your library photos. Open Bonsai World on iPhone with the same Apple ID.")
+        } catch {
+            setStatus(error.localizedDescription, isError: true)
+        }
+    }
+
+    @MainActor
+    private func repairICloudPhotosFromLocalLibrary() async {
+        clearStatus()
+        isBusy = true
+        defer { isBusy = false }
+        do {
+            guard storageService.libraryLocationConfiguration.kind == .iCloudDrive,
+                  let iCloudRoot = storageService.libraryPackageRootURL
+            else {
+                setStatus("Open the iCloud library first.", isError: true)
+                return
+            }
+            let localRoot = LocalStorageProvider.makeDefault().packageRootURL
+            let report = try LibraryICloudSeedService.seedIfNeeded(from: localRoot, to: iCloudRoot)
+            libraryService.notifyLibraryContentsChanged()
+            if report.copiedImageFiles == 0, report.mergedTreePhotoLinks == 0, !report.didFullPackageCopy {
+                setStatus("No missing photos found to copy.")
+            } else {
+                setStatus(
+                    "Copied \(report.copiedImageFiles) photo file(s); updated \(report.mergedTreePhotoLinks) tree(s). Quit and reopen on iPhone after iCloud finishes syncing."
+                )
+            }
+        } catch {
+            setStatus(error.localizedDescription, isError: true)
+        }
     }
 
     private func clearStatus() {

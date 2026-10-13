@@ -41,6 +41,10 @@ struct Bonsai_HubApp: App {
     @State private var photoIndexStore: TreePhotoIndexStore
     @State private var bonsaiNameSequenceStore: BonsaiNameSequenceStore
     @State private var careNotificationService: CareNotificationService
+    @State private var winterCareService: WinterCareService
+    @State private var springCareService: SpringCareService
+    @State private var greenhouseCareService: GreenhouseCareService
+    @State private var repottingCareService: RepottingCareService
 
     init() {
         let previewData = PreviewData()
@@ -95,20 +99,20 @@ struct Bonsai_HubApp: App {
             userProfile.attachLibraryProfileStorage(storage)
         }
 
+        let appSettings = AppSettings()
         _appState = State(initialValue: AppState())
         _userProfile = State(initialValue: userProfile)
-        _appSettings = State(initialValue: AppSettings())
+        _appSettings = State(initialValue: appSettings)
         _treeListColumnConfiguration = State(initialValue: TreeListColumnConfiguration())
         _previewData = State(initialValue: previewData)
         _referencePreviewData = State(initialValue: referencePreviewData)
         _referenceDataService = State(initialValue: referenceDataService)
-        _referenceDataManager = State(
-            initialValue: ReferenceDataManager(
-                store: referencePreviewData,
-                locationRepository: locationRepository,
-                potBrandRepository: potBrandRepository
-            )
+        let referenceDataManager = ReferenceDataManager(
+            store: referencePreviewData,
+            locationRepository: locationRepository,
+            potBrandRepository: potBrandRepository
         )
+        _referenceDataManager = State(initialValue: referenceDataManager)
         let botanicalService = BotanicalService(store: referencePreviewData)
         _botanicalService = State(initialValue: botanicalService)
         _storageService = State(initialValue: storage)
@@ -158,6 +162,38 @@ struct Bonsai_HubApp: App {
             scheduleRepository: scheduleRepository
         )
         _taskService = State(initialValue: taskService)
+        _winterCareService = State(
+            initialValue: WinterCareService(
+                treeService: treeService,
+                taskService: taskService,
+                workService: workService,
+                appSettings: appSettings
+            )
+        )
+        _springCareService = State(
+            initialValue: SpringCareService(
+                treeService: treeService,
+                taskService: taskService,
+                workService: workService,
+                appSettings: appSettings
+            )
+        )
+        _greenhouseCareService = State(
+            initialValue: GreenhouseCareService(
+                referenceData: referenceDataService,
+                referenceDataManager: referenceDataManager,
+                taskService: taskService,
+                workService: workService,
+                appSettings: appSettings
+            )
+        )
+        _repottingCareService = State(
+            initialValue: RepottingCareService(
+                treeService: treeService,
+                taskService: taskService,
+                workService: workService
+            )
+        )
         let seedBatchRepository = Self.makeSeedBatchRepository(
             storage: storage,
             libraryReady: library.isLibraryReady
@@ -249,6 +285,25 @@ struct Bonsai_HubApp: App {
         )
     }
 
+    /// Changes when Winter/Spring/Greenhouse Care scope or settings change — keeps system Tasks in sync.
+    private var seasonalCareSyncToken: String {
+        let treesKey = treeService.trees
+            .map {
+                "\($0.id.uuidString):\($0.placementStrategy.rawValue):\($0.seasonPlacement.rawValue):\($0.winterCareCompletedSteps.map(\.rawValue).joined(separator: ",")):\($0.springCareCompletedSteps.map(\.rawValue).joined(separator: ","))"
+            }
+            .sorted()
+            .joined(separator: "|")
+        let locationsKey = referenceDataService.locations
+            .map {
+                "\($0.id.uuidString):\($0.environment.setting?.rawValue ?? ""):\($0.greenhouseSpringCheckYear.map(String.init) ?? "nil")"
+            }
+            .sorted()
+            .joined(separator: "|")
+        let weatherKey = weatherService.snapshot.map { String($0.fetchedAt.timeIntervalSince1970) } ?? "nil"
+        // Do not include taskService.revision — sync writes Tasks and would loop forever.
+        return "\(treesKey)|\(locationsKey)|\(referenceDataManager.revision)|\(weatherKey)|\(appSettings.winterCareReminderMonth)|\(appSettings.winterCareReminderDay)|\(appSettings.winterCareFrostCelsius)|\(appSettings.springCareReminderMonth)|\(appSettings.springCareReminderDay)|\(appSettings.greenhouseSpringReminderMonth)|\(appSettings.greenhouseSpringReminderDay)"
+    }
+
     var body: some Scene {
         WindowGroup {
             Group {
@@ -288,10 +343,19 @@ struct Bonsai_HubApp: App {
             .environment(workService)
             .environment(journalService)
             .environment(taskService)
+            .environment(winterCareService)
+            .environment(springCareService)
+            .environment(greenhouseCareService)
+            .environment(repottingCareService)
             .environment(growingIntelligence)
             .environment(weatherService)
             .task(id: taskService.revision) {
                 careNotificationService.refresh()
+            }
+            .task(id: seasonalCareSyncToken) {
+                try? winterCareService.syncWinterCareTask(snapshot: weatherService.snapshot)
+                try? springCareService.syncSpringCareTask()
+                try? greenhouseCareService.syncGreenhouseSpringCheckTask()
             }
             .task {
                 // Cold launch with an already-open library never fires isLibraryReady onChange.
@@ -357,6 +421,10 @@ struct Bonsai_HubApp: App {
                     .environment(workService)
                     .environment(journalService)
                     .environment(taskService)
+                    .environment(winterCareService)
+                    .environment(springCareService)
+                    .environment(greenhouseCareService)
+            .environment(repottingCareService)
                     .environment(growingIntelligence)
                     .environment(weatherService)
             }
@@ -394,6 +462,10 @@ struct Bonsai_HubApp: App {
                     .environment(workService)
                     .environment(journalService)
                     .environment(taskService)
+                    .environment(winterCareService)
+                    .environment(springCareService)
+                    .environment(greenhouseCareService)
+            .environment(repottingCareService)
                     .environment(growingIntelligence)
                     .environment(weatherService)
             }
@@ -432,6 +504,10 @@ struct Bonsai_HubApp: App {
                     .environment(workService)
                     .environment(journalService)
                     .environment(taskService)
+                    .environment(winterCareService)
+                    .environment(springCareService)
+                    .environment(greenhouseCareService)
+            .environment(repottingCareService)
                     .environment(growingIntelligence)
                     .environment(weatherService)
             }
@@ -470,6 +546,10 @@ struct Bonsai_HubApp: App {
                     .environment(workService)
                     .environment(journalService)
                     .environment(taskService)
+                    .environment(winterCareService)
+                    .environment(springCareService)
+                    .environment(greenhouseCareService)
+            .environment(repottingCareService)
                     .environment(growingIntelligence)
                     .environment(weatherService)
             }
@@ -507,6 +587,10 @@ struct Bonsai_HubApp: App {
                     .environment(workService)
                     .environment(journalService)
                     .environment(taskService)
+                    .environment(winterCareService)
+                    .environment(springCareService)
+                    .environment(greenhouseCareService)
+            .environment(repottingCareService)
                     .environment(growingIntelligence)
                     .environment(weatherService)
             }
@@ -544,6 +628,10 @@ struct Bonsai_HubApp: App {
                     .environment(workService)
                     .environment(journalService)
                     .environment(taskService)
+                    .environment(winterCareService)
+                    .environment(springCareService)
+                    .environment(greenhouseCareService)
+            .environment(repottingCareService)
                     .environment(growingIntelligence)
                     .environment(weatherService)
             }

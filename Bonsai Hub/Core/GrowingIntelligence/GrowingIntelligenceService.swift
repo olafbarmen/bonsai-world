@@ -15,7 +15,7 @@
 //  Produces future recommendations (watering, fertilizing, placement, recovery,
 //  seasonal / winter care). Not AI — future AI builds upon this domain.
 //
-//  Engines: Fertilizing and Watering (Care advisory v1) are live;
+//  Engines: Fertilizing, Watering, Winter, and Placement (gaps v1) are live;
 //  other engines remain architectural placeholders.
 //
 
@@ -93,6 +93,30 @@ final class GrowingIntelligenceService {
             environment: environment,
             snapshot: snapshot,
             heatWatchEnabled: heatWatchEnabled
+        )
+    }
+
+    /// Care → Winter Care advisory v1 — Location winterProtection + weather only.
+    /// Never assumes indoor/greenhouse are frost free. Never changes Tasks or Work.
+    func winterAdvice(
+        environment: LocationEnvironmentProfile,
+        snapshot: WeatherSnapshot?
+    ) -> WinterAdvice {
+        winter.advice(environment: environment, snapshot: snapshot)
+    }
+
+    /// Care → Placement advisory v1 — gaps only (missing Location; seasonal season vs Winter/Spring Care).
+    /// Never invents a destination. Never changes Tasks or Work.
+    func placementAdvice(
+        winterCareActive: Bool,
+        springCareActive: Bool
+    ) -> PlacementAdvice {
+        placement.advice(
+            trees: treeService.trees,
+            title: { TreePresentation.title(for: $0) },
+            hasResolvedLocation: { referenceData.location(id: $0.locationID) != nil },
+            winterCareActive: winterCareActive,
+            springCareActive: springCareActive
         )
     }
 

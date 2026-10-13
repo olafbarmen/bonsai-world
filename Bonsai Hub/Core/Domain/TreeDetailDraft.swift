@@ -15,6 +15,12 @@ struct TreeDetailDraft: Equatable, Sendable {
     var sizeClassID: UUID?
     var treeStageID: UUID?
     var healthStatus: TreeHealthStatus
+    var lastRepottedDate: Date?
+    var repottingIntervalYears: Int?
+    var placementStrategy: TreePlacementStrategy
+    var seasonPlacement: TreeSeasonPlacement
+    var winterCareCompletedSteps: [WinterCareStep]
+    var springCareCompletedSteps: [SpringCareStep]
     var fertilizerHealth: FertilizerHealth?
     var fertilizerKindOverride: FertilizerKind?
     var locationID: UUID?
@@ -70,6 +76,12 @@ struct TreeDetailDraft: Equatable, Sendable {
             sizeClassID: tree.sizeClassID,
             treeStageID: tree.treeStageID,
             healthStatus: tree.healthStatus,
+            lastRepottedDate: tree.lastRepottedDate,
+            repottingIntervalYears: tree.repottingIntervalYears,
+            placementStrategy: tree.placementStrategy,
+            seasonPlacement: tree.seasonPlacement,
+            winterCareCompletedSteps: tree.winterCareCompletedSteps,
+            springCareCompletedSteps: tree.springCareCompletedSteps,
             fertilizerHealth: tree.fertilizerHealth,
             fertilizerKindOverride: tree.fertilizerKindOverride,
             locationID: tree.locationID,

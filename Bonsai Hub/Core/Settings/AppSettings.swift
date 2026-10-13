@@ -22,6 +22,13 @@ final class AppSettings {
     private static let themeKey = "falo.appSettings.theme"
     private static let socialEnabledKey = "falo.appSettings.isSocialEnabled"
     private static let experienceEditionKey = "falo.appSettings.experienceEdition"
+    private static let winterCareReminderMonthKey = "falo.appSettings.winterCareReminderMonth"
+    private static let winterCareReminderDayKey = "falo.appSettings.winterCareReminderDay"
+    private static let winterCareFrostCelsiusKey = "falo.appSettings.winterCareFrostCelsius"
+    private static let springCareReminderMonthKey = "falo.appSettings.springCareReminderMonth"
+    private static let springCareReminderDayKey = "falo.appSettings.springCareReminderDay"
+    private static let greenhouseSpringReminderMonthKey = "falo.appSettings.greenhouseSpringReminderMonth"
+    private static let greenhouseSpringReminderDayKey = "falo.appSettings.greenhouseSpringReminderDay"
 
     var currency: AppCurrency {
         didSet {
@@ -91,6 +98,92 @@ final class AppSettings {
         }
     }
 
+    /// Calendar month (1…12) when Winter Care reminders may start — default October.
+    var winterCareReminderMonth: Int {
+        didSet {
+            let clamped = min(12, max(1, winterCareReminderMonth))
+            if clamped != winterCareReminderMonth {
+                winterCareReminderMonth = clamped
+                return
+            }
+            guard winterCareReminderMonth != oldValue else { return }
+            UserDefaults.standard.set(winterCareReminderMonth, forKey: Self.winterCareReminderMonthKey)
+        }
+    }
+
+    /// Day of month for Winter Care reminder start — default 15.
+    var winterCareReminderDay: Int {
+        didSet {
+            let clamped = min(28, max(1, winterCareReminderDay))
+            if clamped != winterCareReminderDay {
+                winterCareReminderDay = clamped
+                return
+            }
+            guard winterCareReminderDay != oldValue else { return }
+            UserDefaults.standard.set(winterCareReminderDay, forKey: Self.winterCareReminderDayKey)
+        }
+    }
+
+    /// Night low at or below this (°C) also activates Winter Care (seasonal trees on summer placement).
+    var winterCareFrostCelsius: Double {
+        didSet {
+            guard winterCareFrostCelsius != oldValue else { return }
+            UserDefaults.standard.set(winterCareFrostCelsius, forKey: Self.winterCareFrostCelsiusKey)
+        }
+    }
+
+    /// Calendar month (1…12) when Spring Care reminders may start — default April.
+    var springCareReminderMonth: Int {
+        didSet {
+            let clamped = min(12, max(1, springCareReminderMonth))
+            if clamped != springCareReminderMonth {
+                springCareReminderMonth = clamped
+                return
+            }
+            guard springCareReminderMonth != oldValue else { return }
+            UserDefaults.standard.set(springCareReminderMonth, forKey: Self.springCareReminderMonthKey)
+        }
+    }
+
+    /// Day of month for Spring Care reminder start — default 15.
+    var springCareReminderDay: Int {
+        didSet {
+            let clamped = min(28, max(1, springCareReminderDay))
+            if clamped != springCareReminderDay {
+                springCareReminderDay = clamped
+                return
+            }
+            guard springCareReminderDay != oldValue else { return }
+            UserDefaults.standard.set(springCareReminderDay, forKey: Self.springCareReminderDayKey)
+        }
+    }
+
+    /// Calendar month (1…12) when greenhouse spring heat / vent check starts — default April.
+    var greenhouseSpringReminderMonth: Int {
+        didSet {
+            let clamped = min(12, max(1, greenhouseSpringReminderMonth))
+            if clamped != greenhouseSpringReminderMonth {
+                greenhouseSpringReminderMonth = clamped
+                return
+            }
+            guard greenhouseSpringReminderMonth != oldValue else { return }
+            UserDefaults.standard.set(greenhouseSpringReminderMonth, forKey: Self.greenhouseSpringReminderMonthKey)
+        }
+    }
+
+    /// Day of month for greenhouse spring check — default 1.
+    var greenhouseSpringReminderDay: Int {
+        didSet {
+            let clamped = min(28, max(1, greenhouseSpringReminderDay))
+            if clamped != greenhouseSpringReminderDay {
+                greenhouseSpringReminderDay = clamped
+                return
+            }
+            guard greenhouseSpringReminderDay != oldValue else { return }
+            UserDefaults.standard.set(greenhouseSpringReminderDay, forKey: Self.greenhouseSpringReminderDayKey)
+        }
+    }
+
     init(
         currency: AppCurrency? = nil,
         measurementSystem: MeasurementSystem? = nil,
@@ -100,7 +193,14 @@ final class AppSettings {
         firstDayOfWeek: FirstDayOfWeek? = nil,
         theme: AppTheme? = nil,
         isSocialEnabled: Bool? = nil,
-        experienceEdition: ExperienceEdition? = nil
+        experienceEdition: ExperienceEdition? = nil,
+        winterCareReminderMonth: Int? = nil,
+        winterCareReminderDay: Int? = nil,
+        winterCareFrostCelsius: Double? = nil,
+        springCareReminderMonth: Int? = nil,
+        springCareReminderDay: Int? = nil,
+        greenhouseSpringReminderMonth: Int? = nil,
+        greenhouseSpringReminderDay: Int? = nil
     ) {
         self.currency = currency
             ?? UserDefaults.standard.string(forKey: Self.currencyKey).flatMap(AppCurrency.init)
@@ -133,6 +233,49 @@ final class AppSettings {
         self.experienceEdition = experienceEdition
             ?? UserDefaults.standard.string(forKey: Self.experienceEditionKey).flatMap(ExperienceEdition.init)
             ?? .complete
+        if let winterCareReminderMonth {
+            self.winterCareReminderMonth = min(12, max(1, winterCareReminderMonth))
+        } else {
+            let stored = UserDefaults.standard.object(forKey: Self.winterCareReminderMonthKey) as? Int
+            self.winterCareReminderMonth = min(12, max(1, stored ?? 10))
+        }
+        if let winterCareReminderDay {
+            self.winterCareReminderDay = min(28, max(1, winterCareReminderDay))
+        } else {
+            let stored = UserDefaults.standard.object(forKey: Self.winterCareReminderDayKey) as? Int
+            self.winterCareReminderDay = min(28, max(1, stored ?? 15))
+        }
+        if let winterCareFrostCelsius {
+            self.winterCareFrostCelsius = winterCareFrostCelsius
+        } else if UserDefaults.standard.object(forKey: Self.winterCareFrostCelsiusKey) != nil {
+            self.winterCareFrostCelsius = UserDefaults.standard.double(forKey: Self.winterCareFrostCelsiusKey)
+        } else {
+            self.winterCareFrostCelsius = 2
+        }
+        if let springCareReminderMonth {
+            self.springCareReminderMonth = min(12, max(1, springCareReminderMonth))
+        } else {
+            let stored = UserDefaults.standard.object(forKey: Self.springCareReminderMonthKey) as? Int
+            self.springCareReminderMonth = min(12, max(1, stored ?? 4))
+        }
+        if let springCareReminderDay {
+            self.springCareReminderDay = min(28, max(1, springCareReminderDay))
+        } else {
+            let stored = UserDefaults.standard.object(forKey: Self.springCareReminderDayKey) as? Int
+            self.springCareReminderDay = min(28, max(1, stored ?? 15))
+        }
+        if let greenhouseSpringReminderMonth {
+            self.greenhouseSpringReminderMonth = min(12, max(1, greenhouseSpringReminderMonth))
+        } else {
+            let stored = UserDefaults.standard.object(forKey: Self.greenhouseSpringReminderMonthKey) as? Int
+            self.greenhouseSpringReminderMonth = min(12, max(1, stored ?? 4))
+        }
+        if let greenhouseSpringReminderDay {
+            self.greenhouseSpringReminderDay = min(28, max(1, greenhouseSpringReminderDay))
+        } else {
+            let stored = UserDefaults.standard.object(forKey: Self.greenhouseSpringReminderDayKey) as? Int
+            self.greenhouseSpringReminderDay = min(28, max(1, stored ?? 1))
+        }
         BonsaiWorldColors.apply(self.theme)
         ExperienceEditionStore.apply(self.experienceEdition)
     }

@@ -1,4 +1,5 @@
 // swift-tools-version: 5.9
+// Canonical shared domain for Bonsai World (macOS + iOS). Not UI, storage, or sync.
 import PackageDescription
 
 let package = Package(
@@ -14,3 +15,4 @@ let package = Package(
         .target(name: "BonsaiCore")
     ]
 )
+

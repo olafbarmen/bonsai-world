@@ -92,7 +92,7 @@ Legend: **Live** · **Partial** · **Shell** · **Hidden**
 | Pots / Soil / stock | Live | Assign pot, stocktake, Stock Report Excel |
 | Media Images | Live | Gallery, crop, rotate; Import from Context Tools |
 | Other Media | Partial | Catalog CRUD; weak file playback |
-| Knowledge guides / Species | Live | ~19 species profiles; name-matched to RD |
+| Knowledge guides / Species | Live | Species profiles linked by stable ``BotanicalKnowledgeIDs`` (speciesID / cultivarID) |
 | Knowledge CRUD | Live shell | Empty until grower adds content |
 | Context Tools | Live | Pinned; truthful actions; Add Tree expands in place |
 | Settings / Library Mgmt | Live | Export/import/empty personal library |
@@ -142,11 +142,12 @@ Already in Changelog for early September, plus working-tree passes through mid-S
 
 **Product depth**
 
-4. SpeciesProfile ↔ Reference Data ID link  
+4. ~~SpeciesProfile ↔ Reference Data ID link~~ — done (``BotanicalKnowledgeIDs``; Tree Detail resolves by speciesID)  
 5. Nursery kind-specific depth (or honest “generic” product)  
-6. Care engines beyond watering/fertilizer (or label tracking-only)  
+6. Care engines beyond watering/fertilizer (or label tracking-only) — honesty lines present; Seasonal/Today clarified 2026-10-13  
 7. Experience persist + gating  
 8. Media Search/Sort, mirror, docs/video playback  
+9. CollectionService extraction from TreeService — not a grower-test blocker; do after backup/commit
 
 **Parked unless asked**
 

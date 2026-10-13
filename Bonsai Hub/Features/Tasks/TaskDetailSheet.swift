@@ -24,10 +24,14 @@ struct TaskDetailSheet: View {
     @Environment(SeedBatchService.self) private var seedBatchService
     @Environment(YamadoriService.self) private var yamadoriService
     @Environment(NurseryPropagationService.self) private var nurseryPropagationService
+    @Environment(WinterCareService.self) private var winterCare
+    @Environment(WeatherService.self) private var weatherService
     @Environment(AppState.self) private var appState
 
     @State private var editSubject: EditTaskSheet.Subject?
+    @State private var editChecklistTreeID: UUID?
     @State private var confirmDelete = false
+    @State private var checklistError: String?
 
     private var workType: WorkType? {
         taskService.workType(id: occurrence.workTypeID)
@@ -80,6 +84,16 @@ struct TaskDetailSheet: View {
 
     private var canEditOrDelete: Bool {
         oneOffTask != nil || schedule != nil
+    }
+
+    /// Wire Removal follow-up from logging Wiring work — complete or reschedule.
+    private var isWireCheckTask: Bool {
+        if occurrence.workTypeID == CanonicalWorkTypeID.wireRemoval { return true }
+        return workType?.name.caseInsensitiveCompare("Wire Removal") == .orderedSame
+    }
+
+    private var isWinterCareChecklist: Bool {
+        oneOffTask?.systemKind == .winterCare && occurrence.treeID != nil
     }
 
     var body: some View {
@@ -200,6 +214,35 @@ struct TaskDetailSheet: View {
                     }
                 }
 
+                if isWireCheckTask {
+                    Section("Wire check") {
+                        Text("Mark the wire as removed, or set a new date to check again.")
+                            .font(FaloTypography.caption)
+                            .foregroundStyle(.secondary)
+                        Button("Wire removed…") {
+                            onComplete()
+                            dismiss()
+                        }
+                        .buttonStyle(.borderedProminent)
+                        if canEditOrDelete {
+                            Button("Set new check date…") {
+                                presentEdit()
+                            }
+                        }
+                    }
+                }
+
+                if isWinterCareChecklist, let treeID = occurrence.treeID {
+                    WinterCareTreeChecklistSection(treeID: treeID)
+                    if let checklistError {
+                        Section {
+                            Text(checklistError)
+                                .font(FaloTypography.caption)
+                                .foregroundStyle(BonsaiWorldColors.statusCritical)
+                        }
+                    }
+                }
+
                 if let schedule {
                     Section("Repeats") {
                         Text(schedule.recurrence.summary)
@@ -211,12 +254,14 @@ struct TaskDetailSheet: View {
                     }
                 }
 
-                Section("Instructions") {
-                    if notes.isEmpty {
-                        Text("No additional instructions.")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text(notes)
+                if !isWinterCareChecklist {
+                    Section("Instructions") {
+                        if notes.isEmpty {
+                            Text("No additional instructions.")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text(notes)
+                        }
                     }
                 }
             }
@@ -237,9 +282,13 @@ struct TaskDetailSheet: View {
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(occurrence.isInstant ? "Complete" : "Complete…") {
-                        onComplete()
-                        dismiss()
+                    Button(winterCareCompleteTitle) {
+                        if isWinterCareChecklist {
+                            completeWinterCareForThisTree()
+                        } else {
+                            onComplete()
+                            dismiss()
+                        }
                     }
                     .buttonStyle(.borderedProminent)
                 }
@@ -259,7 +308,10 @@ struct TaskDetailSheet: View {
                 )
             }
             .sheet(item: $editSubject) { subject in
-                EditTaskSheet(subject: subject) {
+                EditTaskSheet(
+                    subject: subject,
+                    winterCareChecklistTreeID: editChecklistTreeID
+                ) {
                     dismiss()
                 }
             }
@@ -267,11 +319,28 @@ struct TaskDetailSheet: View {
         .frame(minWidth: 460, minHeight: 480)
     }
 
+    private var winterCareCompleteTitle: String {
+        if isWinterCareChecklist { return "Complete all steps" }
+        return occurrence.isInstant ? "Complete" : "Complete…"
+    }
+
     private func presentEdit() {
+        editChecklistTreeID = isWinterCareChecklist ? occurrence.treeID : nil
         if let schedule {
             editSubject = .schedule(schedule)
         } else if let oneOffTask {
             editSubject = .task(oneOffTask)
+        }
+    }
+
+    private func completeWinterCareForThisTree() {
+        guard let treeID = occurrence.treeID else { return }
+        do {
+            try winterCare.markAllStepsDone(for: treeID, snapshot: weatherService.snapshot)
+            checklistError = nil
+            dismiss()
+        } catch {
+            checklistError = error.localizedDescription
         }
     }
 

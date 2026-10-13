@@ -24,6 +24,7 @@ struct NewTreeView: View {
     @Environment(ReferenceDataManager.self) private var referenceDataManager
     @Environment(TreeMeasurementHistoryStore.self) private var measurementHistory
     @Environment(UserProfileStore.self) private var profile
+    @Environment(RepottingCareService.self) private var repottingCare
 
     private let mode: EditorMode = .create
 
@@ -56,6 +57,11 @@ struct NewTreeView: View {
     @State private var acquisitionSourceName = ""
     @State private var purchasePriceText = ""
     @State private var acquisitionNotes = ""
+
+    @State private var knowsLastRepotted = false
+    @State private var lastRepottedDate = Date.now
+    @State private var plansRepottingInterval = false
+    @State private var repottingIntervalYears = 3
 
     @State private var selectedCollectionIDs: Set<UUID> = []
 
@@ -282,9 +288,38 @@ struct NewTreeView: View {
 
                     TextField("Purchase Price (\(appSettings.currency.code))", text: $purchasePriceText)
                         .help("Numeric amount only. Display currency is set in Settings → Regional Settings.")
+                    Text("Optional. Saved for later — Economy is not built yet.")
+                        .font(FaloTypography.caption)
+                        .foregroundStyle(.secondary)
 
                     TextField("Acquisition Notes", text: $acquisitionNotes, axis: .vertical)
                         .lineLimit(2...4)
+                }
+
+                Section {
+                    Toggle("Last repotted known", isOn: $knowsLastRepotted)
+                    if knowsLastRepotted {
+                        DatePicker(
+                            "Last repotted",
+                            selection: $lastRepottedDate,
+                            displayedComponents: .date
+                        )
+                    }
+                    Toggle("Plan next repot", isOn: $plansRepottingInterval)
+                    if plansRepottingInterval {
+                        Stepper(value: $repottingIntervalYears, in: 1...20) {
+                            Text(
+                                repottingIntervalYears == 1
+                                    ? "Every 1 year"
+                                    : "Every \(repottingIntervalYears) years"
+                            )
+                        }
+                    }
+                } header: {
+                    Text("Repotting")
+                } footer: {
+                    Text("Fill both to create an automatic Repotting Task. Due dates land in March–May.")
+                        .font(FaloTypography.caption)
                 }
 
                 NewTreeOptionalMeasurementsSection(
@@ -486,7 +521,9 @@ struct NewTreeView: View {
             acquisitionMethodID: acquisitionMethodID,
             acquisitionSourceName: acquisitionSourceName,
             purchasePrice: parsePurchasePrice(),
-            acquisitionNotes: acquisitionNotes
+            acquisitionNotes: acquisitionNotes,
+            lastRepottedDate: knowsLastRepotted ? lastRepottedDate : nil,
+            repottingIntervalYears: plansRepottingInterval ? repottingIntervalYears : nil
         )
     }
 
@@ -503,6 +540,8 @@ struct NewTreeView: View {
                 measurementHistory.append(record)
                 try? treeService.applyLatestMeasurement(treeID: newID, from: record)
             }
+
+            try? repottingCare.syncSchedule(for: newID)
 
             dismiss()
             appState.dismissTreeEditor()

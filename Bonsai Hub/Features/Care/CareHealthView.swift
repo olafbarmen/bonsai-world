@@ -19,6 +19,7 @@ struct CareHealthView: View {
     @State private var isRegisterPresented = false
     @State private var isPickTreePresented = false
     @State private var isAddTaskPresented = false
+    @State private var statusError: String?
 
     private var attentionTrees: [Tree] {
         treeService.trees
@@ -98,11 +99,22 @@ struct CareHealthView: View {
                 AddTaskSheet(preselectedWorkTypeID: healthWorkTypeID)
             }
         }
+        .alert(
+            "Couldn't Update Health",
+            isPresented: Binding(
+                get: { statusError != nil },
+                set: { if !$0 { statusError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) { statusError = nil }
+        } message: {
+            Text(statusError ?? "")
+        }
     }
 
     private var headerActions: some View {
         HStack(alignment: .top) {
-            Text("Attention from Tree health. Due from Tasks (Health Work Types). Register as Work. Add Task opens the Tasks sheet.")
+            Text("Attention from Tree health — set Needs Attention, Recovering, or Stable here. Due from Tasks (Health Work Types). Register as Work. Add Task opens the Tasks sheet.")
                 .font(FaloTypography.body)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -218,6 +230,25 @@ struct CareHealthView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
+            Menu {
+                ForEach(Self.careHealthStatusChoices) { status in
+                    Button {
+                        setHealthStatus(status, for: tree.id)
+                    } label: {
+                        if tree.healthStatus == status {
+                            Label(status.title, systemImage: "checkmark")
+                        } else {
+                            Text(status.title)
+                        }
+                    }
+                }
+            } label: {
+                Text("Set Status")
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+            .help("Needs Attention, Recovering, or Stable — same labels as Tree Detail")
+
             Button("Register") {
                 presentRegister(for: tree.id)
             }
@@ -229,6 +260,22 @@ struct CareHealthView: View {
             .buttonStyle(.borderless)
         }
         .padding(.vertical, FaloSpacing.xSmall)
+    }
+
+    /// Care Health quick path: Needs Attention → Recovering → Stable (existing titles).
+    private static let careHealthStatusChoices: [TreeHealthStatus] = [
+        .needsAttention,
+        .recovering,
+        .stable,
+    ]
+
+    private func setHealthStatus(_ status: TreeHealthStatus, for treeID: UUID) {
+        do {
+            try treeService.setHealthStatus(id: treeID, healthStatus: status)
+            statusError = nil
+        } catch {
+            statusError = error.localizedDescription
+        }
     }
 
     @ViewBuilder

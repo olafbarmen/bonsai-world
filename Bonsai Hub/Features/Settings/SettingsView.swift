@@ -2,7 +2,7 @@
 //  SettingsView.swift
 //  Bonsai World
 //
-//  Settings content column — User Profile, Regional, Reference Data, Appearance.
+//  Settings content column — User Profile through Library (Getting Started last).
 //
 
 import SwiftUI
@@ -37,6 +37,7 @@ struct SettingsView: View {
 
             Section("Library") {
                 settingsRow(.libraryManagement)
+                settingsRow(.gettingStarted)
             }
         }
         .faloWarmContentList()

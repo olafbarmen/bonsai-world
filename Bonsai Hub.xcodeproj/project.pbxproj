@@ -21,6 +21,13 @@
 			remoteGlobalIDString = 7CAC7ED0301A9F2A00F98728;
 			remoteInfo = "Bonsai Hub";
 		};
+		A1B2C3D0301B000100000023 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 7CAC7EC9301A9F2A00F98728 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A1B2C3D0301B000100000003;
+			remoteInfo = "Bonsai World";
+		};
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +35,7 @@
 		7CAC7EDF301A9F2D00F98728 /* Bonsai HubTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Bonsai HubTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7CAC7EE9301A9F2D00F98728 /* Bonsai HubUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Bonsai HubUITests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 		A1B2C3D0301B000100000001 /* Bonsai World.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Bonsai World.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1B2C3D0301B000100000020 /* Bonsai WorldTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "Bonsai WorldTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -54,6 +62,11 @@
 		A1B2C3D0301B00010000000D /* Packages/BonsaiCore/Sources/BonsaiCore */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = Packages/BonsaiCore/Sources/BonsaiCore;
+			sourceTree = "<group>";
+		};
+		A1B2C3D0301B000100000021 /* Bonsai WorldTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = "Bonsai WorldTests";
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -87,6 +100,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1B2C3D0301B000100000025 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -98,6 +118,7 @@
 				A1B2C3D0301B00010000000D /* Packages/BonsaiCore/Sources/BonsaiCore */,
 				7CAC7EE2301A9F2D00F98728 /* Bonsai HubTests */,
 				7CAC7EEC301A9F2D00F98728 /* Bonsai HubUITests */,
+				A1B2C3D0301B000100000021 /* Bonsai WorldTests */,
 				7CAC7ED2301A9F2A00F98728 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -109,6 +130,7 @@
 				A1B2C3D0301B000100000001 /* Bonsai World.app */,
 				7CAC7EDF301A9F2D00F98728 /* Bonsai HubTests.xctest */,
 				7CAC7EE9301A9F2D00F98728 /* Bonsai HubUITests.xctest */,
+				A1B2C3D0301B000100000020 /* Bonsai WorldTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -130,6 +152,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				7CAC7ED3301A9F2A00F98728 /* Bonsai Hub */,
+				A1B2C3D0301B00010000000D /* Packages/BonsaiCore/Sources/BonsaiCore */,
 			);
 			name = "Bonsai Hub";
 			packageProductDependencies = (
@@ -207,6 +230,29 @@
 			productReference = A1B2C3D0301B000100000001 /* Bonsai World.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A1B2C3D0301B000100000022 /* Bonsai WorldTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A1B2C3D0301B00010000002A /* Build configuration list for PBXNativeTarget "Bonsai WorldTests" */;
+			buildPhases = (
+				A1B2C3D0301B000100000026 /* Sources */,
+				A1B2C3D0301B000100000025 /* Frameworks */,
+				A1B2C3D0301B000100000027 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				A1B2C3D0301B000100000024 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				A1B2C3D0301B000100000021 /* Bonsai WorldTests */,
+			);
+			name = "Bonsai WorldTests";
+			packageProductDependencies = (
+			);
+			productName = "Bonsai WorldTests";
+			productReference = A1B2C3D0301B000100000020 /* Bonsai WorldTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -231,6 +277,10 @@
 					A1B2C3D0301B000100000003 = {
 						CreatedOnToolsVersion = 16.4;
 					};
+					A1B2C3D0301B000100000022 = {
+						CreatedOnToolsVersion = 16.4;
+						TestTargetID = A1B2C3D0301B000100000003;
+					};
 				};
 			};
 			buildConfigurationList = 7CAC7ECC301A9F2A00F98728 /* Build configuration list for PBXProject "Bonsai Hub" */;
@@ -251,6 +301,7 @@
 				A1B2C3D0301B000100000003 /* Bonsai World */,
 				7CAC7EDE301A9F2D00F98728 /* Bonsai HubTests */,
 				7CAC7EE8301A9F2D00F98728 /* Bonsai HubUITests */,
+				A1B2C3D0301B000100000022 /* Bonsai WorldTests */,
 			);
 		};
 /* End PBXProject section */
@@ -278,6 +329,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		A1B2C3D0301B000100000006 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1B2C3D0301B000100000027 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -315,6 +373,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1B2C3D0301B000100000026 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -327,6 +392,11 @@
 			isa = PBXTargetDependency;
 			target = 7CAC7ED0301A9F2A00F98728 /* Bonsai Hub */;
 			targetProxy = 7CAC7EEA301A9F2D00F98728 /* PBXContainerItemProxy */;
+		};
+		A1B2C3D0301B000100000024 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A1B2C3D0301B000100000003 /* Bonsai World */;
+			targetProxy = A1B2C3D0301B000100000023 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -454,9 +524,12 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "Bonsai Hub/Bonsai_Hub.entitlements";
-				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Mac Developer";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = 9WV5826D66;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -468,6 +541,8 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "no.olafbarmen.Bonsai-Hub";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]" = "Bonsai Hub Mac Dev";
 				REGISTER_APP_GROUPS = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -479,9 +554,12 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = "Bonsai Hub/Bonsai_Hub.entitlements";
-				CODE_SIGN_STYLE = Automatic;
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Mac Developer";
+				CODE_SIGN_STYLE = Manual;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=macosx*]" = 9WV5826D66;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -493,6 +571,8 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "no.olafbarmen.Bonsai-Hub";
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=macosx*]" = "Bonsai Hub Mac Dev";
 				REGISTER_APP_GROUPS = YES;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
@@ -566,11 +646,18 @@
 		A1B2C3D0301B00010000000B /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_ENTITLEMENTS = "Bonsai World Mobile/Bonsai_World.entitlements";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
+				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 9WV5826D66;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Bonsai World";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Bonsai World uses the camera to photograph a tree in the field.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Bonsai World uses your location to place a pin on a Location or Yamadori Find.";
+				INFOPLIST_KEY_NSUserNotificationsUsageDescription = "Bonsai World reminds you of today's care at 07:00.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -583,6 +670,8 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "no.olafbarmen.Bonsai-World";
 				PRODUCT_NAME = "Bonsai World";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "Bonsai World iOS Dev";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
@@ -595,11 +684,18 @@
 		A1B2C3D0301B00010000000C /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
-				CODE_SIGN_STYLE = Automatic;
+				CODE_SIGN_ENTITLEMENTS = "Bonsai World Mobile/Bonsai_World.entitlements";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "iPhone Developer";
+				CODE_SIGN_STYLE = Manual;
 				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = 9WV5826D66;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Bonsai World";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Bonsai World uses the camera to photograph a tree in the field.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "Bonsai World uses your location to place a pin on a Location or Yamadori Find.";
+				INFOPLIST_KEY_NSUserNotificationsUsageDescription = "Bonsai World reminds you of today's care at 07:00.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -612,12 +708,67 @@
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "no.olafbarmen.Bonsai-World";
 				PRODUCT_NAME = "Bonsai World";
+				PROVISIONING_PROFILE_SPECIFIER = "";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "Bonsai World iOS Dev";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 5.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		A1B2C3D0301B000100000028 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "no.olafbarmen.Bonsai-WorldTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Bonsai World.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Bonsai World";
+			};
+			name = Debug;
+		};
+		A1B2C3D0301B000100000029 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "no.olafbarmen.Bonsai-WorldTests";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Bonsai World.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Bonsai World";
 				VALIDATE_PRODUCT = YES;
 			};
 			name = Release;
@@ -666,6 +817,15 @@
 			buildConfigurations = (
 				A1B2C3D0301B00010000000B /* Debug */,
 				A1B2C3D0301B00010000000C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A1B2C3D0301B00010000002A /* Build configuration list for PBXNativeTarget "Bonsai WorldTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A1B2C3D0301B000100000028 /* Debug */,
+				A1B2C3D0301B000100000029 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

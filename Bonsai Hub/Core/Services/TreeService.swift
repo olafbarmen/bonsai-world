@@ -13,6 +13,8 @@
 //  cultivar IDs to the stored Botanical Name when Lists order changes.
 //
 //  Collection membership is owned by Collection records (``Collection/treeIDs``) — not Tree.
+//  Collection CRUD still lives here; ``CollectionServiceError`` already has its own file.
+//  Full CollectionService extraction is planned after Mac test backup/commit.
 //
 
 import Foundation
@@ -469,6 +471,8 @@ final class TreeService {
             acquisitionSourceName: draft.acquisitionSourceName.trimmingCharacters(in: .whitespacesAndNewlines),
             purchasePrice: draft.purchasePrice,
             acquisitionNotes: draft.acquisitionNotes.trimmingCharacters(in: .whitespacesAndNewlines),
+            lastRepottedDate: draft.lastRepottedDate,
+            repottingIntervalYears: draft.repottingIntervalYears,
             createdDate: now,
             modifiedDate: now
         )
@@ -643,6 +647,8 @@ final class TreeService {
             acquisitionSourceName: source.acquisitionSourceName,
             purchasePrice: source.purchasePrice,
             acquisitionNotes: source.acquisitionNotes,
+            lastRepottedDate: source.lastRepottedDate,
+            repottingIntervalYears: source.repottingIntervalYears,
             createdDate: now,
             modifiedDate: now
         )
@@ -992,6 +998,12 @@ final class TreeService {
         tree.sizeClassID = draft.sizeClassID
         tree.treeStageID = draft.treeStageID
         tree.healthStatus = draft.healthStatus
+        tree.lastRepottedDate = draft.lastRepottedDate
+        tree.repottingIntervalYears = draft.repottingIntervalYears.map { max(1, min(20, $0)) }
+        tree.placementStrategy = draft.placementStrategy
+        tree.seasonPlacement = draft.seasonPlacement
+        tree.winterCareCompletedSteps = draft.winterCareCompletedSteps
+        tree.springCareCompletedSteps = draft.springCareCompletedSteps
         tree.fertilizerHealth = draft.fertilizerHealth
         tree.fertilizerKindOverride = draft.fertilizerKindOverride
         if let locationID = draft.locationID {

@@ -30,7 +30,7 @@ enum FirstLaunchOptionsCatalog {
 
     /// Primary actions shown on the Welcome screen (order matters).
     static var primaryOptions: [FirstLaunchOption] {
-        [
+        var options: [FirstLaunchOption] = [
             FirstLaunchOption(
                 id: createNewID,
                 title: "I'm starting fresh",
@@ -53,18 +53,24 @@ enum FirstLaunchOptionsCatalog {
                 availability: .available
             )
         ]
+        options.insert(
+            FirstLaunchOption(
+                id: createInICloudID,
+                title: "Use iCloud with iPhone",
+                subtitle: BonsaiWorldICloudLibrary.isAvailable
+                    ? "Keep one library in iCloud for Mac and iPhone."
+                    : "Sign in to iCloud on this Mac to enable.",
+                systemImage: "icloud",
+                availability: BonsaiWorldICloudLibrary.isAvailable ? .available : .comingSoon
+            ),
+            at: 1
+        )
+        return options
     }
 
     /// Reserved for later — rendered as disabled / Coming soon when shown.
     static var futureOptions: [FirstLaunchOption] {
         [
-            FirstLaunchOption(
-                id: createInICloudID,
-                title: "Create in iCloud Drive",
-                subtitle: "Keep your library in iCloud for Mac and iPhone.",
-                systemImage: "icloud",
-                availability: .comingSoon
-            ),
             FirstLaunchOption(
                 id: createSampleID,
                 title: "Create Sample Library",

@@ -34,7 +34,9 @@ struct TreeWorkspaceWindowView: View {
         ContentView()
             .environment(appState)
             .frame(minWidth: 1000, minHeight: 640)
-            .background(WindowTitleSync(title: windowTitle))
+            // Must not intercept clicks — a full-bleed NSView background steals
+            // traffic lights (red / yellow / green) and the sidebar toggle.
+            .background(WindowTitleSync(title: windowTitle).allowsHitTesting(false))
     }
 }
 
@@ -43,7 +45,7 @@ private struct WindowTitleSync: NSViewRepresentable {
     let title: String
 
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
+        let view = TitleSyncPassthroughView()
         applyTitle(to: view)
         return view
     }
@@ -54,7 +56,13 @@ private struct WindowTitleSync: NSViewRepresentable {
 
     private func applyTitle(to view: NSView) {
         DispatchQueue.main.async {
-            view.window?.title = title
+            guard let window = view.window, window.title != title else { return }
+            window.title = title
         }
     }
+}
+
+/// NSView that never claims mouse hits (so window chrome stays clickable).
+private final class TitleSyncPassthroughView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

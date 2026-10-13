@@ -47,11 +47,11 @@ struct CollectionsView: View {
                     formerTreeCollections: formerTreeCollections,
                     manualCollections: manualCollections,
                     selection: $appState.selectedCollectionID,
-                    treeCount: {
+                    treeCount: { [liveMembers = taskService.liveSmartCollectionMembers()] collection in
                         treeService.treeCount(
-                            inCollection: $0.id,
+                            inCollection: collection.id,
                             disposalMethods: referenceData.disposalMethods,
-                            liveMembers: taskService.liveSmartCollectionMembers()
+                            liveMembers: liveMembers
                         )
                     }
                 )

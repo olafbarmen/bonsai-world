@@ -206,6 +206,14 @@ struct FirstLaunchWizardView: View {
             } catch {
                 errorMessage = error.localizedDescription
             }
+        case FirstLaunchOptionsCatalog.createInICloudID:
+            isWorking = true
+            defer { isWorking = false }
+            do {
+                _ = try libraryService.createOrOpenICloudLibrary()
+            } catch {
+                errorMessage = error.localizedDescription
+            }
         default:
             break
         }

@@ -54,21 +54,3 @@ enum TreeServiceError: Error, LocalizedError, Sendable {
         }
     }
 }
-
-/// Errors for Collection metadata rules in TreeService.
-enum CollectionServiceError: Error, LocalizedError, Sendable {
-    case nameRequired
-    case carePolicyConflict(treeTitle: String, existingCollectionName: String)
-    case systemCollectionLocked
-
-    var errorDescription: String? {
-        switch self {
-        case .nameRequired:
-            return "Collection name is required."
-        case .carePolicyConflict(let treeTitle, let existingCollectionName):
-            return "“\(treeTitle)” already uses Care policy Collection “\(existingCollectionName)”. Remove it from that Collection first, or clear the Care policy on one of them."
-        case .systemCollectionLocked:
-            return "System Smart Collections cannot be deleted."
-        }
-    }
-}

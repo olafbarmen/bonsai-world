@@ -76,7 +76,9 @@ Fully functional macOS app using **local storage only**. `StorageService` + `Loc
 
 ### Phase 2 — iCloud
 
-Optional iCloud-backed provider; same model contracts. **Not enabled in product until an explicit go** (see prep contract below). Onboarding may show “Coming Soon”; Settings must not offer a live iCloud Library Location until that go.
+**In progress (A1 + B2 + C1):** shared ubiquity container `iCloud.no.olafbarmen.BonsaiWorld` with package root `Documents/Bonsai World Library` on Mac and iPhone. First Launch / Settings offer **Use iCloud**; single-writer lease `Database/WriterLease.json` warns when another device wrote recently. ZIP remains the safety net. Not a CloudKit merge engine.
+
+Optional iCloud-backed provider; same model contracts. Onboarding and Settings may enable iCloud Drive when the container is available.
 
 ### Phase 3 — Windows providers
 

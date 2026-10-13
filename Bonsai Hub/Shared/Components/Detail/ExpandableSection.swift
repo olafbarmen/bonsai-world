@@ -195,16 +195,8 @@ private struct ExpandableSectionChromeModifier: ViewModifier {
                     .fill(BonsaiWorldColors.surface)
             }
         case .overview:
-            // Quieter than primary Overview modules: surface + hairline, no elevation shadow.
-            content
-                .background {
-                    RoundedRectangle(cornerRadius: FaloSurface.cornerRadius, style: .continuous)
-                        .fill(BonsaiWorldColors.surface)
-                }
-                .overlay {
-                    RoundedRectangle(cornerRadius: FaloSurface.cornerRadius, style: .continuous)
-                        .strokeBorder(BonsaiWorldColors.border, lineWidth: 1)
-                }
+            // Peer with Tree Overview raised modules (Health & Care, Next Work, Timeline).
+            content.faloRaisedSurface()
         }
     }
 }

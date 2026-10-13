@@ -323,6 +323,8 @@ enum SpeciesProfileCatalog {
         return all.first { $0.speciesID == speciesID }
     }
 
+    /// Search/debug helper only. Tree Detail and Nursery resolve profiles by
+    /// ``speciesID`` / ``cultivarID`` (``BotanicalKnowledgeIDs``) — never by this.
     static func profile(scientificName: String) -> SpeciesProfile? {
         all.first { profile in
             profile.scientificName.caseInsensitiveCompare(scientificName) == .orderedSame

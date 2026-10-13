@@ -369,6 +369,12 @@ struct TreeOverviewHealthCareCard: View {
     let healthSystemImage: String
     /// When true, Health & Care surfaces health (attention / problem). Hero always shows the chip.
     let healthNeedsAttention: Bool
+    /// Always outdoors vs seasonal in/out — distinct from Location.
+    var placementStrategy: TreePlacementStrategy? = nil
+    var onPlacementStrategyChange: ((TreePlacementStrategy) -> Void)? = nil
+    /// Summer vs winter mode (shown when strategy is seasonal).
+    var seasonPlacement: TreeSeasonPlacement? = nil
+    var onSeasonPlacementChange: ((TreeSeasonPlacement) -> Void)? = nil
     /// Existing relative date only — omit the row when nil (no "-" placeholder).
     var lastWateredLabel: String? = nil
     var lastFertilizedLabel: String? = nil
@@ -384,6 +390,12 @@ struct TreeOverviewHealthCareCard: View {
                     isEmphasized: true,
                     compact: true
                 )
+            }
+            if let placementStrategy {
+                strategyRow(placementStrategy)
+            }
+            if let seasonPlacement, placementStrategy == .seasonal {
+                seasonRow(seasonPlacement)
             }
             if let lastWateredLabel {
                 DashboardMetricRow(
@@ -401,6 +413,64 @@ struct TreeOverviewHealthCareCard: View {
                     compact: true
                 )
             }
+        }
+    }
+
+    @ViewBuilder
+    private func strategyRow(_ strategy: TreePlacementStrategy) -> some View {
+        if let onPlacementStrategyChange {
+            VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+                Label("Placement strategy", systemImage: "arrow.triangle.2.circlepath")
+                    .font(FaloTypography.caption)
+                    .foregroundStyle(.secondary)
+                Picker("Placement strategy", selection: Binding(
+                    get: { strategy },
+                    set: { onPlacementStrategyChange($0) }
+                )) {
+                    ForEach(TreePlacementStrategy.allCases) { option in
+                        Text(option.title).tag(option)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else {
+            DashboardMetricRow(
+                title: "Placement strategy",
+                value: strategy.title,
+                systemImage: "arrow.triangle.2.circlepath",
+                compact: true
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func seasonRow(_ season: TreeSeasonPlacement) -> some View {
+        if let onSeasonPlacementChange {
+            VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+                Label("Season", systemImage: "leaf.arrow.triangle.circlepath")
+                    .font(FaloTypography.caption)
+                    .foregroundStyle(.secondary)
+                Picker("Season", selection: Binding(
+                    get: { season },
+                    set: { onSeasonPlacementChange($0) }
+                )) {
+                    ForEach(TreeSeasonPlacement.allCases) { option in
+                        Text(option.title).tag(option)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        } else {
+            DashboardMetricRow(
+                title: "Season",
+                value: season.title,
+                systemImage: "leaf.arrow.triangle.circlepath",
+                compact: true
+            )
         }
     }
 }
@@ -489,10 +559,13 @@ struct TreeSocialShareCard: View {
             Text(level.detail)
                 .font(FaloTypography.caption)
                 .foregroundStyle(.secondary)
+            Text("Preference only for now — no live share feed or publishing yet.")
+                .font(FaloTypography.caption)
+                .foregroundStyle(.tertiary)
         } else {
             Text(level.isShared
-                ? "Share level is \(level.title), but Social is off in Settings."
-                : "Turn on Social in Settings to share this Tree.")
+                ? "Share level is \(level.title), but Social is off in Settings — nothing is shared yet."
+                : "Social sharing is not active yet. Turn it on in Settings when you want to use it; until then this is only a saved preference.")
                 .font(FaloTypography.body)
                 .foregroundStyle(BonsaiWorldColors.textSecondary)
         }

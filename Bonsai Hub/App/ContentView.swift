@@ -121,7 +121,7 @@ struct ContentView: View {
         appState.selectedSection == .careSeasonal
     }
 
-    /// Care → Placement — trees missing Location.
+    /// Care → Placement — gap advice + trees missing Location.
     private var isCarePlacementSelected: Bool {
         appState.selectedSection == .carePlacement
     }
@@ -129,6 +129,10 @@ struct ContentView: View {
     /// Care → Winter Care — Winter / Frost Tasks due.
     private var isCareWinterSelected: Bool {
         appState.selectedSection == .careWinter
+    }
+
+    private var isCareSpringSelected: Bool {
+        appState.selectedSection == .careSpring
     }
 
     private var isCareTodaySelected: Bool {
@@ -302,6 +306,8 @@ struct ContentView: View {
             CarePlacementView()
         } else if isCareWinterSelected {
             CareWinterView()
+        } else if isCareSpringSelected {
+            CareSpringView()
         } else if isCareTodaySelected {
             CareTodayView()
         } else if isLocationsGardensSelected {
@@ -487,6 +493,8 @@ struct ContentView: View {
         case .careWinter:
             // Unreachable while `isCareWinterSelected` uses the two-column shell.
             EmptyView()
+        case .careSpring:
+            EmptyView()
         case .designVision,
              .designStyle, .designFrontSelection, .designVirtual,
              .designBranchPlan, .designTrunkDevelopment, .designRamification,
@@ -588,6 +596,8 @@ struct ContentView: View {
     @ViewBuilder
     private var settingsDetail: some View {
         switch appState.selectedSettingsPane {
+        case .gettingStarted:
+            GettingStartedView()
         case .userProfile:
             UserProfileView()
         case .regionalSettings:

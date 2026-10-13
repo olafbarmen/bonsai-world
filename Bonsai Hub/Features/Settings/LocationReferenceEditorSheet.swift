@@ -196,7 +196,7 @@ struct LocationReferenceEditorSheet: View {
         } header: {
             Text("Environment")
         } footer: {
-            Text("Describes what this specific place is like — sun, wind, rain, and winter exposure. Watering Methods can combine (e.g. drip + sprinkler) — this records what equipment exists here, not which one is running right now. Drives the weather risk warnings on Location Detail today, and is the foundation for future watering / maintenance automation.")
+            Text(environmentFooterText)
                 .font(FaloTypography.caption)
         }
     }
@@ -252,6 +252,14 @@ struct LocationReferenceEditorSheet: View {
             Text("Opens the Garden map. Location pins are independent of Garden Address. Prefer a saved Garden Position as the map reference. Trees at this Location inherit this position.")
                 .font(FaloTypography.caption)
         }
+    }
+
+    private var environmentFooterText: String {
+        let base = "Describes what this specific place is like — sun, wind, rain, and winter exposure. Watering Methods can combine (e.g. drip + sprinkler) — this records what equipment exists here, not which one is running right now. Drives the weather risk warnings on Location Detail today, and is the foundation for future watering / maintenance automation."
+        if draft.environment.setting?.needsGreenhouseSpringCheck == true {
+            return base + " For Greenhouse, Cold Greenhouse, and Polytunnel, set Winter Protection honestly — indoor or greenhouse is not assumed frost-free. Spring heat / vent check uses Care → Spring Care."
+        }
+        return base
     }
 
     private func save() {

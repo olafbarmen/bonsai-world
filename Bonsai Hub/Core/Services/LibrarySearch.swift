@@ -121,7 +121,7 @@ enum LibrarySearch {
             if hits.count == rowLimit { return hits }
         }
 
-        let modulesForSearch = AppModule.workspaceModules + AppModule.toolsModules + [.social]
+        let modulesForSearch = AppModule.workspaceModules + [.settings, .social]
         for module in modulesForSearch {
             guard matches(module.title, needle: needle), !modulesCovered.contains(module) else {
                 continue

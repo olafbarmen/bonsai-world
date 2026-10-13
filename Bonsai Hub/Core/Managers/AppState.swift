@@ -458,8 +458,6 @@ final class AppState {
             selectedSection = .knowledgeHandbook
             selectedHandbookChapter = .potGuidelines
         case .shaping:
-            // Legacy sidebar route — open Trees with the Shaping segment.
-            selectedSection = .gardenTrees
             treeDetailSegment = .shaping
         case .gardenTrees:
             treeDetailSegment = .overview

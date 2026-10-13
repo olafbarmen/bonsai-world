@@ -64,19 +64,6 @@ struct SidebarView: View {
                         } header: {
                             SidebarSectionHeader(title: "Library", topPadding: FaloSpacing.xxLarge)
                         }
-
-                        if !AppModule.toolsModules.isEmpty {
-                            Section {
-                                ForEach(AppModule.toolsModules) { module in
-                                    moduleNavigation(module)
-                                }
-                            } header: {
-                                SidebarSectionHeader(
-                                    title: "Tools",
-                                    topPadding: FaloSpacing.xxLarge
-                                )
-                            }
-                        }
                     }
                     .listStyle(.sidebar)
                     .faloScrollSurface()
@@ -98,7 +85,17 @@ struct SidebarView: View {
             Divider()
                 .opacity(0.35)
 
-            // Profile stays below tools — never overlapped by scrolling tools.
+            // Fixed below Context Tools — labeled Settings, always visible.
+            pinnedSettingsRow
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, FaloSpacing.medium)
+                .padding(.top, FaloSpacing.medium)
+                .padding(.bottom, FaloSpacing.small)
+
+            Divider()
+                .opacity(0.35)
+
+            // Profile stays below Settings — name + garden only.
             sidebarProfileFooter
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, FaloSpacing.medium)
@@ -250,21 +247,26 @@ struct SidebarView: View {
                     .lineLimit(1)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-
-            Button {
-                appState.selectSection(.settings)
-            } label: {
-                Image(systemName: "gear")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundStyle(BonsaiWorldColors.sidebarTextSecondary)
-                    .frame(width: 28, height: 28)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Settings")
-            .accessibilityLabel("Settings")
         }
-        .accessibilityElement(children: .contain)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(profileDisplayName), \(profileGardenName)")
+    }
+
+    /// Fixed Settings row — always below Context Tools and above the profile footer.
+    private var pinnedSettingsRow: some View {
+        let isSelected = appState.selectedSection == .settings
+        return Button {
+            appState.selectSection(.settings)
+        } label: {
+            moduleLabel(title: AppModule.settings.title, systemImage: AppModule.settings.systemImage)
+                .padding(.horizontal, FaloSpacing.xSmall)
+                .background {
+                    SidebarRowBackground(isSelected: isSelected)
+                }
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Settings")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     /// Profile mark — library image when ``UserProfileStore/profileImageID`` is set; otherwise SF Symbol.
@@ -353,7 +355,6 @@ struct SidebarView: View {
         Binding(
             get: {
                 expandedModules.contains(module)
-                    || appState.selectedSection?.module == module
             },
             set: { expanded in
                 if expanded {

@@ -13,9 +13,19 @@ struct CareRepottingView: View {
     @Environment(TaskService.self) private var taskService
     @Environment(WorkService.self) private var workService
     @Environment(ImageService.self) private var imageService
+    @Environment(RepottingCareService.self) private var repottingCare
 
-    @State private var registerTreeID: UUID?
-    @State private var isRegisterPresented = false
+    /// Opens Add Work — when started from a due row, saving also clears that Task.
+    private struct RegisterDraft: Identifiable {
+        let id = UUID()
+        let treeID: UUID
+        let workTypeID: UUID?
+        /// Links Work back to the Task or Schedule (same as Tasks → Complete…).
+        let linkID: UUID?
+        let taskToComplete: CareTask?
+    }
+
+    @State private var registerDraft: RegisterDraft?
     @State private var isPickTreePresented = false
     @State private var isAddTaskPresented = false
 
@@ -61,18 +71,22 @@ struct CareRepottingView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .faloWorkspaceCanvas()
         .bonsaiWorkspaceNavigationTitle("Repotting")
-        .sheet(isPresented: $isRegisterPresented) {
-            if let treeID = registerTreeID {
-                NavigationStack {
-                    AddWorkSheet(
-                        treeID: treeID,
-                        initialWorkTypeID: repottingWorkTypeID
+        .sheet(item: $registerDraft) { draft in
+            NavigationStack {
+                AddWorkSheet(
+                    treeID: draft.treeID,
+                    initialWorkTypeID: draft.workTypeID,
+                    scheduleID: draft.linkID
+                ) { record in
+                    if let task = draft.taskToComplete {
+                        _ = try? taskService.completeTask(task, resultingWorkRecordID: record.id)
+                    }
+                    try? repottingCare.recordRepotCompleted(
+                        treeID: draft.treeID,
+                        performedAt: record.performedAt
                     )
                 }
             }
-        }
-        .onChange(of: isRegisterPresented) { _, presented in
-            if !presented { registerTreeID = nil }
         }
         .sheet(isPresented: $isPickTreePresented) {
             NavigationStack {
@@ -88,7 +102,7 @@ struct CareRepottingView: View {
 
     private var headerActions: some View {
         HStack(alignment: .top) {
-            Text("Due from Tasks. Register as Work. Add Task opens the Tasks sheet.")
+            Text("Trees with a repotting Task show here. Register on a row writes Work and clears that Task. Add Task plans a new one.")
                 .font(FaloTypography.body)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -148,7 +162,7 @@ struct CareRepottingView: View {
                     Text("No repotting Work yet.")
                         .font(FaloCardTypography.fieldValue)
                         .foregroundStyle(.secondary)
-                    Text("Use Register Repotting… or Register on a due row — it writes to the tree’s history.")
+                    Text("Use Register Repotting… or I repotted… on a due row — it writes to the tree’s history.")
                         .font(FaloTypography.caption)
                         .foregroundStyle(.tertiary)
                 }
@@ -193,10 +207,11 @@ struct CareRepottingView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button("Register") {
-                if let treeID { presentRegister(for: treeID) }
+            Button("I repotted…") {
+                presentRegister(for: occurrence)
             }
-            .disabled(repottingWorkTypeID == nil || treeID == nil)
+            .disabled(treeID == nil)
+            .help("Log the repot — clears this Task when you save")
 
             Button("Open") {
                 if let treeID { appState.showTreeFromMap(treeID: treeID) }
@@ -284,7 +299,31 @@ struct CareRepottingView: View {
     }
 
     private func presentRegister(for treeID: UUID) {
-        registerTreeID = treeID
-        isRegisterPresented = true
+        registerDraft = RegisterDraft(
+            treeID: treeID,
+            workTypeID: repottingWorkTypeID,
+            linkID: nil,
+            taskToComplete: nil
+        )
+    }
+
+    private func presentRegister(for occurrence: TaskOccurrence) {
+        guard let treeID = occurrence.treeID else { return }
+        switch occurrence.source {
+        case .task(let task):
+            registerDraft = RegisterDraft(
+                treeID: treeID,
+                workTypeID: occurrence.workTypeID,
+                linkID: task.id,
+                taskToComplete: task
+            )
+        case .schedule(let scheduleID):
+            registerDraft = RegisterDraft(
+                treeID: treeID,
+                workTypeID: occurrence.workTypeID,
+                linkID: scheduleID,
+                taskToComplete: nil
+            )
+        }
     }
 }

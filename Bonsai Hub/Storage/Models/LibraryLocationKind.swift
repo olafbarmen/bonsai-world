@@ -27,6 +27,15 @@ enum LibraryLocationKind: String, Codable, CaseIterable, Sendable, Identifiable 
         [.internalSSD, .externalSSD, .customFolder]
     }
 
+    /// Phase 1 local + iCloud Drive when the ubiquity container is available.
+    static var selectable: [LibraryLocationKind] {
+        var kinds = phase1Selectable
+        if BonsaiWorldICloudLibrary.isAvailable {
+            kinds.append(.iCloudDrive)
+        }
+        return kinds
+    }
+
     var isPhase1Local: Bool {
         switch self {
         case .internalSSD, .externalSSD, .customFolder:
@@ -34,6 +43,11 @@ enum LibraryLocationKind: String, Codable, CaseIterable, Sendable, Identifiable 
         case .iCloudDrive, .oneDrive, .bonsaiCloud:
             false
         }
+    }
+
+    /// Library package may live here in shipping Settings / First Launch.
+    var isSelectableNow: Bool {
+        Self.selectable.contains(self)
     }
 
     /// Settings label (human-facing).

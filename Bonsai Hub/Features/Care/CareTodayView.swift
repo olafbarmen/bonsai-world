@@ -2,7 +2,8 @@
 //  CareTodayView.swift
 //  Bonsai World
 //
-//  Care → Today (v1) — due tasks overview.
+//  Care → Today — due tasks overview.
+//  Hidden from sidebar (Tasks → Today owns the day list). Route kept for deep links.
 //
 
 import SwiftUI
@@ -20,7 +21,7 @@ struct CareTodayView: View {
                 VStack(alignment: .leading, spacing: FaloSpacing.small) {
                     Text("Today")
                         .font(FaloTypography.headline)
-                    CareHonestyLine(text: CareHonesty.trackingOnlyLine)
+                    CareHonestyLine(text: CareHonesty.todayTrackingLine)
                     Text("\(dueToday.count) tasks due today")
                         .font(FaloTypography.caption)
                         .foregroundStyle(.secondary)

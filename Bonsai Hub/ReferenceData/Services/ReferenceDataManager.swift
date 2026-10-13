@@ -476,6 +476,11 @@ final class ReferenceDataManager {
         guard !duplicate else { return .failure(.duplicateName) }
 
         let savedID = draft.entityID ?? UUID()
+        let preservedCheckYear: Int? = {
+            if let year = draft.greenhouseSpringCheckYear { return year }
+            guard let entityID = draft.entityID else { return nil }
+            return store.locations.first(where: { $0.id == entityID })?.greenhouseSpringCheckYear
+        }()
         let location = LocationReference(
             id: savedID,
             name: trimmed,
@@ -486,7 +491,8 @@ final class ReferenceDataManager {
             sortOrder: draft.sortOrder,
             isActive: draft.isActive,
             geographicPosition: draft.geographicPosition,
-            environment: draft.environment
+            environment: draft.environment,
+            greenhouseSpringCheckYear: preservedCheckYear
         )
 
         if let entityID = draft.entityID,
@@ -505,6 +511,14 @@ final class ReferenceDataManager {
     func updateLocationPosition(id: UUID, position: GeographicPosition?) {
         guard let index = store.locations.firstIndex(where: { $0.id == id }) else { return }
         store.locations[index].geographicPosition = position
+        store.noteMutation()
+        persistLocationsIfNeeded()
+    }
+
+    /// Marks (or clears) the greenhouse spring heat / vent check for a Location.
+    func setGreenhouseSpringCheckYear(id: UUID, year: Int?) {
+        guard let index = store.locations.firstIndex(where: { $0.id == id }) else { return }
+        store.locations[index].greenhouseSpringCheckYear = year
         store.noteMutation()
         persistLocationsIfNeeded()
     }

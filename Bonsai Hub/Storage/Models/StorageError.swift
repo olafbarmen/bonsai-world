@@ -13,6 +13,8 @@ enum StorageError: Error, Sendable, LocalizedError {
     case libraryUnavailable
     /// Requested location requires a provider that is not yet available.
     case providerUnavailable(LibraryLocationKind)
+    /// iCloud is off, unsigned, or the ubiquity container is unavailable.
+    case iCloudUnavailable
 
     var errorDescription: String? {
         switch self {
@@ -24,6 +26,8 @@ enum StorageError: Error, Sendable, LocalizedError {
             "The Bonsai World Library is unavailable."
         case .providerUnavailable(let kind):
             "Storage provider for \(kind.displayName) is not available yet."
+        case .iCloudUnavailable:
+            "iCloud Drive is not available. Sign in to iCloud on this Mac, then try again."
         }
     }
 }

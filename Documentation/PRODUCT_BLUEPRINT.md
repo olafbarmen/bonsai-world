@@ -71,12 +71,36 @@ Platform layer — OS APIs, pickers, bookmarks, notifications, etc.
 
 **Composition today (macOS):** App → Features → Shared → Core / Storage. Shared does not own domain data.
 
+### Shared domain (BonsaiCore)
+
+**Status:** Approved architecture. Canonical `Tree` and its stored companion types live in `Packages/BonsaiCore`.
+
+```text
+                BonsaiCore  (canonical domain)
+                       │
+          ┌────────────┴────────────┐
+          │                         │
+    Bonsai World macOS       Bonsai World Mobile
+          │                         │
+      Mac adapters              iOS adapters
+          │                         │
+      Mac Storage              iOS Storage
+```
+
+| Layer | Owns |
+|-------|------|
+| **BonsaiCore** | Shared canonical domain (`Tree`, `WorkRecord`, and types `Tree` stores). One model — no MobileTree fork. |
+| **macOS / iOS** | Platform-specific UI, adapters, and storage |
+
+English remains the master language. Identity and relationships use stable IDs, never display strings (§4.6). Knowledge, Species content, services, and the Library package stay outside this package until a later approved move.
+
 ### Top-level folders (planned)
 
 | Area | Role |
 |------|------|
 | `App/` | Shell and entry |
-| `Core/Domain/`, `Core/Models/`, `Core/Services/`, `Core/Managers/` | Domain and operations |
+| `Packages/BonsaiCore/` | Canonical shared domain (`Tree` and stored companion types) |
+| `Core/Domain/`, `Core/Models/`, `Core/Services/`, `Core/Managers/` | Remaining Mac domain and operations; `Tree` itself lives in BonsaiCore |
 | `Storage/` | Phase 1 local persistence |
 | `Core/Cloud/` | Cloud providers (Phases 2–4) |
 | `ReferenceData/` | Master data models and services |

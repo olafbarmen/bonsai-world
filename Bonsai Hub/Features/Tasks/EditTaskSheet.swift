@@ -16,6 +16,8 @@ struct EditTaskSheet: View {
     }
 
     let subject: Subject
+    /// When editing the Winter Care batch Task from a per-tree occurrence, show that tree's checklist.
+    var winterCareChecklistTreeID: UUID? = nil
     var onFinished: () -> Void = {}
 
     @Environment(\.dismiss) private var dismiss
@@ -65,8 +67,20 @@ struct EditTaskSheet: View {
         return true
     }
 
-    init(subject: Subject, onFinished: @escaping () -> Void = {}) {
+    private var showsWinterCareChecklist: Bool {
+        guard winterCareChecklistTreeID != nil,
+              case .task(let task) = subject
+        else { return false }
+        return task.systemKind == .winterCare
+    }
+
+    init(
+        subject: Subject,
+        winterCareChecklistTreeID: UUID? = nil,
+        onFinished: @escaping () -> Void = {}
+    ) {
         self.subject = subject
+        self.winterCareChecklistTreeID = winterCareChecklistTreeID
         self.onFinished = onFinished
         switch subject {
         case .task(let task):
@@ -108,6 +122,10 @@ struct EditTaskSheet: View {
                     Section("Due") {
                         DatePicker("Due", selection: $dueDate, displayedComponents: [.date])
                     }
+                }
+
+                if showsWinterCareChecklist, let treeID = winterCareChecklistTreeID {
+                    WinterCareTreeChecklistSection(treeID: treeID)
                 }
 
                 Section("Notes") {

@@ -2,8 +2,7 @@
 //  CarePlacementView.swift
 //  Bonsai World
 //
-//  Care → Placement — In Care trees whose Location is missing or unresolved.
-//  No placement recommendation engine yet.
+//  Care → Placement — gap advice (AJ1) + missing Location list + Work/Task actions.
 //
 
 import SwiftUI
@@ -14,6 +13,10 @@ struct CarePlacementView: View {
     @Environment(ReferenceDataService.self) private var referenceData
     @Environment(WorkService.self) private var workService
     @Environment(ImageService.self) private var imageService
+    @Environment(GrowingIntelligenceService.self) private var growingIntelligence
+    @Environment(WinterCareService.self) private var winterCare
+    @Environment(SpringCareService.self) private var springCare
+    @Environment(WeatherService.self) private var weatherService
 
     @State private var registerTreeID: UUID?
     @State private var isRegisterPresented = false
@@ -41,6 +44,13 @@ struct CarePlacementView: View {
             }
     }
 
+    private var placementAdvice: PlacementAdvice {
+        growingIntelligence.placementAdvice(
+            winterCareActive: winterCare.isWinterCareActive(snapshot: weatherService.snapshot),
+            springCareActive: springCare.isSpringCareActive()
+        )
+    }
+
     private var placementWorkTypeID: UUID? {
         workService.preferredPlacementWorkTypeID()
     }
@@ -48,8 +58,9 @@ struct CarePlacementView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: FaloSpacing.xxLarge + FaloSpacing.large) {
-                CareHonestyLine(text: CareHonesty.trackingOnlyLine)
+                CareHonestyLine(text: CareHonesty.recommendationActiveLine)
                 headerActions
+                adviceCard
 
                 CareTwoColumnLayout {
                     missingLocationCard
@@ -90,7 +101,7 @@ struct CarePlacementView: View {
 
     private var headerActions: some View {
         HStack(alignment: .top) {
-            Text("Trees in Care without a Location. Open a tree to assign placement. Add Task / Register use move and outdoor Seasonal Work Types.")
+            Text("Placement gaps from strategy, season, and Location. Open a tree to fix placement. Winter/Spring Care checklists handle the seasonal move steps. Add Task / Register use Seasonal Work Types.")
                 .font(FaloTypography.body)
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -117,6 +128,52 @@ struct CarePlacementView: View {
                 )
             }
         }
+    }
+
+    private var adviceCard: some View {
+        let advice = placementAdvice
+        return DetailCard(title: "Placement Gaps") {
+            if !advice.hasContent {
+                Text("No placement gaps right now. Missing Location, and Seasonal trees on the wrong season during Winter or Spring Care, show here.")
+                    .font(FaloCardTypography.fieldValue)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(spacing: 0) {
+                    ForEach(Array(advice.items.enumerated()), id: \.element.id) { index, item in
+                        adviceRow(item)
+                        if index < advice.items.count - 1 {
+                            Divider()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func adviceRow(_ item: PlacementAdviceItem) -> some View {
+        HStack(alignment: .top, spacing: FaloSpacing.medium) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundStyle(BonsaiWorldColors.statusAttention)
+                .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.treeTitle)
+                    .font(FaloCardTypography.fieldValue)
+                    .lineLimit(1)
+                Text(item.line)
+                    .font(FaloTypography.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button("Open") {
+                appState.showTreeFromMap(treeID: item.treeID)
+            }
+            .buttonStyle(.borderless)
+        }
+        .padding(.vertical, FaloSpacing.xSmall)
     }
 
     private var missingLocationCard: some View {

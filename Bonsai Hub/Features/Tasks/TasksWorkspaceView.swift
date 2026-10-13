@@ -21,6 +21,9 @@ struct TasksWorkspaceView: View {
 
     @Environment(AppState.self) private var appState
     @Environment(TaskService.self) private var taskService
+    @Environment(GreenhouseCareService.self) private var greenhouseCare
+    @Environment(WinterCareService.self) private var winterCare
+    @Environment(WeatherService.self) private var weatherService
     @State private var isAddTaskPresented = false
     @State private var isManageSchedulesPresented = false
     @State private var completingTask: CareTask?
@@ -145,6 +148,32 @@ struct TasksWorkspaceView: View {
             appState.presentSoilStocktake()
             return
         }
+        if occurrence.isGreenhouseSpringCheck, case .task(let task) = occurrence.source {
+            do {
+                try greenhouseCare.completeCheck(for: task.locationIDs)
+                completionOutcome = CompletionOutcome(
+                    message: "Completed “\(occurrence.title)”.",
+                    results: []
+                )
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            return
+        }
+        if case .task(let task) = occurrence.source,
+           task.systemKind == .winterCare,
+           let treeID = occurrence.treeID {
+            do {
+                try winterCare.markAllStepsDone(for: treeID, snapshot: weatherService.snapshot)
+                completionOutcome = CompletionOutcome(
+                    message: "Marked all Winter Care steps done for this tree.",
+                    results: []
+                )
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            return
+        }
         if let seedBatchID = occurrence.seedBatchID, !occurrence.isInstant {
             dismissDetailThen { appState.showSeedBatch(batchID: seedBatchID) }
             return
@@ -194,19 +223,40 @@ struct TasksWorkspaceView: View {
         let skipped = occurrences.count - instantOccurrences.count
 
         var results: [TaskService.OccurrenceCompletionResult] = []
+        var greenhouseCompleted = 0
+        var winterCareCompleted = 0
         for occurrence in instantOccurrences {
+            if occurrence.isGreenhouseSpringCheck, case .task(let task) = occurrence.source {
+                if (try? greenhouseCare.completeCheck(for: task.locationIDs)) != nil {
+                    greenhouseCompleted += 1
+                }
+                continue
+            }
+            if case .task(let task) = occurrence.source,
+               task.systemKind == .winterCare,
+               let treeID = occurrence.treeID {
+                if (try? winterCare.markAllStepsDone(for: treeID, snapshot: weatherService.snapshot)) != nil {
+                    winterCareCompleted += 1
+                }
+                continue
+            }
             if let result = try? taskService.completeOccurrenceInstantly(occurrence) {
                 results.append(result)
             }
         }
+        let completedCount = results.count + greenhouseCompleted + winterCareCompleted
 
         let message: String
-        if let onlyResult = results.first, results.count == 1, skipped == 0 {
+        if let onlyResult = results.first, completedCount == 1, skipped == 0 {
             message = completionMessage(for: onlyResult)
+        } else if completedCount == 1, greenhouseCompleted == 1, skipped == 0 {
+            message = "Completed “\(GreenhouseCareService.taskTitle)”."
+        } else if completedCount == 1, winterCareCompleted == 1, skipped == 0 {
+            message = "Marked all Winter Care steps done for this tree."
         } else if skipped > 0 {
-            message = "Completed \(results.count) of \(occurrences.count) — \(skipped) need\(skipped == 1 ? "s" : "") details. Use Complete… to finish \(skipped == 1 ? "it" : "them")."
+            message = "Completed \(completedCount) of \(occurrences.count) — \(skipped) need\(skipped == 1 ? "s" : "") details. Use Complete… to finish \(skipped == 1 ? "it" : "them")."
         } else {
-            message = "Completed \(results.count) task\(results.count == 1 ? "" : "s")."
+            message = "Completed \(completedCount) task\(completedCount == 1 ? "" : "s")."
         }
         completionOutcome = CompletionOutcome(message: message, results: results)
     }

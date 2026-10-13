@@ -36,4 +36,9 @@ struct NewTreeDraft: Sendable {
     var acquisitionSourceName: String = ""
     var purchasePrice: Decimal?
     var acquisitionNotes: String = ""
+
+    /// Optional — with ``repottingIntervalYears`` creates an automatic Repotting Schedule.
+    var lastRepottedDate: Date?
+    /// Years between repots. Nil = no automatic schedule yet.
+    var repottingIntervalYears: Int?
 }

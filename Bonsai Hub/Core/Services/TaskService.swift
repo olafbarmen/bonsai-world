@@ -75,6 +75,14 @@ final class TaskService {
     private var taskRepository: TaskRepository
     private var scheduleRepository: ScheduleRepository
 
+    /// Cache for ``liveSmartCollectionMembers()`` — invalidated when Tasks/Work/tree count change.
+    private var liveSmartMembersCache: (
+        taskRevision: Int,
+        workRevision: Int,
+        treeCount: Int,
+        members: SmartCollectionLiveMembers
+    )?
+
     /// All tasks — loaded from the injected repository, empty session by default.
     private(set) var tasks: [CareTask] = []
     /// All recurring schedules — loaded from the injected repository.
@@ -315,7 +323,11 @@ final class TaskService {
 
     /// One Repotting occurrence per tree (earliest due), overdue through this month.
     func pendingRepottingOccurrences() -> [TaskOccurrence] {
-        pendingOccurrencesMatching(isRepotting(workTypeID:), horizons: [.overdue, .today, .thisWeek, .thisMonth])
+        // Include This Year so March–May plans show before the season opens.
+        pendingOccurrencesMatching(
+            isRepotting(workTypeID:),
+            horizons: [.overdue, .today, .thisWeek, .thisMonth, .thisYear]
+        )
     }
 
     /// One Fertilizing occurrence per tree (earliest due), overdue through this month.
@@ -378,12 +390,28 @@ final class TaskService {
     }
 
     /// Live members for Needs Water, Today's Work, and Needs Repotting.
+    /// Cached per Tasks/Work revision — unscached calls rebuild all occurrences (very expensive).
     func liveSmartCollectionMembers() -> SmartCollectionLiveMembers {
-        SmartCollectionLiveMembers(
+        let treeCount = treeService.trees.count
+        let workRevision = workService.revision
+        if let cache = liveSmartMembersCache,
+           cache.taskRevision == revision,
+           cache.workRevision == workRevision,
+           cache.treeCount == treeCount {
+            return cache.members
+        }
+        let members = SmartCollectionLiveMembers(
             needsWater: treeIDsNeedingWater(due: .today),
             todaysWork: treeIDsWithWork(due: .today),
             needsRepotting: treeIDsNeedingRepotting()
         )
+        liveSmartMembersCache = (
+            taskRevision: revision,
+            workRevision: workRevision,
+            treeCount: treeCount,
+            members: members
+        )
+        return members
     }
 
     private func isRepotting(workTypeID: UUID) -> Bool {
@@ -439,6 +467,9 @@ final class TaskService {
             }
             if let kind = task.libraryInventoryKind {
                 return [TaskOccurrence(task: task, libraryInventoryKind: kind, isInstant: completesInstantly(task))]
+            }
+            if task.systemKind == .greenhouseSpringCheck, !task.locationIDs.isEmpty {
+                return [TaskOccurrence(task: task, greenhouseSpringCheck: true, isInstant: true)]
             }
             let instant = completesInstantly(task)
             var rows: [TaskOccurrence] = task.treeIDs.compactMap { treeID in
@@ -575,11 +606,15 @@ final class TaskService {
             .max()
 
         let base = lastPerformed ?? schedule.createdDate
-        return calendar.date(
+        guard let raw = calendar.date(
             byAdding: schedule.recurrence.unit.calendarComponent,
             value: schedule.recurrence.interval,
             to: base
-        )
+        ) else { return nil }
+        if schedule.systemKind == .autoRepotting {
+            return RepottingCareService.clampToRepottingSeason(raw, calendar: calendar)
+        }
+        return raw
     }
 
     /// For "N times a day" schedules: counts how many matching WorkRecords already
@@ -646,12 +681,15 @@ final class TaskService {
         yamadoriIDs: [UUID] = [],
         seedBatchIDs: [UUID] = [],
         nurseryPropagationProjectIDs: [UUID] = [],
+        locationIDs: [UUID] = [],
         libraryInventoryKind: CareTaskLibraryInventoryKind? = nil,
+        systemKind: CareTaskSystemKind? = nil,
         dueDate: Date,
         notes: String = "",
         shapingAreaID: String? = nil
     ) throws -> CareTask {
         guard !treeIDs.isEmpty
+            || !locationIDs.isEmpty
             || !yamadoriIDs.isEmpty
             || !seedBatchIDs.isEmpty
             || !nurseryPropagationProjectIDs.isEmpty
@@ -665,10 +703,12 @@ final class TaskService {
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),
             workTypeID: workTypeID,
             treeIDs: treeIDs,
+            locationIDs: locationIDs,
             yamadoriIDs: yamadoriIDs,
             seedBatchIDs: seedBatchIDs,
             nurseryPropagationProjectIDs: nurseryPropagationProjectIDs,
             libraryInventoryKind: libraryInventoryKind,
+            systemKind: systemKind,
             dueDate: dueDate,
             notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
             shapingAreaID: shapingAreaID
@@ -678,6 +718,80 @@ final class TaskService {
         tasks.append(task)
         revision += 1
         return task
+    }
+
+    /// Creates or replaces the synced Winter Care batch Task (checklist progress lives on Trees).
+    @discardableResult
+    func createWinterCareSystemTask(
+        workTypeID: UUID,
+        treeIDs: [UUID],
+        dueDate: Date,
+        notes: String
+    ) throws -> CareTask {
+        try createTask(
+            title: WinterCareService.taskTitle,
+            workTypeID: workTypeID,
+            treeIDs: treeIDs,
+            systemKind: .winterCare,
+            dueDate: dueDate,
+            notes: notes
+        )
+    }
+
+    /// Completes the Winter Care system Task when no trees remain in the checklist.
+    @discardableResult
+    func completeWinterCareSystemTask(_ task: CareTask) throws -> CareTask {
+        guard task.status == .pending else { throw TaskServiceError.alreadyCompleted }
+        guard task.systemKind == .winterCare else { throw TaskServiceError.noTargets }
+        return try markCompleted(task, resultingWorkRecordID: nil)
+    }
+
+    @discardableResult
+    func createSpringCareSystemTask(
+        workTypeID: UUID,
+        treeIDs: [UUID],
+        dueDate: Date,
+        notes: String
+    ) throws -> CareTask {
+        try createTask(
+            title: SpringCareService.taskTitle,
+            workTypeID: workTypeID,
+            treeIDs: treeIDs,
+            systemKind: .springCare,
+            dueDate: dueDate,
+            notes: notes
+        )
+    }
+
+    @discardableResult
+    func completeSpringCareSystemTask(_ task: CareTask) throws -> CareTask {
+        guard task.status == .pending else { throw TaskServiceError.alreadyCompleted }
+        guard task.systemKind == .springCare else { throw TaskServiceError.noTargets }
+        return try markCompleted(task, resultingWorkRecordID: nil)
+    }
+
+    @discardableResult
+    func createGreenhouseSpringCheckSystemTask(
+        workTypeID: UUID,
+        locationIDs: [UUID],
+        dueDate: Date,
+        notes: String
+    ) throws -> CareTask {
+        try createTask(
+            title: GreenhouseCareService.taskTitle,
+            workTypeID: workTypeID,
+            locationIDs: locationIDs,
+            systemKind: .greenhouseSpringCheck,
+            dueDate: dueDate,
+            notes: notes
+        )
+    }
+
+    @discardableResult
+    func completeGreenhouseSpringCheckSystemTask(_ task: CareTask) throws -> CareTask {
+        guard task.status == .pending else { throw TaskServiceError.alreadyCompleted }
+        guard task.systemKind == .greenhouseSpringCheck else { throw TaskServiceError.noTargets }
+        return try markCompleted(task, resultingWorkRecordID: nil)
     }
 
     /// Completes a seed-batch task without writing a Tree WorkRecord.
@@ -773,6 +887,7 @@ final class TaskService {
         target: CareScheduleTarget,
         recurrence: CareRecurrenceRule,
         seasonalWindow: CareScheduleSeasonalWindow? = nil,
+        systemKind: CareScheduleSystemKind? = nil,
         fertilizerTypeID: UUID? = nil,
         notes: String = ""
     ) throws -> CareSchedule {
@@ -786,6 +901,7 @@ final class TaskService {
             target: target,
             recurrence: recurrence,
             seasonalWindow: seasonalWindow,
+            systemKind: systemKind,
             notes: notes.trimmingCharacters(in: .whitespacesAndNewlines)
         )
 
@@ -840,6 +956,7 @@ final class TaskService {
             var updated = task
             updated.treeIDs.removeAll { $0 == treeID }
             if updated.treeIDs.isEmpty
+                && updated.locationIDs.isEmpty
                 && updated.yamadoriIDs.isEmpty
                 && updated.seedBatchIDs.isEmpty
                 && updated.nurseryPropagationProjectIDs.isEmpty

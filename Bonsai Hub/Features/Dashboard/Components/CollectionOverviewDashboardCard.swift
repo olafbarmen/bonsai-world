@@ -31,17 +31,23 @@ struct CollectionOverviewDashboardCard: View {
     }
 
     var body: some View {
+        // Compute once per body — calling liveSmartCollectionMembers() per row
+        // rescans all Task occurrences and pegs the main thread (~100% CPU).
+        let liveMembers = taskService.liveSmartCollectionMembers()
+
         DashboardCard(id: .collectionOverview, prominence: prominence, fillsRowHeight: fillsRowHeight, compact: true) {
             HStack(alignment: .top, spacing: FaloSpacing.large) {
                 column(
                     title: "Collections",
                     collections: collections,
+                    liveMembers: liveMembers,
                     emptyText: "No collections yet."
                 )
 
                 column(
                     title: "Smart Collections",
                     collections: smartCollections,
+                    liveMembers: liveMembers,
                     emptyText: "No smart collections."
                 )
             }
@@ -52,6 +58,7 @@ struct CollectionOverviewDashboardCard: View {
     private func column(
         title: String,
         collections: [Collection],
+        liveMembers: SmartCollectionLiveMembers,
         emptyText: String
     ) -> some View {
         VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
@@ -66,7 +73,7 @@ struct CollectionOverviewDashboardCard: View {
                     } label: {
                         DashboardMetricRow(
                             title: collection.name,
-                            value: "\(memberCount(for: collection))",
+                            value: "\(memberCount(for: collection, liveMembers: liveMembers))",
                             systemImage: collection.icon,
                             compact: true
                         )
@@ -85,11 +92,14 @@ struct CollectionOverviewDashboardCard: View {
     }
 
     /// Same membership resolution as ``CollectionsView`` / Collection detail.
-    private func memberCount(for collection: Collection) -> Int {
+    private func memberCount(
+        for collection: Collection,
+        liveMembers: SmartCollectionLiveMembers
+    ) -> Int {
         treeService.treeCount(
             inCollection: collection.id,
             disposalMethods: referenceData.disposalMethods,
-            liveMembers: taskService.liveSmartCollectionMembers()
+            liveMembers: liveMembers
         )
     }
 

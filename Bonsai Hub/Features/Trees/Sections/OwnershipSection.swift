@@ -155,6 +155,9 @@ struct OwnershipSection: View {
                 text: ownershipDecimalTextBinding($purchasePrice),
                 help: "Numeric amount only. Display currency is set in Settings → Regional Settings."
             )
+            Text("Saved for later — Economy is not built yet, so nothing calculates with this price.")
+                .font(FaloTypography.caption)
+                .foregroundStyle(.tertiary)
 
             DetailEditableTextRow(
                 label: "Acquisition Notes",

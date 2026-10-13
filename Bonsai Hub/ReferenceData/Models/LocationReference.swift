@@ -30,6 +30,8 @@ struct LocationReference: Identifiable, Codable, Hashable, Sendable {
     var geographicPosition: GeographicPosition?
     /// Environmental attributes for Growing Intelligence. Owned by this Location.
     var environment: LocationEnvironmentProfile
+    /// Calendar year when the greenhouse spring heat / vent check was marked done (nil = not done).
+    var greenhouseSpringCheckYear: Int?
 
     init(
         id: UUID = UUID(),
@@ -41,7 +43,8 @@ struct LocationReference: Identifiable, Codable, Hashable, Sendable {
         sortOrder: Int,
         isActive: Bool = true,
         geographicPosition: GeographicPosition? = nil,
-        environment: LocationEnvironmentProfile = .unset
+        environment: LocationEnvironmentProfile = .unset,
+        greenhouseSpringCheckYear: Int? = nil
     ) {
         self.id = id
         self.name = name
@@ -53,6 +56,7 @@ struct LocationReference: Identifiable, Codable, Hashable, Sendable {
         self.isActive = isActive
         self.geographicPosition = geographicPosition
         self.environment = environment
+        self.greenhouseSpringCheckYear = greenhouseSpringCheckYear
     }
 
     var hasGeographicPosition: Bool {
@@ -69,7 +73,7 @@ struct LocationReference: Identifiable, Codable, Hashable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, name, gardenID, locationTypeID, locationDescription, notes
-        case sortOrder, isActive, geographicPosition, environment
+        case sortOrder, isActive, geographicPosition, environment, greenhouseSpringCheckYear
     }
 
     init(from decoder: Decoder) throws {
@@ -84,6 +88,7 @@ struct LocationReference: Identifiable, Codable, Hashable, Sendable {
         isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
         geographicPosition = try container.decodeIfPresent(GeographicPosition.self, forKey: .geographicPosition)
         environment = try container.decodeIfPresent(LocationEnvironmentProfile.self, forKey: .environment) ?? .unset
+        greenhouseSpringCheckYear = try container.decodeIfPresent(Int.self, forKey: .greenhouseSpringCheckYear)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -98,6 +103,7 @@ struct LocationReference: Identifiable, Codable, Hashable, Sendable {
         try container.encode(isActive, forKey: .isActive)
         try container.encodeIfPresent(geographicPosition, forKey: .geographicPosition)
         try container.encode(environment, forKey: .environment)
+        try container.encodeIfPresent(greenhouseSpringCheckYear, forKey: .greenhouseSpringCheckYear)
     }
 
     static func mapRecords(_ items: [LocationReference]) -> [ReferenceDataRecord] {
@@ -139,6 +145,7 @@ struct LocationReferenceDraft: Identifiable, Hashable, Sendable {
     var isActive: Bool
     var geographicPosition: GeographicPosition?
     var environment: LocationEnvironmentProfile
+    var greenhouseSpringCheckYear: Int?
 
     var isNew: Bool { entityID == nil }
 
@@ -154,7 +161,8 @@ struct LocationReferenceDraft: Identifiable, Hashable, Sendable {
             sortOrder: sortOrder,
             isActive: true,
             geographicPosition: nil,
-            environment: .unset
+            environment: .unset,
+            greenhouseSpringCheckYear: nil
         )
     }
 
@@ -170,7 +178,8 @@ struct LocationReferenceDraft: Identifiable, Hashable, Sendable {
             sortOrder: location.sortOrder,
             isActive: location.isActive,
             geographicPosition: location.geographicPosition,
-            environment: location.environment
+            environment: location.environment,
+            greenhouseSpringCheckYear: location.greenhouseSpringCheckYear
         )
     }
 }

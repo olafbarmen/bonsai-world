@@ -1,29 +1,59 @@
 //
 //  WorkRecord.swift
-//  BonsaiCore
+//  Bonsai World
 //
-//  Shared work-history entry. Shape aligns with Mac `WorkRecord`
-//  (workTypeID + treeIDs + performedAt + notes) for future sync.
+//  Workshop domain — generated work history entry.
+//  Created by the Work / Workshop module (future workflows).
+//  Trees display these records; they never own the registration UI.
+//  Prepared for batch ops, inventory, economy, calendar, and templates.
 //
 
 import Foundation
 
-public struct WorkRecord: Identifiable, Codable, Hashable, Sendable {
-    public var id: UUID
-    /// Reference Data — Work Type (UUID). Demo uses fixed catalog IDs.
-    public var workTypeID: UUID
-    public var treeIDs: [UUID]
-    public var performedAt: Date
-    public var notes: String
-    public var createdDate: Date
-    public var modifiedDate: Date
+/// A completed (or scheduled) work event referencing a ``WorkType``.
+struct WorkRecord: Identifiable, Codable, Hashable, Sendable {
+    var id: UUID
+    /// Reference Data — Work Type.
+    var workTypeID: UUID
+    /// One or more trees. Multi-tree support is prepared for batch operations.
+    var treeIDs: [UUID]
+    var performedAt: Date
+    var notes: String
 
-    public init(
+    // MARK: - Future linkage (unused until workflows land)
+
+    var soilMixID: UUID?
+    var potTypeID: UUID?
+    var fertilizerTypeID: UUID?
+    var productIDs: [UUID]
+    var wireID: UUID?
+    /// Optional link to a future template.
+    var templateID: UUID?
+    /// Optional calendar / schedule identity.
+    var scheduleID: UUID?
+    /// Optional Shaping area (raw ``ShapingAreaID`` value) for Tree Timeline context.
+    var shapingAreaID: String?
+    /// Links to the detailed Shaping history entry, when registered from Shaping.
+    var shapingHistoryEntryID: UUID?
+
+    var createdDate: Date
+    var modifiedDate: Date
+
+    init(
         id: UUID = UUID(),
         workTypeID: UUID,
         treeIDs: [UUID],
         performedAt: Date = .now,
         notes: String = "",
+        soilMixID: UUID? = nil,
+        potTypeID: UUID? = nil,
+        fertilizerTypeID: UUID? = nil,
+        productIDs: [UUID] = [],
+        wireID: UUID? = nil,
+        templateID: UUID? = nil,
+        scheduleID: UUID? = nil,
+        shapingAreaID: String? = nil,
+        shapingHistoryEntryID: UUID? = nil,
         createdDate: Date = .now,
         modifiedDate: Date = .now
     ) {
@@ -32,49 +62,16 @@ public struct WorkRecord: Identifiable, Codable, Hashable, Sendable {
         self.treeIDs = treeIDs
         self.performedAt = performedAt
         self.notes = notes
+        self.soilMixID = soilMixID
+        self.potTypeID = potTypeID
+        self.fertilizerTypeID = fertilizerTypeID
+        self.productIDs = productIDs
+        self.wireID = wireID
+        self.templateID = templateID
+        self.scheduleID = scheduleID
+        self.shapingAreaID = shapingAreaID
+        self.shapingHistoryEntryID = shapingHistoryEntryID
         self.createdDate = createdDate
         self.modifiedDate = modifiedDate
-    }
-}
-
-/// Demo / mobile catalog entry until Reference Data is shared.
-public struct WorkTypeInfo: Identifiable, Hashable, Sendable {
-    public var id: UUID
-    public var name: String
-
-    public init(id: UUID, name: String) {
-        self.id = id
-        self.name = name
-    }
-}
-
-public enum DemoWorkTypes {
-    public static let watering = WorkTypeInfo(
-        id: UUID(uuidString: "A1000000-0000-4000-8000-000000000001")!,
-        name: "Watering"
-    )
-    public static let pruning = WorkTypeInfo(
-        id: UUID(uuidString: "A1000000-0000-4000-8000-000000000002")!,
-        name: "Pruning"
-    )
-    public static let wiring = WorkTypeInfo(
-        id: UUID(uuidString: "A1000000-0000-4000-8000-000000000003")!,
-        name: "Wiring"
-    )
-    public static let fertilizing = WorkTypeInfo(
-        id: UUID(uuidString: "A1000000-0000-4000-8000-000000000004")!,
-        name: "Fertilizing"
-    )
-    public static let repotting = WorkTypeInfo(
-        id: UUID(uuidString: "A1000000-0000-4000-8000-000000000005")!,
-        name: "Repotting"
-    )
-
-    public static let all: [WorkTypeInfo] = [
-        watering, pruning, wiring, fertilizing, repotting
-    ]
-
-    public static func name(for id: UUID) -> String {
-        all.first { $0.id == id }?.name ?? "Work"
     }
 }

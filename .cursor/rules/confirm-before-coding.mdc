@@ -1,5 +1,5 @@
 ---
-description: Propose a short plan and wait for approval before writing or editing code
+description: Propose a short plan; a grower choice is approval — do not ask for a second kjør
 alwaysApply: true
 ---
 
@@ -13,14 +13,20 @@ the user a short status message covering:
 - Any open questions, trade-offs, or assumptions
 
 Then **stop and wait for the user's explicit approval** before writing or editing
-any code. Do not implement in the same turn you propose the plan.
+any code — **unless** they already answered with a concrete choice (see below).
 
 Keep the status short — a few sentences or a short bullet list, not a full design
 document.
 
-**Skip this step only when:**
+**A choice is approval.** When the grower picks a numbered option or named choice
+(e.g. `AM1`, `AO1`, `AJ1, AK1`, `AQ1`, or “fix the list”), that **is** the go-ahead.
+Implement in the next turn. Do **not** ask for a second confirmation such as
+«Si kjør så implementerer vi».
+
+**Skip the plan-and-wait step when:**
 - The user has already approved this exact change earlier in the conversation, or
-- The user explicitly asks you to skip confirmation for that request (e.g. "just do it").
+- The user explicitly asks you to skip confirmation (e.g. "just do it", "kjør"), or
+- The user just made a concrete choice on an already-proposed plan (implement immediately).
 
 This applies to actual code/file changes. Pure questions, analysis, or read-only
 investigation do not need a plan-and-wait step first.

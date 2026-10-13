@@ -160,7 +160,9 @@ enum WeatherRiskAssessment {
         }
 
         if environment.winterProtection == .outdoorWinter {
-            let frostExpected = today.minTemperatureCelsius <= 0 || (tomorrow?.minTemperatureCelsius ?? 99) <= 0
+            let threshold = WinterEngine.frostRiskCelsius
+            let frostExpected = today.minTemperatureCelsius <= threshold
+                || (tomorrow?.minTemperatureCelsius ?? 99) <= threshold
             if frostExpected {
                 risks.append("This Location has no winter protection and frost is forecast — cover or move tender trees.")
             }

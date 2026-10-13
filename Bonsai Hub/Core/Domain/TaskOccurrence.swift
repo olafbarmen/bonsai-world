@@ -30,6 +30,8 @@ struct TaskOccurrence: Identifiable, Hashable, Sendable {
     let nurseryPropagationProjectID: UUID?
     /// Library inventory scope when this occurrence is not tree/nursery-scoped.
     let libraryInventoryKind: CareTaskLibraryInventoryKind?
+    /// Greenhouse spring heat / vent check (location-scoped batch).
+    let isGreenhouseSpringCheck: Bool
     let dueDate: Date
     /// Fixes which fertilizer product this occurrence uses, when the source
     /// schedule pins one. Part of the de-duplication key — see
@@ -55,6 +57,7 @@ struct TaskOccurrence: Identifiable, Hashable, Sendable {
         let yamadoriID: UUID?
         let nurseryPropagationProjectID: UUID?
         let libraryInventoryKind: CareTaskLibraryInventoryKind?
+        let isGreenhouseSpringCheck: Bool
         let workTypeID: UUID
         let fertilizerTypeID: UUID?
         let dayPart: CareDayPart?
@@ -67,6 +70,7 @@ struct TaskOccurrence: Identifiable, Hashable, Sendable {
             yamadoriID: yamadoriID,
             nurseryPropagationProjectID: nurseryPropagationProjectID,
             libraryInventoryKind: libraryInventoryKind,
+            isGreenhouseSpringCheck: isGreenhouseSpringCheck,
             workTypeID: workTypeID,
             fertilizerTypeID: fertilizerTypeID,
             dayPart: dayPart
@@ -84,6 +88,7 @@ struct TaskOccurrence: Identifiable, Hashable, Sendable {
         self.yamadoriID = nil
         self.nurseryPropagationProjectID = nil
         self.libraryInventoryKind = nil
+        self.isGreenhouseSpringCheck = false
         self.dueDate = task.dueDate
         self.fertilizerTypeID = nil
         self.dayPart = nil
@@ -101,6 +106,7 @@ struct TaskOccurrence: Identifiable, Hashable, Sendable {
         self.yamadoriID = nil
         self.nurseryPropagationProjectID = nil
         self.libraryInventoryKind = nil
+        self.isGreenhouseSpringCheck = false
         self.dueDate = task.dueDate
         self.fertilizerTypeID = nil
         self.dayPart = nil
@@ -118,6 +124,7 @@ struct TaskOccurrence: Identifiable, Hashable, Sendable {
         self.yamadoriID = yamadoriID
         self.nurseryPropagationProjectID = nil
         self.libraryInventoryKind = nil
+        self.isGreenhouseSpringCheck = false
         self.dueDate = task.dueDate
         self.fertilizerTypeID = nil
         self.dayPart = nil
@@ -135,6 +142,7 @@ struct TaskOccurrence: Identifiable, Hashable, Sendable {
         self.yamadoriID = nil
         self.nurseryPropagationProjectID = nurseryPropagationProjectID
         self.libraryInventoryKind = nil
+        self.isGreenhouseSpringCheck = false
         self.dueDate = task.dueDate
         self.fertilizerTypeID = nil
         self.dayPart = nil
@@ -152,6 +160,25 @@ struct TaskOccurrence: Identifiable, Hashable, Sendable {
         self.yamadoriID = nil
         self.nurseryPropagationProjectID = nil
         self.libraryInventoryKind = libraryInventoryKind
+        self.isGreenhouseSpringCheck = false
+        self.dueDate = task.dueDate
+        self.fertilizerTypeID = nil
+        self.dayPart = nil
+        self.isInstant = isInstant
+    }
+
+    /// Greenhouse spring heat / vent check — one batch row (Locations listed in Care).
+    init(task: CareTask, greenhouseSpringCheck: Bool, isInstant: Bool) {
+        self.id = "\(task.id.uuidString)-greenhouse-spring"
+        self.source = .task(task)
+        self.title = task.title
+        self.workTypeID = task.workTypeID
+        self.treeID = nil
+        self.seedBatchID = nil
+        self.yamadoriID = nil
+        self.nurseryPropagationProjectID = nil
+        self.libraryInventoryKind = nil
+        self.isGreenhouseSpringCheck = greenhouseSpringCheck
         self.dueDate = task.dueDate
         self.fertilizerTypeID = nil
         self.dayPart = nil
@@ -173,6 +200,7 @@ struct TaskOccurrence: Identifiable, Hashable, Sendable {
         self.yamadoriID = nil
         self.nurseryPropagationProjectID = nil
         self.libraryInventoryKind = nil
+        self.isGreenhouseSpringCheck = false
         self.dueDate = dueDate
         self.fertilizerTypeID = schedule.fertilizerTypeID
         self.dayPart = dayPart

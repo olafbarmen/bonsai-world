@@ -131,6 +131,48 @@ final class LibraryService {
         return library
     }
 
+    /// Creates or opens the shared iCloud Drive library package (Mac ↔ iPhone).
+    /// When `seedingFrom` is a previous local package, copies trees/photos into iCloud as needed.
+    @discardableResult
+    func createOrOpenICloudLibrary(seedingFrom previousRoot: URL? = nil) throws -> Library {
+        do {
+            try storage.useICloudDriveLibrary()
+            try storage.ensureLibraryFolderStructure()
+        } catch let error as StorageError {
+            throw error
+        } catch {
+            throw LibraryError.createFailed(error.localizedDescription)
+        }
+
+        if let previousRoot,
+           let iCloudRoot = storage.libraryPackageRootURL {
+            do {
+                _ = try LibraryICloudSeedService.seedIfNeeded(from: previousRoot, to: iCloudRoot)
+            } catch {
+                throw LibraryError.createFailed(error.localizedDescription)
+            }
+        }
+
+        if let existing = try? loadManifest(), storage.libraryPackageExists() {
+            currentLibrary = existing
+            isLibraryReady = true
+            storage.refreshForeignWriterWarning()
+            return existing
+        }
+
+        let library = Library(
+            libraryName: Library.defaultName,
+            libraryLocation: storage.libraryLocationConfiguration,
+            createdDate: .now,
+            version: Library.currentVersion
+        )
+        try saveManifest(library)
+        currentLibrary = library
+        isLibraryReady = true
+        storage.touchWriterLease()
+        return library
+    }
+
     // MARK: - Open
 
     /// Presents a folder picker and opens a valid Bonsai World Library.

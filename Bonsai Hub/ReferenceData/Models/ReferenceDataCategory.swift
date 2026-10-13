@@ -162,6 +162,7 @@ struct ReferenceDataDraft: Identifiable, Hashable, Sendable {
 }
 
 enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
+    case gettingStarted
     case userProfile
     case regionalSettings
     case referenceData
@@ -177,6 +178,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
 
     var title: String {
         switch self {
+        case .gettingStarted: "Getting Started"
         case .userProfile: "User Profile"
         case .regionalSettings: "Regional Settings"
         case .referenceData: "Reference Data"
@@ -192,6 +194,7 @@ enum SettingsPane: String, CaseIterable, Identifiable, Hashable {
 
     var systemImage: String {
         switch self {
+        case .gettingStarted: "questionmark.circle"
         case .userProfile: "person.crop.circle"
         case .regionalSettings: "globe"
         case .referenceData: "list.bullet.rectangle"

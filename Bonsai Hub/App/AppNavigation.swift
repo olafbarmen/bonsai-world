@@ -84,6 +84,7 @@ enum AppModule: String, CaseIterable, Identifiable, Hashable, Sendable {
             .dashboard,
             .tasks,
             .garden,
+            .shaping,
             .care,
             .nursery,
             .yamadori,
@@ -101,7 +102,7 @@ enum AppModule: String, CaseIterable, Identifiable, Hashable, Sendable {
         primaryWorkspaceModules + libraryWorkspaceModules
     }
 
-    /// Modules under Tools in the sidebar. Settings opens from the profile footer only.
+    /// Settings is pinned below Context Tools (not listed in the scrolling Tools group).
     static var toolsModules: [AppModule] {
         []
     }
@@ -179,8 +180,9 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
     case careTreeHealth
     case careSeasonal
     case careWinter
+    case careSpring
 
-    // Shaping — Tree Detail segment only (not a sidebar module).
+    // Shaping — sidebar module; same Tree Detail Shaping segment.
     case shaping
 
     // Shaping subpages (reserved — used inside Tree Detail later)
@@ -284,8 +286,8 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .knowledgeQuickGuides:
             // Handbook is the reading surface. Keep the route; hide the sidebar item.
             false
-        case .shaping:
-            // Shaping lives on Tree Detail — not a sidebar module.
+        case .careToday:
+            // Tasks → Today owns the day list. Care is recommendations, not a second task list.
             false
         case .designVision, .designStyle, .designFrontSelection, .designVirtual,
              .designBranchPlan, .designTrunkDevelopment, .designRamification,
@@ -351,6 +353,7 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .careTreeHealth: "Health"
         case .careSeasonal: "Seasonal Care"
         case .careWinter: "Winter Care"
+        case .careSpring: "Spring Care"
 
         case .shaping: "Shaping"
 
@@ -421,7 +424,7 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .nurseryYamadori: .yamadori
         case .nurseryFieldTree: .propagation
         case .careToday, .careWatering, .careFertilizing, .careRepotting, .carePlacement,
-             .careTreeHealth, .careSeasonal, .careWinter: .care
+             .careTreeHealth, .careSeasonal, .careWinter, .careSpring: .care
         case .shaping: .shaping
         case .designVision, .designStyle, .designFrontSelection, .designVirtual,
              .designBranchPlan, .designTrunkDevelopment, .designRamification,
@@ -458,9 +461,10 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
             [.shaping]
         case .care:
             [
-                .careWatering, .careFertilizing, .careRepotting,
-                .careTreeHealth, .careSeasonal,
-                .careToday, .carePlacement, .careWinter
+                .careWatering, .careFertilizing,
+                .carePlacement, .careWinter, .careSpring,
+                .careRepotting, .careTreeHealth, .careSeasonal,
+                .careToday
             ]
         case .nursery:
             [

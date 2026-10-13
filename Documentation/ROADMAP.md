@@ -17,8 +17,8 @@ Detailed implementation belongs in [PRODUCT_BLUEPRINT.md](PRODUCT_BLUEPRINT.md).
 
 ## NEXT
 
-- SpeciesProfile ↔ Reference Data ID link (rename-safe knowledge)  
-- CollectionService extraction from TreeService  
+- ~~SpeciesProfile ↔ Reference Data ID link~~ (done — ``BotanicalKnowledgeIDs``)  
+- CollectionService extraction from TreeService (after test backup; not a grower blocker)  
 - Nursery depth decision (kind-specific fields vs explicit generic product)  
 - Care Placement / Winter / etc.: honesty “tracking only” labels **shipped**; real engines still open  
 - Experience packages: persist planning choices and optional sidebar gating  

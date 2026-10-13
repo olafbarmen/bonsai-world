@@ -40,7 +40,7 @@ struct NurseryPropagationWorkspaceWindowView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .faloWorkspaceCanvas()
             .bonsaiWorkspaceNavigationTitle(windowTitle)
-            .background(NurseryPropagationWindowTitleSync(title: windowTitle))
+            .background(NurseryPropagationWindowTitleSync(title: windowTitle).allowsHitTesting(false))
     }
 }
 
@@ -48,7 +48,7 @@ private struct NurseryPropagationWindowTitleSync: NSViewRepresentable {
     let title: String
 
     func makeNSView(context: Context) -> NSView {
-        let view = NSView()
+        let view = NurseryPropagationTitleSyncPassthroughView()
         applyTitle(to: view)
         return view
     }
@@ -59,7 +59,12 @@ private struct NurseryPropagationWindowTitleSync: NSViewRepresentable {
 
     private func applyTitle(to view: NSView) {
         DispatchQueue.main.async {
-            view.window?.title = title
+            guard let window = view.window, window.title != title else { return }
+            window.title = title
         }
     }
+}
+
+private final class NurseryPropagationTitleSyncPassthroughView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

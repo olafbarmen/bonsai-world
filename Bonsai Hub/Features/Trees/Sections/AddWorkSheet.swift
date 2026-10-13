@@ -4,6 +4,7 @@
 //
 //  Registers a completed Work entry on one Tree (Context Tools → Add Work).
 //  Batch (multiple trees) and scheduling stay reserved for the future Work module.
+//  Wiring work offers a follow-up Task to check / remove the wire.
 //
 
 import SwiftUI
@@ -29,6 +30,7 @@ struct AddWorkSheet: View {
     @State private var fertilizerTypeID: UUID?
     @State private var errorMessage: String?
     @State private var newFertilizerDraft: FertilizerTypeDraft?
+    @State private var wireCheckPrompt: WireCheckPrompt?
 
     init(
         treeID: UUID,
@@ -52,6 +54,12 @@ struct AddWorkSheet: View {
 
     private var requiresFertilizer: Bool {
         selectedWorkType?.behaviour.requiresFertilizer ?? false
+    }
+
+    private var isWiringWork: Bool {
+        guard let workTypeID else { return false }
+        if workTypeID == CanonicalWorkTypeID.wiring { return true }
+        return selectedWorkType?.name.caseInsensitiveCompare("Wiring") == .orderedSame
     }
 
     var body: some View {
@@ -130,6 +138,14 @@ struct AddWorkSheet: View {
                 fertilizerTypeID = created.id
             }
         }
+        .sheet(item: $wireCheckPrompt) { prompt in
+            WireCheckReminderSheet(
+                treeID: prompt.treeID,
+                wiredOn: prompt.wiredOn
+            ) {
+                dismiss()
+            }
+        }
     }
 
     private func save() {
@@ -144,9 +160,19 @@ struct AddWorkSheet: View {
                 scheduleID: scheduleID
             )
             onSave(record)
-            dismiss()
+            if isWiringWork {
+                wireCheckPrompt = WireCheckPrompt(treeID: treeID, wiredOn: performedAt)
+            } else {
+                dismiss()
+            }
         } catch {
             errorMessage = error.localizedDescription
         }
     }
+}
+
+private struct WireCheckPrompt: Identifiable {
+    let id = UUID()
+    let treeID: UUID
+    let wiredOn: Date
 }

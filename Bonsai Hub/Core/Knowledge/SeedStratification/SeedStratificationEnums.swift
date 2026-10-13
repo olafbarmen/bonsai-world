@@ -64,30 +64,7 @@ enum StratificationTreatmentType: String, Codable, Hashable, Sendable, CaseItera
 }
 
 /// Phase inside an ordered treatment sequence.
-enum StratificationPhaseType: String, Codable, Hashable, Sendable, CaseIterable, Identifiable {
-    case none
-    case scarification
-    case soaking
-    case warmStratification
-    case coldStratification
-    case germination
-    case other
-
-    var id: Self { self }
-
-    var title: String {
-        switch self {
-        case .none: "No treatment"
-        case .scarification: "Scarification"
-        case .soaking: "Soaking / hydration"
-        case .warmStratification: "Warm stratification"
-        case .coldStratification: "Cold stratification"
-        case .germination: "Germination"
-        case .other: "Other"
-        }
-    }
-}
-
+/// Canonical type: `StratificationPhaseType` in BonsaiCore.
 enum StratificationConfidenceLevel: String, Codable, Hashable, Sendable, CaseIterable, Identifiable {
     case high
     case moderate

@@ -31,6 +31,14 @@ enum LocationEnvironmentSetting: String, Codable, CaseIterable, Identifiable, Ha
         case .polytunnel: "Polytunnel"
         }
     }
+
+    /// Enclosed growing spaces that need a spring heat / vent check (AE1).
+    var needsGreenhouseSpringCheck: Bool {
+        switch self {
+        case .greenhouse, .coldGreenhouse, .polytunnel: true
+        case .indoor, .outdoor: false
+        }
+    }
 }
 
 // MARK: - Shade

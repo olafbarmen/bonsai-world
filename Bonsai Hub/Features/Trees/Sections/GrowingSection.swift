@@ -13,6 +13,10 @@ struct GrowingSection: View {
     @Binding var styleID: UUID?
     @Binding var locationID: UUID?
     @Binding var healthStatus: TreeHealthStatus
+    @Binding var lastRepottedDate: Date?
+    @Binding var repottingIntervalYears: Int?
+    @Binding var placementStrategy: TreePlacementStrategy
+    @Binding var seasonPlacement: TreeSeasonPlacement
     @Binding var treeStageID: UUID?
     @Binding var sizeClassID: UUID?
     @Binding var lightConditionID: UUID?
@@ -87,6 +91,11 @@ struct GrowingSection: View {
                 )
                 locationPlacementBlock
                 healthPicker
+                repottingPlanBlock
+                placementStrategyPicker
+                if placementStrategy == .seasonal {
+                    seasonPlacementPicker
+                }
                 DetailOptionPickerRow(
                     label: "Tree Stage",
                     selection: $treeStageID,
@@ -114,6 +123,12 @@ struct GrowingSection: View {
                 DetailLabeledRow(label: "Garden", value: gardenDisplayName)
                 DetailLabeledRow(label: "Location", value: locationDisplayName)
                 DetailLabeledRow(label: "Health", value: healthStatus.title)
+                DetailLabeledRow(label: "Last repotted", value: lastRepottedDisplay)
+                DetailLabeledRow(label: "Repot every", value: repottingIntervalDisplay)
+                DetailLabeledRow(label: "Placement strategy", value: placementStrategy.title)
+                if placementStrategy == .seasonal {
+                    DetailLabeledRow(label: "Season", value: seasonPlacement.title)
+                }
                 DetailLabeledRow(
                     label: "Tree Stage",
                     value: DetailOptionPickerRow.displayName(for: treeStageID, in: treeStages)
@@ -152,6 +167,16 @@ struct GrowingSection: View {
         }
     }
 
+    private var lastRepottedDisplay: String {
+        guard let lastRepottedDate else { return "—" }
+        return lastRepottedDate.formatted(date: .abbreviated, time: .omitted)
+    }
+
+    private var repottingIntervalDisplay: String {
+        guard let repottingIntervalYears else { return "—" }
+        return repottingIntervalYears == 1 ? "1 year" : "\(repottingIntervalYears) years"
+    }
+
     @ViewBuilder
     private var healthPicker: some View {
         VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
@@ -165,6 +190,104 @@ struct GrowingSection: View {
                 }
             }
             .labelsHidden()
+            .pickerStyle(.menu)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder
+    private var repottingPlanBlock: some View {
+        VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+            Text("Repotting")
+                .font(FaloTypography.caption)
+                .foregroundStyle(.secondary)
+            Text("Set last repotted and how often. The app then plans the next Task in March–May.")
+                .font(FaloTypography.caption)
+                .foregroundStyle(.tertiary)
+
+            Toggle(
+                "Last repotted known",
+                isOn: Binding(
+                    get: { lastRepottedDate != nil },
+                    set: { isOn in
+                        if isOn {
+                            lastRepottedDate = lastRepottedDate ?? .now
+                        } else {
+                            lastRepottedDate = nil
+                        }
+                    }
+                )
+            )
+            if lastRepottedDate != nil {
+                DatePicker(
+                    "Last repotted",
+                    selection: Binding(
+                        get: { lastRepottedDate ?? .now },
+                        set: { lastRepottedDate = $0 }
+                    ),
+                    displayedComponents: .date
+                )
+            }
+
+            Toggle(
+                "Plan next repot",
+                isOn: Binding(
+                    get: { repottingIntervalYears != nil },
+                    set: { isOn in
+                        if isOn {
+                            repottingIntervalYears = repottingIntervalYears ?? 3
+                        } else {
+                            repottingIntervalYears = nil
+                        }
+                    }
+                )
+            )
+            if let years = repottingIntervalYears {
+                Stepper(value: Binding(
+                    get: { years },
+                    set: { repottingIntervalYears = $0 }
+                ), in: 1...20) {
+                    Text(years == 1 ? "Every 1 year" : "Every \(years) years")
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var placementStrategyPicker: some View {
+        VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+            Text("Placement strategy")
+                .font(FaloTypography.caption)
+                .foregroundStyle(.secondary)
+            Text("Always outdoors, or move in/out by season. Where it stands now is Location under Placement.")
+                .font(FaloTypography.caption)
+                .foregroundStyle(.tertiary)
+
+            Picker("Placement strategy", selection: $placementStrategy) {
+                ForEach(TreePlacementStrategy.allCases) { strategy in
+                    Text(strategy.title).tag(strategy)
+                }
+            }
+            .pickerStyle(.menu)
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder
+    private var seasonPlacementPicker: some View {
+        VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+            Text("Season")
+                .font(FaloTypography.caption)
+                .foregroundStyle(.secondary)
+            Text("Summer or winter mode for this seasonal tree.")
+                .font(FaloTypography.caption)
+                .foregroundStyle(.tertiary)
+
+            Picker("Season", selection: $seasonPlacement) {
+                ForEach(TreeSeasonPlacement.allCases) { season in
+                    Text(season.title).tag(season)
+                }
+            }
             .pickerStyle(.menu)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -289,7 +412,10 @@ struct GrowingSection: View {
     }
 
     private func compositionLine(for part: SoilMixPart) -> String {
-        let name = soilComponentNames[part.componentID] ?? "Unknown component"
+        let freeName = part.componentName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let name = freeName.isEmpty
+            ? (soilComponentNames[part.componentID] ?? "Unknown component")
+            : freeName
         return "\(part.percentage)% \(name)"
     }
 }

@@ -17,6 +17,12 @@
 
 import Foundation
 
+/// System-owned schedules (grower can still see them in Manage Schedules).
+enum CareScheduleSystemKind: String, Codable, Sendable, Hashable {
+    /// Per-tree repotting cadence from Tree.lastRepottedDate + repottingIntervalYears.
+    case autoRepotting
+}
+
 enum CareRecurrenceUnit: String, Codable, Sendable, CaseIterable, Identifiable {
     case day
     case week
@@ -174,6 +180,7 @@ struct CareSchedule: Identifiable, Hashable, Sendable {
     var target: CareScheduleTarget
     var recurrence: CareRecurrenceRule
     var seasonalWindow: CareScheduleSeasonalWindow?
+    var systemKind: CareScheduleSystemKind?
     var notes: String
     var isActive: Bool
 
@@ -188,6 +195,7 @@ struct CareSchedule: Identifiable, Hashable, Sendable {
         target: CareScheduleTarget,
         recurrence: CareRecurrenceRule,
         seasonalWindow: CareScheduleSeasonalWindow? = nil,
+        systemKind: CareScheduleSystemKind? = nil,
         notes: String = "",
         isActive: Bool = true,
         createdDate: Date = .now,
@@ -200,6 +208,7 @@ struct CareSchedule: Identifiable, Hashable, Sendable {
         self.target = target
         self.recurrence = recurrence
         self.seasonalWindow = seasonalWindow
+        self.systemKind = systemKind
         self.notes = notes
         self.isActive = isActive
         self.createdDate = createdDate
@@ -212,7 +221,7 @@ struct CareSchedule: Identifiable, Hashable, Sendable {
 extension CareSchedule: Codable {
     private enum CodingKeys: String, CodingKey {
         case id, title, workTypeID, fertilizerTypeID, target, treeIDs
-        case recurrence, seasonalWindow, notes, isActive, createdDate, modifiedDate
+        case recurrence, seasonalWindow, systemKind, notes, isActive, createdDate, modifiedDate
     }
 
     init(from decoder: Decoder) throws {
@@ -232,6 +241,7 @@ extension CareSchedule: Codable {
 
         recurrence = try container.decode(CareRecurrenceRule.self, forKey: .recurrence)
         seasonalWindow = try container.decodeIfPresent(CareScheduleSeasonalWindow.self, forKey: .seasonalWindow)
+        systemKind = try container.decodeIfPresent(CareScheduleSystemKind.self, forKey: .systemKind)
         notes = try container.decode(String.self, forKey: .notes)
         isActive = try container.decode(Bool.self, forKey: .isActive)
         createdDate = try container.decode(Date.self, forKey: .createdDate)
@@ -247,6 +257,7 @@ extension CareSchedule: Codable {
         try container.encode(target, forKey: .target)
         try container.encode(recurrence, forKey: .recurrence)
         try container.encodeIfPresent(seasonalWindow, forKey: .seasonalWindow)
+        try container.encodeIfPresent(systemKind, forKey: .systemKind)
         try container.encode(notes, forKey: .notes)
         try container.encode(isActive, forKey: .isActive)
         try container.encode(createdDate, forKey: .createdDate)
