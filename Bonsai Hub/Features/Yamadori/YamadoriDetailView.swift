@@ -222,7 +222,6 @@ struct YamadoriDetailView: View {
                 }
             }
             Button("Add Find") { addFind() }
-                .buttonStyle(.borderless)
                 .disabled(isEditing)
         }
     }

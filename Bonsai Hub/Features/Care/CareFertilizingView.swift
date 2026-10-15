@@ -2,8 +2,8 @@
 //  CareFertilizingView.swift
 //  Bonsai World
 //
-//  Care → Fertilizing — guidance (decision engine) + act on Tasks due + register Work.
-//  Add Task opens the same Tasks sheet (no separate Care task engine).
+//  Care → Fertilizing — Due now (Tasks/Work), then Guidance (one card), then
+//  Fertilizer bags (batch). Add Task opens the Tasks sheet.
 //  No SwiftUI #Preview here — environment graph is heavy; use the live Care module.
 //
 
@@ -109,16 +109,30 @@ struct CareFertilizingView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: FaloSpacing.xxLarge + FaloSpacing.large) {
-                CareHonestyLine(text: CareHonesty.recommendationActiveLine)
-                headerActions
+                CarePageIntro(pageKey: "fertilizing", helpBody: CarePageHelp.fertilizing)
 
+                sectionHeader(
+                    "Due now",
+                    subtitle: "Fertilizing Tasks from Tasks. Register as Work when you feed."
+                )
+                headerActions
                 CareTwoColumnLayout {
                     needsCard
                 } secondary: {
-                    pickerCard
-                    recommendationCard
                     recentCard
                 }
+
+                sectionHeader(
+                    "Guidance",
+                    subtitle: "Set the tree’s situation, then read the recommendation. Advice only — not an automatic schedule."
+                )
+                guidanceCard
+
+                sectionHeader(
+                    "Fertilizer bags",
+                    subtitle: "Batch place and replace bags on many trees. Separate from Needs Fertilizing."
+                )
+                CareFertilizerBagsSection()
             }
             .padding(FaloSpacing.xLarge)
             .frame(maxWidth: 1100, alignment: .leading)
@@ -127,7 +141,6 @@ struct CareFertilizingView: View {
         .faloScrollSurface()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .faloWorkspaceCanvas()
-        .bonsaiWorkspaceNavigationTitle("Fertilizing")
         .sheet(isPresented: $isRegisterPresented) {
             if let treeID = registerTreeID {
                 NavigationStack {
@@ -164,12 +177,21 @@ struct CareFertilizingView: View {
         }
     }
 
+    private func sectionHeader(_ title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+            Text(title)
+                .font(FaloTypography.headline)
+                .foregroundStyle(.primary)
+            Text(subtitle)
+                .font(FaloTypography.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var headerActions: some View {
         HStack(alignment: .top) {
-            Text("Due from Tasks. Register as Work. Guidance below. Add Task opens the Tasks sheet.")
-                .font(FaloTypography.body)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            Spacer(minLength: 0)
 
             VStack(alignment: .trailing, spacing: FaloSpacing.small) {
                 Button("Add Task…") {
@@ -244,7 +266,7 @@ struct CareFertilizingView: View {
         }
     }
 
-    private var pickerCard: some View {
+    private var guidanceCard: some View {
         DetailCard(title: "Guidance") {
             Text(FertilizerGuides.openingLine)
                 .font(FaloTypography.body)
@@ -275,11 +297,14 @@ struct CareFertilizingView: View {
                     Text(item.title).tag(item)
                 }
             }
-        }
-    }
 
-    private var recommendationCard: some View {
-        DetailCard(title: "Recommendation") {
+            Divider()
+                .padding(.vertical, FaloSpacing.medium)
+
+            Text("Recommendation")
+                .font(FaloCardTypography.fieldLabel)
+                .foregroundStyle(.secondary)
+
             Text(advice.summary)
                 .font(FaloCardTypography.fieldValue)
                 .padding(.bottom, FaloSpacing.small)

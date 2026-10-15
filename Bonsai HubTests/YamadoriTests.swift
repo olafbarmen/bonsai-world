@@ -49,23 +49,32 @@ struct YamadoriLifecycleTests {
         (UUID(), UUID(), UUID())
     }
 
-    @Test func createStartsAsScoutAndAllocatesCode() throws {
+    @Test func createTripDoesNotCreateFind() throws {
         let service = makeService()
-        let created = try service.createYamadori(fromDraft: NewYamadoriDraft(displayName: "Ridge Pine"))
-        #expect(created.find.status == .scout)
-        #expect(YamadoriIDService.parse(created.find.yamadoriCode) != nil)
+        let trip = try service.createYamadori(fromDraft: NewYamadoriDraft(displayName: "Ridge Pine"))
+        #expect(trip.displayName == "Ridge Pine")
         #expect(service.getAllYamadori().count == 1)
+        #expect(service.getAllFinds().count == 0)
+    }
+
+    @Test func addFindStartsAsScoutAndAllocatesCode() throws {
+        let service = makeService()
+        let trip = try service.createYamadori(fromDraft: NewYamadoriDraft(displayName: "Ridge Pine"))
+        let find = try service.createFind(onYamadoriID: trip.id, displayName: "First")
+        #expect(find.status == .scout)
+        #expect(YamadoriIDService.parse(find.yamadoriCode) != nil)
+        #expect(find.yamadoriID == trip.id)
         #expect(service.getAllFinds().count == 1)
-        #expect(created.find.yamadoriID == created.trip.id)
     }
 
     @Test func createAllowsMultipleFindsPerTrip() throws {
         let service = makeService()
-        let created = try service.createYamadori(fromDraft: NewYamadoriDraft(displayName: "Ridge"))
-        let second = try service.createFind(onYamadoriID: created.trip.id, displayName: "Second")
-        #expect(service.finds(forYamadoriID: created.trip.id).count == 2)
-        #expect(second.yamadoriID == created.trip.id)
-        #expect(second.yamadoriCode != created.find.yamadoriCode)
+        let trip = try service.createYamadori(fromDraft: NewYamadoriDraft(displayName: "Ridge"))
+        let first = try service.createFind(onYamadoriID: trip.id, displayName: "First")
+        let second = try service.createFind(onYamadoriID: trip.id, displayName: "Second")
+        #expect(service.finds(forYamadoriID: trip.id).count == 2)
+        #expect(second.yamadoriID == trip.id)
+        #expect(second.yamadoriCode != first.yamadoriCode)
     }
 
     @Test func markCollectedCreatesYamadoriTree() throws {
@@ -74,17 +83,18 @@ struct YamadoriLifecycleTests {
         let treeCountBefore = treeService.getAllTrees().count
         let inputs = collectInputs()
 
-        var draft = NewYamadoriDraft(displayName: "Cliff Juniper")
-        draft.genusID = UUID()
-        draft.speciesID = UUID()
-        let created = try service.createYamadori(fromDraft: draft)
-        _ = try service.setStatus(id: created.find.id, to: .planned)
+        let trip = try service.createYamadori(fromDraft: NewYamadoriDraft(displayName: "Cliff Juniper"))
+        var find = try service.createFind(onYamadoriID: trip.id, displayName: "Cliff Juniper")
+        find.genusID = UUID()
+        find.speciesID = UUID()
+        _ = try service.updateFind(find)
+        _ = try service.setStatus(id: find.id, to: .planned)
 
         var collectDraft = YamadoriCollectDraft()
         collectDraft.locationID = inputs.locationID
 
         let result = try service.markCollected(
-            id: created.find.id,
+            id: find.id,
             draft: collectDraft,
             acquisitionMethodID: inputs.acquisitionMethodID,
             treeStageID: inputs.treeStageID,
@@ -97,16 +107,17 @@ struct YamadoriLifecycleTests {
         #expect(treeService.getAllTrees().count == treeCountBefore + 1)
         #expect(result.find.status == .collected)
         #expect(result.find.linkedTreeID == result.tree.id)
-        #expect(result.tree.bonsaiName == created.find.yamadoriCode)
+        #expect(result.tree.bonsaiName == find.yamadoriCode)
         #expect(result.tree.yamadoriNursery)
-        #expect(result.tree.sourceYamadoriID == created.find.id)
+        #expect(result.tree.sourceYamadoriID == find.id)
     }
 
     @Test func advanceStatusMovesScoutToPlannedOnly() throws {
         let service = makeService()
-        let created = try service.createYamadori(fromDraft: NewYamadoriDraft())
-        _ = try service.advanceStatus(id: created.find.id)
-        #expect(service.getFind(id: created.find.id)?.status == .planned)
+        let trip = try service.createYamadori(fromDraft: NewYamadoriDraft())
+        let find = try service.createFind(onYamadoriID: trip.id)
+        _ = try service.advanceStatus(id: find.id)
+        #expect(service.getFind(id: find.id)?.status == .planned)
     }
 
     @Test func graduateToMyTreesUpdatesExistingTree() throws {
@@ -117,16 +128,17 @@ struct YamadoriLifecycleTests {
         let genusID = UUID()
         let speciesID = UUID()
 
-        var draft = NewYamadoriDraft(displayName: "Established Find")
-        draft.genusID = genusID
-        draft.speciesID = speciesID
-        let created = try service.createYamadori(fromDraft: draft)
-        _ = try service.setStatus(id: created.find.id, to: .planned)
+        let trip = try service.createYamadori(fromDraft: NewYamadoriDraft(displayName: "Established Find"))
+        var find = try service.createFind(onYamadoriID: trip.id, displayName: "Established Find")
+        find.genusID = genusID
+        find.speciesID = speciesID
+        _ = try service.updateFind(find)
+        _ = try service.setStatus(id: find.id, to: .planned)
 
         var collectDraft = YamadoriCollectDraft()
         collectDraft.locationID = inputs.locationID
         let collected = try service.markCollected(
-            id: created.find.id,
+            id: find.id,
             draft: collectDraft,
             acquisitionMethodID: inputs.acquisitionMethodID,
             treeStageID: inputs.treeStageID,
@@ -141,7 +153,7 @@ struct YamadoriLifecycleTests {
         transfer.nickname = "Cliff"
 
         let tree = try service.transferToTree(
-            id: created.find.id,
+            id: find.id,
             draft: transfer,
             acquisitionMethodID: inputs.acquisitionMethodID,
             treeStageID: inputs.treeStageID,
@@ -153,28 +165,29 @@ struct YamadoriLifecycleTests {
 
         #expect(treeService.getAllTrees().count == treeCountAfterCollect)
         #expect(tree.id == collected.tree.id)
-        #expect(tree.sourceYamadoriID == created.find.id)
+        #expect(tree.sourceYamadoriID == find.id)
         #expect(!tree.yamadoriNursery)
-        #expect(tree.bonsaiName != created.find.yamadoriCode)
+        #expect(tree.bonsaiName != find.yamadoriCode)
 
-        let find = try #require(service.getFind(id: created.find.id))
-        #expect(find.status == .transferred)
-        #expect(find.linkedTreeID == tree.id)
-        #expect(find.yamadoriCode == created.find.yamadoriCode)
+        let refreshed = try #require(service.getFind(id: find.id))
+        #expect(refreshed.status == .transferred)
+        #expect(refreshed.linkedTreeID == tree.id)
+        #expect(refreshed.yamadoriCode == find.yamadoriCode)
     }
 
     @Test func transferRejectedBeforeCollected() throws {
         let service = makeService()
-        let created = try service.createYamadori(fromDraft: NewYamadoriDraft(
-            genusID: UUID(),
-            speciesID: UUID()
-        ))
+        let trip = try service.createYamadori(fromDraft: NewYamadoriDraft())
+        var find = try service.createFind(onYamadoriID: trip.id)
+        find.genusID = UUID()
+        find.speciesID = UUID()
+        _ = try service.updateFind(find)
         var transfer = YamadoriTransferDraft()
         transfer.locationID = UUID()
 
         do {
             _ = try service.transferToTree(
-                id: created.find.id,
+                id: find.id,
                 draft: transfer,
                 acquisitionMethodID: UUID(),
                 treeStageID: UUID(),

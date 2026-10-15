@@ -60,7 +60,7 @@ struct CareHealthView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: FaloSpacing.xxLarge + FaloSpacing.large) {
-                CareHonestyLine(text: CareHonesty.trackingOnlyLine)
+                CarePageIntro(pageKey: "health", helpBody: CarePageHelp.health)
                 headerActions
 
                 CareTwoColumnLayout {
@@ -77,7 +77,6 @@ struct CareHealthView: View {
         .faloScrollSurface()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .faloWorkspaceCanvas()
-        .bonsaiWorkspaceNavigationTitle("Health")
         .sheet(isPresented: $isRegisterPresented) {
             if let treeID = registerTreeID {
                 NavigationStack {

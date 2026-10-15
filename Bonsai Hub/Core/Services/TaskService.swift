@@ -472,6 +472,9 @@ final class TaskService {
                 return [TaskOccurrence(task: task, greenhouseSpringCheck: true, isInstant: true)]
             }
             let instant = completesInstantly(task)
+                || task.systemKind == .winterCare
+                || task.systemKind == .springCare
+                || task.systemKind == .fertilizerBags
             var rows: [TaskOccurrence] = task.treeIDs.compactMap { treeID in
                 guard isTreeInCare(treeID) else { return nil }
                 return TaskOccurrence(task: task, treeID: treeID, isInstant: instant)
@@ -605,6 +608,14 @@ final class TaskService {
             .map(\.performedAt)
             .max()
 
+        if let postponed = schedule.postponedDueByTreeID[treeID] {
+            let postponedDay = calendar.startOfDay(for: postponed)
+            // Still honor postpone until Work is logged on/after that day.
+            if lastPerformed == nil || lastPerformed! < postponedDay {
+                return postponedDay
+            }
+        }
+
         let base = lastPerformed ?? schedule.createdDate
         guard let raw = calendar.date(
             byAdding: schedule.recurrence.unit.calendarComponent,
@@ -615,6 +626,25 @@ final class TaskService {
             return RepottingCareService.clampToRepottingSeason(raw, calendar: calendar)
         }
         return raw
+    }
+
+    /// Moves this occurrence’s due date only — schedule recurrence / interval unchanged (AX1).
+    func postponeOccurrence(_ occurrence: TaskOccurrence, to date: Date) throws {
+        let due = Calendar.current.startOfDay(for: date)
+        switch occurrence.source {
+        case .schedule(let scheduleID):
+            guard let treeID = occurrence.treeID else { throw TaskServiceError.noTargets }
+            guard var schedule = schedules.first(where: { $0.id == scheduleID }) else {
+                throw TaskServiceError.notFound(scheduleID)
+            }
+            schedule.postponedDueByTreeID[treeID] = due
+            schedule.modifiedDate = .now
+            _ = try updateSchedule(schedule)
+        case .task(let task):
+            var updated = task
+            updated.dueDate = due
+            _ = try updateTask(updated)
+        }
     }
 
     /// For "N times a day" schedules: counts how many matching WorkRecords already
@@ -791,6 +821,30 @@ final class TaskService {
     func completeGreenhouseSpringCheckSystemTask(_ task: CareTask) throws -> CareTask {
         guard task.status == .pending else { throw TaskServiceError.alreadyCompleted }
         guard task.systemKind == .greenhouseSpringCheck else { throw TaskServiceError.noTargets }
+        return try markCompleted(task, resultingWorkRecordID: nil)
+    }
+
+    @discardableResult
+    func createFertilizerBagsSystemTask(
+        workTypeID: UUID,
+        treeIDs: [UUID],
+        dueDate: Date,
+        notes: String
+    ) throws -> CareTask {
+        try createTask(
+            title: FertilizerBagsService.taskTitle,
+            workTypeID: workTypeID,
+            treeIDs: treeIDs,
+            systemKind: .fertilizerBags,
+            dueDate: dueDate,
+            notes: notes
+        )
+    }
+
+    @discardableResult
+    func completeFertilizerBagsSystemTask(_ task: CareTask) throws -> CareTask {
+        guard task.status == .pending else { throw TaskServiceError.alreadyCompleted }
+        guard task.systemKind == .fertilizerBags else { throw TaskServiceError.noTargets }
         return try markCompleted(task, resultingWorkRecordID: nil)
     }
 
@@ -1097,14 +1151,19 @@ final class TaskService {
     /// decided when the Schedule was created.
     @discardableResult
     func completeScheduleOccurrence(scheduleID: UUID, treeID: UUID) throws -> WorkRecord {
-        guard let schedule = schedules.first(where: { $0.id == scheduleID }) else {
+        guard var schedule = schedules.first(where: { $0.id == scheduleID }) else {
             throw TaskServiceError.notFound(scheduleID)
         }
-        return try workService.registerWork(
+        let record = try workService.registerWork(
             workTypeID: schedule.workTypeID,
             treeIDs: [treeID],
             fertilizerTypeID: schedule.fertilizerTypeID,
             scheduleID: schedule.id
         )
+        if schedule.postponedDueByTreeID.removeValue(forKey: treeID) != nil {
+            schedule.modifiedDate = .now
+            _ = try updateSchedule(schedule)
+        }
+        return record
     }
 }

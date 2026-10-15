@@ -18,11 +18,29 @@ struct TaskRowView: View {
     let treeName: String
     let onComplete: () -> Void
     var onOpenDetail: () -> Void = {}
+    var onPostpone: (() -> Void)? = nil
+    /// Instant-complete rows can join multi-select (BK1 / BL1).
+    var isSelectable: Bool = false
+    var isSelected: Bool = false
+    var onToggleSelection: (() -> Void)? = nil
 
     @Environment(AppState.self) private var appState
 
+    private var canPostpone: Bool {
+        onPostpone != nil && (occurrence.treeID != nil || !occurrence.isRecurring)
+    }
+
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: FaloSpacing.medium) {
+            if isSelectable, let onToggleSelection {
+                Button(action: onToggleSelection) {
+                    Image(systemName: isSelected ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(isSelected ? BonsaiWorldColors.sidebarAccent : .secondary)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(isSelected ? "Deselect" : "Select")
+            }
+
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: FaloSpacing.xSmall) {
                     if occurrence.isRecurring {
@@ -33,32 +51,43 @@ struct TaskRowView: View {
                     Text(occurrence.title)
                         .font(FaloTypography.body)
                         .foregroundStyle(.primary)
+                        .lineLimit(1)
                 }
                 Text("\(workTypeName) · \(treeName)")
                     .font(FaloTypography.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            .layoutPriority(0)
             .contentShape(Rectangle())
             .onTapGesture { onOpenDetail() }
 
-            Spacer(minLength: FaloSpacing.medium)
+            HStack(spacing: FaloSpacing.medium) {
+                Text(occurrence.dueDate, style: .date)
+                    .font(FaloTypography.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
 
-            Text(occurrence.dueDate, style: .date)
-                .font(FaloTypography.caption)
-                .foregroundStyle(.secondary)
-
-            Button(occurrence.isInstant ? "Complete" : "Complete…") {
-                onComplete()
+                Button(occurrence.isInstant ? "Complete" : "Complete…") {
+                    onComplete()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .fixedSize(horizontal: true, vertical: false)
+            .layoutPriority(1)
         }
         .padding(.vertical, FaloSpacing.small)
         .contentShape(Rectangle())
         .contextMenu {
             Button(occurrence.isInstant ? "Complete" : "Complete…") {
                 onComplete()
+            }
+            if canPostpone, let onPostpone {
+                Button("Postpone…") {
+                    onPostpone()
+                }
             }
             if let treeID = occurrence.treeID {
                 Button("Open Tree") {

@@ -84,6 +84,19 @@ struct NotificationsSettingsView: View {
             } footer: {
                 Text("Date only — check heat and unlock vents for Locations set to Greenhouse, Cold Greenhouse, or Polytunnel. Care → Spring Care and Tasks. Default 1 April.")
             }
+            Section {
+                Stepper(
+                    value: $appSettings.fertilizerBagsIntervalWeeks,
+                    in: 1...26,
+                    step: 1
+                ) {
+                    Text("Replace every \(appSettings.fertilizerBagsIntervalWeeks) week\(appSettings.fertilizerBagsIntervalWeeks == 1 ? "" : "s")")
+                }
+            } header: {
+                Text("Fertilizer bags")
+            } footer: {
+                Text("Default 6 weeks. Used by Care → Fertilizing and the “Replace fertilizer bags” Task.")
+            }
             Section("Nursery") {
                 Toggle("Nursery check reminders", isOn: $nurseryChecks)
             }

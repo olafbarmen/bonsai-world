@@ -24,9 +24,11 @@ struct TreeWorkspaceView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .faloWorkspaceCanvas()
-        .bonsaiWorkspaceNavigationTitle(
-            appState.selectedSection == .shaping ? "Shaping" : "Trees"
-        )
+        // Garden Trees: "Trees" sits on the My Trees / Former Trees row (same as
+        // "Tree Detail" on Overview / Shaping). Shaping keeps a workspace title.
+        .modifier(TreeWorkspaceNavigationTitleModifier(
+            title: appState.selectedSection == .shaping ? "Shaping" : nil
+        ))
     }
 
     @ViewBuilder
@@ -40,6 +42,19 @@ struct TreeWorkspaceView: View {
                 description: Text("Choose a tree in the list above to see its details.")
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+}
+
+/// Applies ``bonsaiWorkspaceNavigationTitle`` only when a title is present.
+private struct TreeWorkspaceNavigationTitleModifier: ViewModifier {
+    let title: String?
+
+    func body(content: Content) -> some View {
+        if let title {
+            content.bonsaiWorkspaceNavigationTitle(title)
+        } else {
+            content
         }
     }
 }

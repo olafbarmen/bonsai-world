@@ -17,17 +17,18 @@
 import SwiftUI
 
 struct TasksWorkspaceView: View {
-    let horizon: TasksHorizon
-
     @Environment(AppState.self) private var appState
     @Environment(TaskService.self) private var taskService
     @Environment(GreenhouseCareService.self) private var greenhouseCare
     @Environment(WinterCareService.self) private var winterCare
+    @Environment(FertilizerBagsService.self) private var fertilizerBags
     @Environment(WeatherService.self) private var weatherService
     @State private var isAddTaskPresented = false
     @State private var isManageSchedulesPresented = false
     @State private var completingTask: CareTask?
     @State private var detailOccurrence: TaskOccurrence?
+    @State private var postponeOccurrence: TaskOccurrence?
+    @State private var selectedOccurrenceIDs: Set<String> = []
     @State private var errorMessage: String?
     @State private var completionOutcome: CompletionOutcome?
 
@@ -36,6 +37,8 @@ struct TasksWorkspaceView: View {
         let message: String
         let results: [TaskService.OccurrenceCompletionResult]
     }
+
+    private var horizon: TasksHorizon { appState.tasksHorizon }
 
     private var occurrences: [TaskOccurrence] {
         taskService.pendingOccurrences(due: horizon)
@@ -46,20 +49,29 @@ struct TasksWorkspaceView: View {
     }
 
     var body: some View {
-        FaloAdaptiveDesktopWorkspace(profile: .dashboard) {
-            TasksWorkspaceContent(
-                horizon: horizon,
-                occurrences: occurrences,
-                onComplete: attemptComplete,
-                onOpenDetail: { detailOccurrence = $0 }
-            )
+        VStack(alignment: .leading, spacing: 0) {
+            tasksHorizonPicker
+            FaloAdaptiveDesktopWorkspace(profile: .tasksList) {
+                TasksWorkspaceContent(
+                    horizon: horizon,
+                    occurrences: occurrences,
+                    selectedOccurrenceIDs: $selectedOccurrenceIDs,
+                    onComplete: attemptComplete,
+                    onOpenDetail: { detailOccurrence = $0 },
+                    onPostpone: { postponeOccurrence = $0 },
+                    onCompleteSelected: completeSelected
+                )
+            }
         }
         .faloWorkspaceCanvas()
-        .bonsaiWorkspaceNavigationTitle(horizon.title)
+        .bonsaiWorkspaceNavigationTitle("Tasks")
         .onAppear {
             consumeWantsNewTask()
             consumeWantsManageSchedules()
             consumeWantsCompleteAll()
+        }
+        .onChange(of: horizon) { _, _ in
+            selectedOccurrenceIDs = []
         }
         .onChange(of: appState.wantsNewTask) { _, wants in
             guard wants else { return }
@@ -88,6 +100,9 @@ struct TasksWorkspaceView: View {
         }
         .sheet(item: $detailOccurrence) { occurrence in
             TaskDetailSheet(occurrence: occurrence, onComplete: { attemptComplete(occurrence) })
+        }
+        .sheet(item: $postponeOccurrence) { occurrence in
+            PostponeOccurrenceSheet(occurrence: occurrence)
         }
         .alert(
             "Couldn't Complete Task",
@@ -123,6 +138,44 @@ struct TasksWorkspaceView: View {
             }
         }
         .animation(.default, value: completionOutcome?.id)
+    }
+
+    private var tasksHorizonPicker: some View {
+        @Bindable var appState = appState
+        return HStack(spacing: FaloSpacing.medium) {
+            Picker("Horizon", selection: $appState.tasksHorizon) {
+                ForEach(TasksHorizon.primaryPickerCases) { value in
+                    Text(value.title).tag(value)
+                }
+            }
+            .pickerStyle(.segmented)
+            .frame(width: 420)
+            .labelsHidden()
+            // Year horizons are not tags here — segment shows none selected; More shows the title.
+
+            Menu {
+                Button("This Year") { appState.tasksHorizon = .thisYear }
+                Button("Next Year") { appState.tasksHorizon = .nextYear }
+            } label: {
+                HStack(spacing: 4) {
+                    Text(appState.tasksHorizon.isPrimaryPickerCase ? "More" : appState.tasksHorizon.title)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 9, weight: .semibold))
+                }
+                .font(FaloTypography.caption)
+                .foregroundStyle(
+                    appState.tasksHorizon.isPrimaryPickerCase
+                        ? .secondary
+                        : Color.accentColor
+                )
+            }
+            .menuStyle(.borderlessButton)
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, FaloSpacing.xLarge)
+        .padding(.top, FaloSpacing.medium)
+        .padding(.bottom, FaloSpacing.small)
     }
 
     private func consumeWantsNewTask() {
@@ -174,6 +227,20 @@ struct TasksWorkspaceView: View {
             }
             return
         }
+        if case .task(let task) = occurrence.source,
+           task.systemKind == .fertilizerBags,
+           let treeID = occurrence.treeID {
+            do {
+                try fertilizerBags.markBagsReplaced(for: treeID)
+                completionOutcome = CompletionOutcome(
+                    message: "Marked fertilizer bags replaced for this tree.",
+                    results: []
+                )
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            return
+        }
         if let seedBatchID = occurrence.seedBatchID, !occurrence.isInstant {
             dismissDetailThen { appState.showSeedBatch(batchID: seedBatchID) }
             return
@@ -217,15 +284,29 @@ struct TasksWorkspaceView: View {
     }
 
     private func completeAllInstantly() {
-        let instantOccurrences = instantCompletableOccurrences
-        guard !instantOccurrences.isEmpty else { return }
+        let instant = instantCompletableOccurrences
+        guard !instant.isEmpty else { return }
+        let skipped = occurrences.count - instant.count
+        completeBulk(instant, skippedNeedingDetails: skipped)
+    }
 
-        let skipped = occurrences.count - instantOccurrences.count
+    private func completeSelected() {
+        let selected = occurrences.filter { selectedOccurrenceIDs.contains($0.id) && isBulkSelectable($0) }
+        guard !selected.isEmpty else { return }
+        completeBulk(selected, skippedNeedingDetails: 0)
+        selectedOccurrenceIDs = []
+    }
 
+    private func isBulkSelectable(_ occurrence: TaskOccurrence) -> Bool {
+        occurrence.isInstant && occurrence.libraryInventoryKind == nil
+    }
+
+    private func completeBulk(_ items: [TaskOccurrence], skippedNeedingDetails: Int) {
         var results: [TaskService.OccurrenceCompletionResult] = []
         var greenhouseCompleted = 0
         var winterCareCompleted = 0
-        for occurrence in instantOccurrences {
+        var fertilizerBagsCompleted = 0
+        for occurrence in items {
             if occurrence.isGreenhouseSpringCheck, case .task(let task) = occurrence.source {
                 if (try? greenhouseCare.completeCheck(for: task.locationIDs)) != nil {
                     greenhouseCompleted += 1
@@ -240,21 +321,32 @@ struct TasksWorkspaceView: View {
                 }
                 continue
             }
+            if case .task(let task) = occurrence.source,
+               task.systemKind == .fertilizerBags,
+               let treeID = occurrence.treeID {
+                if (try? fertilizerBags.markBagsReplaced(for: treeID)) != nil {
+                    fertilizerBagsCompleted += 1
+                }
+                continue
+            }
             if let result = try? taskService.completeOccurrenceInstantly(occurrence) {
                 results.append(result)
             }
         }
-        let completedCount = results.count + greenhouseCompleted + winterCareCompleted
+        let completedCount = results.count + greenhouseCompleted + winterCareCompleted + fertilizerBagsCompleted
+        guard completedCount > 0 || skippedNeedingDetails > 0 else { return }
 
         let message: String
-        if let onlyResult = results.first, completedCount == 1, skipped == 0 {
+        if let onlyResult = results.first, completedCount == 1, skippedNeedingDetails == 0 {
             message = completionMessage(for: onlyResult)
-        } else if completedCount == 1, greenhouseCompleted == 1, skipped == 0 {
+        } else if completedCount == 1, greenhouseCompleted == 1, skippedNeedingDetails == 0 {
             message = "Completed “\(GreenhouseCareService.taskTitle)”."
-        } else if completedCount == 1, winterCareCompleted == 1, skipped == 0 {
+        } else if completedCount == 1, winterCareCompleted == 1, skippedNeedingDetails == 0 {
             message = "Marked all Winter Care steps done for this tree."
-        } else if skipped > 0 {
-            message = "Completed \(completedCount) of \(occurrences.count) — \(skipped) need\(skipped == 1 ? "s" : "") details. Use Complete… to finish \(skipped == 1 ? "it" : "them")."
+        } else if completedCount == 1, fertilizerBagsCompleted == 1, skippedNeedingDetails == 0 {
+            message = "Marked fertilizer bags replaced for this tree."
+        } else if skippedNeedingDetails > 0 {
+            message = "Completed \(completedCount) of \(occurrences.count) — \(skippedNeedingDetails) need\(skippedNeedingDetails == 1 ? "s" : "") details. Use Complete… to finish \(skippedNeedingDetails == 1 ? "it" : "them")."
         } else {
             message = "Completed \(completedCount) task\(completedCount == 1 ? "" : "s")."
         }
@@ -307,8 +399,11 @@ private struct UndoBannerView: View {
 private struct TasksWorkspaceContent: View {
     let horizon: TasksHorizon
     let occurrences: [TaskOccurrence]
+    @Binding var selectedOccurrenceIDs: Set<String>
     let onComplete: (TaskOccurrence) -> Void
     let onOpenDetail: (TaskOccurrence) -> Void
+    let onPostpone: (TaskOccurrence) -> Void
+    let onCompleteSelected: () -> Void
 
     @Environment(TaskService.self) private var taskService
     @Environment(TreeService.self) private var treeService
@@ -328,12 +423,28 @@ private struct TasksWorkspaceContent: View {
         occurrences.filter { !taskService.expiresIfMissed(workTypeID: $0.workTypeID) }
     }
 
+    private var selectableIDs: Set<String> {
+        Set(occurrences.filter(isBulkSelectable).map(\.id))
+    }
+
+    private var selectedCount: Int {
+        selectedOccurrenceIDs.intersection(selectableIDs).count
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: DashboardSpacing.titleToContent) {
-            Text(horizon == .overdue ? "Overdue Tasks" : "Pending Tasks")
-                .font(FaloTypography.headline)
-                .foregroundStyle(.primary)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            HStack(alignment: .firstTextBaseline) {
+                Text(horizon == .overdue ? "Overdue Tasks" : "Pending Tasks")
+                    .font(FaloTypography.headline)
+                    .foregroundStyle(.primary)
+
+                Spacer(minLength: FaloSpacing.medium)
+
+                if !selectableIDs.isEmpty {
+                    bulkActions
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             if horizon == .overdue, !occurrences.isEmpty {
                 Text("These still need doing — watering that was missed is not listed here (it cannot be done late).")
@@ -381,17 +492,52 @@ private struct TasksWorkspaceContent: View {
         .padding(DashboardSpacing.cardPadding)
         .frame(width: contentWidth, alignment: .topLeading)
         .dashboardCardChrome()
+        .onChange(of: selectableIDs) { _, valid in
+            selectedOccurrenceIDs = selectedOccurrenceIDs.intersection(valid)
+        }
+    }
+
+    private var bulkActions: some View {
+        HStack(spacing: FaloSpacing.medium) {
+            Button(selectedCount == selectableIDs.count ? "Deselect All" : "Select All") {
+                if selectedCount == selectableIDs.count {
+                    selectedOccurrenceIDs = []
+                } else {
+                    selectedOccurrenceIDs = selectableIDs
+                }
+            }
+            .buttonStyle(.borderless)
+
+            Button("Complete selected\(selectedCount > 0 ? " (\(selectedCount))" : "")") {
+                onCompleteSelected()
+            }
+            .disabled(selectedCount == 0)
+        }
+        .font(FaloTypography.caption)
     }
 
     private func occurrenceList(_ items: [TaskOccurrence]) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(items) { occurrence in
+                let selectable = isBulkSelectable(occurrence)
                 TaskRowView(
                     occurrence: occurrence,
                     workTypeName: taskService.workType(id: occurrence.workTypeID)?.name ?? "Task",
                     treeName: subjectName(for: occurrence),
                     onComplete: { onComplete(occurrence) },
-                    onOpenDetail: { onOpenDetail(occurrence) }
+                    onOpenDetail: { onOpenDetail(occurrence) },
+                    onPostpone: canPostpone(occurrence) ? { onPostpone(occurrence) } : nil,
+                    isSelectable: selectable,
+                    isSelected: selectedOccurrenceIDs.contains(occurrence.id),
+                    onToggleSelection: selectable
+                        ? {
+                            if selectedOccurrenceIDs.contains(occurrence.id) {
+                                selectedOccurrenceIDs.remove(occurrence.id)
+                            } else {
+                                selectedOccurrenceIDs.insert(occurrence.id)
+                            }
+                        }
+                        : nil
                 )
 
                 if occurrence.id != items.last?.id {
@@ -399,6 +545,10 @@ private struct TasksWorkspaceContent: View {
                 }
             }
         }
+    }
+
+    private func isBulkSelectable(_ occurrence: TaskOccurrence) -> Bool {
+        occurrence.isInstant && occurrence.libraryInventoryKind == nil
     }
 
     private func subjectName(for occurrence: TaskOccurrence) -> String {
@@ -435,11 +585,20 @@ private struct TasksWorkspaceContent: View {
         if nameOrder != .orderedSame { return nameOrder == .orderedAscending }
         return lhs.dueDate < rhs.dueDate
     }
+
+    private func canPostpone(_ occurrence: TaskOccurrence) -> Bool {
+        switch occurrence.source {
+        case .schedule:
+            return occurrence.treeID != nil
+        case .task:
+            return true
+        }
+    }
 }
 
-#Preview("Today") {
+#Preview("Tasks") {
     NavigationStack {
-        TasksWorkspaceView(horizon: .today)
+        TasksWorkspaceView()
     }
     .frame(width: 1100, height: 720)
 }

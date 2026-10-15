@@ -45,6 +45,12 @@ final class AppState {
     /// Global sidebar destination (Architecture Version 2 leaf route).
     var selectedSection: AppRoute? = .dashboard
 
+    /// Tasks page horizon (Overdue / Today / …). Sidebar is one Tasks row; picker is on-page.
+    var tasksHorizon: TasksHorizon = .today
+
+    /// Care page (Watering / Winter Care / …). Sidebar is one Care row; picker is on-page (BV1).
+    var carePage: CarePage = .watering
+
     /// Selected location within the Locations module (master/detail).
     var selectedLocationID: UUID?
 
@@ -449,6 +455,38 @@ final class AppState {
         case .nurseryGrafting:
             // Grafting is Work on a Tree — no longer a Nursery destination.
             selectedSection = .tasksToday
+            tasksHorizon = .today
+        case .tasksOverdue:
+            tasksHorizon = .overdue
+            selectedSection = .tasksToday
+        case .tasksToday:
+            // Keep current horizon when re-tapping Tasks; only default when arriving fresh via route title.
+            selectedSection = .tasksToday
+        case .tasksThisWeek:
+            tasksHorizon = .thisWeek
+            selectedSection = .tasksToday
+        case .tasksThisMonth:
+            tasksHorizon = .thisMonth
+            selectedSection = .tasksToday
+        case .tasksThisYear:
+            tasksHorizon = .thisYear
+            selectedSection = .tasksToday
+        case .tasksNextYear:
+            tasksHorizon = .nextYear
+            selectedSection = .tasksToday
+        case .careWatering:
+            // Keep current carePage when re-tapping Care (BV1).
+            selectedSection = .careWatering
+        case .careFertilizing, .carePlacement, .careWinter, .careSpring,
+             .careRepotting, .careTreeHealth, .careSeasonal:
+            if let section, let page = CarePage(route: section) {
+                carePage = page
+            }
+            selectedSection = .careWatering
+        case .careToday:
+            // Tasks owns the day list.
+            selectedSection = .tasksToday
+            tasksHorizon = .today
         case .knowledgeSoilGuides:
             // Soil & Substrate lives inside Bonsai Handbook — no sidebar destination.
             selectedSection = .knowledgeHandbook

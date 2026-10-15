@@ -2,7 +2,7 @@
 //  SoilWorkspaceView.swift
 //  Bonsai World
 //
-//  Inventory → Soil — Stock · Mixes. Knowledge lives under Handbook → Soil & Substrate.
+//  Inventory → Soil list column (CG1 / Pots pattern). Stock · Mixes in the list header.
 //
 
 import SwiftUI
@@ -23,6 +23,7 @@ enum SoilWorkspaceTab: String, CaseIterable, Identifiable, Hashable, Sendable {
 
 struct SoilWorkspaceView: View {
     @Binding var selectedTab: SoilWorkspaceTab
+    @Environment(AppState.self) private var appState
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,15 +41,21 @@ struct SoilWorkspaceView: View {
             Group {
                 switch selectedTab {
                 case .stock:
-                    SoilStockSplitView()
+                    SoilStockListView()
                 case .mixes:
-                    SoilMixesView()
+                    SoilMixListView()
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .faloWorkspaceCanvas()
         .bonsaiWorkspaceNavigationTitle("Soil")
+        .onChange(of: selectedTab) { _, tab in
+            switch tab {
+            case .stock:
+                appState.selectedSoilMixID = nil
+            case .mixes:
+                appState.selectedSoilStockID = nil
+            }
+        }
     }
 }

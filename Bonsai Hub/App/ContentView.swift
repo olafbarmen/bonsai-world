@@ -89,54 +89,9 @@ struct ContentView: View {
         appState.selectedSection == .nurseryFieldTree
     }
 
-    /// Inventory → Soil — sidebar + full-width Soil workspace.
-    private var isInventorySoilSelected: Bool {
-        appState.selectedSection == .inventorySoil
-            || appState.selectedSection == .inventorySoilComponents
-            || appState.selectedSection == .inventorySoilMixes
-    }
-
-    /// Care → Fertilizing — sidebar + full-width lookup.
-    private var isCareFertilizingSelected: Bool {
-        appState.selectedSection == .careFertilizing
-    }
-
-    /// Care → Repotting — needs list + recent Work + register.
-    private var isCareRepottingSelected: Bool {
-        appState.selectedSection == .careRepotting
-    }
-
-    /// Care → Watering — due today + instant register.
-    private var isCareWateringSelected: Bool {
-        appState.selectedSection == .careWatering
-    }
-
-    /// Care → Health — attention trees + Health Tasks.
-    private var isCareHealthSelected: Bool {
-        appState.selectedSection == .careTreeHealth
-    }
-
-    /// Care → Seasonal Care — Seasonal Tasks due.
-    private var isCareSeasonalSelected: Bool {
-        appState.selectedSection == .careSeasonal
-    }
-
-    /// Care → Placement — gap advice + trees missing Location.
-    private var isCarePlacementSelected: Bool {
-        appState.selectedSection == .carePlacement
-    }
-
-    /// Care → Winter Care — Winter / Frost Tasks due.
-    private var isCareWinterSelected: Bool {
-        appState.selectedSection == .careWinter
-    }
-
-    private var isCareSpringSelected: Bool {
-        appState.selectedSection == .careSpring
-    }
-
-    private var isCareTodaySelected: Bool {
-        appState.selectedSection == .careToday
+    /// Care module — one sidebar row; page picker on CareWorkspaceView (BV1).
+    private var isCareSectionSelected: Bool {
+        appState.selectedSection?.module == .care
     }
 
     private var isLocationsGardensSelected: Bool {
@@ -280,36 +235,10 @@ struct ContentView: View {
                 .onAppear { appState.selectSection(.tasksToday) }
         } else if isNurseryFieldTreeSelected {
             NurseryPropagationWorkspaceView(kind: .fieldTree)
-        } else if isInventorySoilSelected {
-            SoilWorkspaceView(
-                selectedTab: Binding(
-                    get: { appState.selectedSoilWorkspaceTab },
-                    set: { appState.selectedSoilWorkspaceTab = $0 }
-                )
-            )
-        } else if let section = appState.selectedSection,
-                  let stockKind = InventoryStockKind.kind(for: section) {
-            InventoryStockWorkspaceView(kind: stockKind)
         } else if appState.selectedSection == .inventoryStockReport {
             StockReportView()
-        } else if isCareFertilizingSelected {
-            CareFertilizingView()
-        } else if isCareRepottingSelected {
-            CareRepottingView()
-        } else if isCareWateringSelected {
-            CareWateringView()
-        } else if isCareHealthSelected {
-            CareHealthView()
-        } else if isCareSeasonalSelected {
-            CareSeasonalView()
-        } else if isCarePlacementSelected {
-            CarePlacementView()
-        } else if isCareWinterSelected {
-            CareWinterView()
-        } else if isCareSpringSelected {
-            CareSpringView()
-        } else if isCareTodaySelected {
-            CareTodayView()
+        } else if isCareSectionSelected {
+            careContent
         } else if isLocationsGardensSelected {
             GardensWorkspaceView()
         } else if let mediaKind = selectedMediaLibraryKind {
@@ -402,25 +331,16 @@ struct ContentView: View {
         }
     }
 
-    /// Tasks horizons — full-width card workspace in the detail column.
+    /// Tasks — one sidebar destination; horizon picker is on the page (BJ1).
     @ViewBuilder
     private var tasksContent: some View {
-        switch appState.selectedSection {
-        case .tasksOverdue:
-            TasksHorizonViews.overdue
-        case .tasksToday:
-            TasksHorizonViews.today
-        case .tasksThisWeek:
-            TasksHorizonViews.thisWeek
-        case .tasksThisMonth:
-            TasksHorizonViews.thisMonth
-        case .tasksThisYear:
-            TasksHorizonViews.thisYear
-        case .tasksNextYear:
-            TasksHorizonViews.nextYear
-        default:
-            EmptyView()
-        }
+        TasksWorkspaceView()
+    }
+
+    /// Care — one sidebar destination; page picker is on the page (BV1).
+    @ViewBuilder
+    private var careContent: some View {
+        CareWorkspaceView()
     }
 
     @ViewBuilder
@@ -469,31 +389,9 @@ struct ContentView: View {
             // Unreachable while `isYamadoriSectionSelected` uses the two-column shell.
             EmptyView()
 
-        case .careToday:
-            // Unreachable while `isCareTodaySelected` uses the two-column shell.
-            EmptyView()
-        case .careWatering:
-            // Unreachable while `isCareWateringSelected` uses the two-column shell.
-            EmptyView()
-        case .careFertilizing:
-            // Unreachable while `isCareFertilizingSelected` uses the two-column shell.
-            EmptyView()
-        case .careRepotting:
-            // Unreachable while `isCareRepottingSelected` uses the two-column shell.
-            EmptyView()
-        case .carePlacement:
-            // Unreachable while `isCarePlacementSelected` uses the two-column shell.
-            EmptyView()
-        case .careTreeHealth:
-            // Unreachable while `isCareHealthSelected` uses the two-column shell.
-            EmptyView()
-        case .careSeasonal:
-            // Unreachable while `isCareSeasonalSelected` uses the two-column shell.
-            EmptyView()
-        case .careWinter:
-            // Unreachable while `isCareWinterSelected` uses the two-column shell.
-            EmptyView()
-        case .careSpring:
+        case .careToday, .careWatering, .careFertilizing, .careRepotting, .carePlacement,
+             .careTreeHealth, .careSeasonal, .careWinter, .careSpring:
+            // Unreachable while `isCareSectionSelected` uses CareWorkspaceView.
             EmptyView()
         case .designVision,
              .designStyle, .designFrontSelection, .designVirtual,
@@ -505,10 +403,16 @@ struct ContentView: View {
         case .inventoryPots:
             PotListView()
         case .inventorySoil, .inventorySoilComponents, .inventorySoilMixes:
-            EmptyView()
+            SoilWorkspaceView(
+                selectedTab: Binding(
+                    get: { appState.selectedSoilWorkspaceTab },
+                    set: { appState.selectedSoilWorkspaceTab = $0 }
+                )
+            )
         case .inventoryFertilizers, .inventoryWire, .inventoryTools, .inventoryChemicals, .inventoryConsumables:
-            // Unreachable while inventory stock uses the two-column shell.
-            EmptyView()
+            if let kind = InventoryStockKind.kind(for: appState.selectedSection ?? .inventoryFertilizers) {
+                InventoryStockListView(kind: kind)
+            }
         case .inventoryStockReport:
             // Unreachable while Stock Report uses the two-column shell.
             EmptyView()
@@ -578,6 +482,17 @@ struct ContentView: View {
             WorkTypeDetailView()
         case .inventoryPots:
             PotDetailView()
+        case .inventorySoil, .inventorySoilComponents, .inventorySoilMixes:
+            switch appState.selectedSoilWorkspaceTab {
+            case .stock:
+                SoilStockDetailView()
+            case .mixes:
+                SoilMixDetailView()
+            }
+        case .inventoryFertilizers, .inventoryWire, .inventoryTools, .inventoryChemicals, .inventoryConsumables:
+            if let kind = InventoryStockKind.kind(for: appState.selectedSection ?? .inventoryFertilizers) {
+                InventoryStockDetailView(kind: kind)
+            }
         case .nurseryYamadori:
             EmptyView()
         case .knowledgeSpeciesLibrary:

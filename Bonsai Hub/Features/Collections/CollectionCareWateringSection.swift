@@ -51,7 +51,7 @@ struct CollectionCareWateringSection: View {
                         .font(FaloTypography.caption)
                         .foregroundStyle(.secondary)
                 }
-            } else if isCarePolicyCollection {
+            } else {
                 DetailLabeledRow(label: "Policy", value: "On for members")
                 DetailLabeledRow(label: "Mode", value: wateringMode.title)
                 if wateringMode == .auto {
@@ -65,10 +65,6 @@ struct CollectionCareWateringSection: View {
                     .font(FaloTypography.caption)
                     .foregroundStyle(.secondary)
                     .padding(.top, FaloSpacing.xSmall)
-            } else {
-                Text("No watering policy. Edit this Collection, turn on “Set watering policy for members”, and choose Remind to show trees in Tasks / Care → Watering Due.")
-                    .font(FaloCardTypography.fieldValue)
-                    .foregroundStyle(.secondary)
             }
         }
     }

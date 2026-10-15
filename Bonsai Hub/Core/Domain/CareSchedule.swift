@@ -183,6 +183,9 @@ struct CareSchedule: Identifiable, Hashable, Sendable {
     var systemKind: CareScheduleSystemKind?
     var notes: String
     var isActive: Bool
+    /// Per-tree postponed due date for the *current* occurrence only.
+    /// Does not change recurrence. Cleared when that tree’s occurrence is completed.
+    var postponedDueByTreeID: [UUID: Date]
 
     var createdDate: Date
     var modifiedDate: Date
@@ -198,6 +201,7 @@ struct CareSchedule: Identifiable, Hashable, Sendable {
         systemKind: CareScheduleSystemKind? = nil,
         notes: String = "",
         isActive: Bool = true,
+        postponedDueByTreeID: [UUID: Date] = [:],
         createdDate: Date = .now,
         modifiedDate: Date = .now
     ) {
@@ -211,6 +215,7 @@ struct CareSchedule: Identifiable, Hashable, Sendable {
         self.systemKind = systemKind
         self.notes = notes
         self.isActive = isActive
+        self.postponedDueByTreeID = postponedDueByTreeID
         self.createdDate = createdDate
         self.modifiedDate = modifiedDate
     }
@@ -221,7 +226,8 @@ struct CareSchedule: Identifiable, Hashable, Sendable {
 extension CareSchedule: Codable {
     private enum CodingKeys: String, CodingKey {
         case id, title, workTypeID, fertilizerTypeID, target, treeIDs
-        case recurrence, seasonalWindow, systemKind, notes, isActive, createdDate, modifiedDate
+        case recurrence, seasonalWindow, systemKind, notes, isActive
+        case postponedDueByTreeID, createdDate, modifiedDate
     }
 
     init(from decoder: Decoder) throws {
@@ -244,6 +250,11 @@ extension CareSchedule: Codable {
         systemKind = try container.decodeIfPresent(CareScheduleSystemKind.self, forKey: .systemKind)
         notes = try container.decode(String.self, forKey: .notes)
         isActive = try container.decode(Bool.self, forKey: .isActive)
+        let rawPostponed = try container.decodeIfPresent([String: Date].self, forKey: .postponedDueByTreeID) ?? [:]
+        postponedDueByTreeID = Dictionary(uniqueKeysWithValues: rawPostponed.compactMap { key, value in
+            guard let id = UUID(uuidString: key) else { return nil }
+            return (id, value)
+        })
         createdDate = try container.decode(Date.self, forKey: .createdDate)
         modifiedDate = try container.decode(Date.self, forKey: .modifiedDate)
     }
@@ -260,6 +271,8 @@ extension CareSchedule: Codable {
         try container.encodeIfPresent(systemKind, forKey: .systemKind)
         try container.encode(notes, forKey: .notes)
         try container.encode(isActive, forKey: .isActive)
+        let rawPostponed = Dictionary(uniqueKeysWithValues: postponedDueByTreeID.map { ($0.key.uuidString, $0.value) })
+        try container.encode(rawPostponed, forKey: .postponedDueByTreeID)
         try container.encode(createdDate, forKey: .createdDate)
         try container.encode(modifiedDate, forKey: .modifiedDate)
     }

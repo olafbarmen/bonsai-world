@@ -44,6 +44,7 @@ struct Bonsai_HubApp: App {
     @State private var winterCareService: WinterCareService
     @State private var springCareService: SpringCareService
     @State private var greenhouseCareService: GreenhouseCareService
+    @State private var fertilizerBagsService: FertilizerBagsService
     @State private var repottingCareService: RepottingCareService
 
     init() {
@@ -187,6 +188,14 @@ struct Bonsai_HubApp: App {
                 appSettings: appSettings
             )
         )
+        _fertilizerBagsService = State(
+            initialValue: FertilizerBagsService(
+                treeService: treeService,
+                taskService: taskService,
+                workService: workService,
+                appSettings: appSettings
+            )
+        )
         _repottingCareService = State(
             initialValue: RepottingCareService(
                 treeService: treeService,
@@ -289,7 +298,7 @@ struct Bonsai_HubApp: App {
     private var seasonalCareSyncToken: String {
         let treesKey = treeService.trees
             .map {
-                "\($0.id.uuidString):\($0.placementStrategy.rawValue):\($0.seasonPlacement.rawValue):\($0.winterCareCompletedSteps.map(\.rawValue).joined(separator: ",")):\($0.springCareCompletedSteps.map(\.rawValue).joined(separator: ","))"
+                "\($0.id.uuidString):\($0.placementStrategy.rawValue):\($0.seasonPlacement.rawValue):\($0.winterCareCompletedSteps.map(\.rawValue).joined(separator: ",")):\($0.springCareCompletedSteps.map(\.rawValue).joined(separator: ",")):\($0.lastFertilizerBagReplacedAt?.timeIntervalSince1970 ?? -1)"
             }
             .sorted()
             .joined(separator: "|")
@@ -301,7 +310,7 @@ struct Bonsai_HubApp: App {
             .joined(separator: "|")
         let weatherKey = weatherService.snapshot.map { String($0.fetchedAt.timeIntervalSince1970) } ?? "nil"
         // Do not include taskService.revision — sync writes Tasks and would loop forever.
-        return "\(treesKey)|\(locationsKey)|\(referenceDataManager.revision)|\(weatherKey)|\(appSettings.winterCareReminderMonth)|\(appSettings.winterCareReminderDay)|\(appSettings.winterCareFrostCelsius)|\(appSettings.springCareReminderMonth)|\(appSettings.springCareReminderDay)|\(appSettings.greenhouseSpringReminderMonth)|\(appSettings.greenhouseSpringReminderDay)"
+        return "\(treesKey)|\(locationsKey)|\(referenceDataManager.revision)|\(weatherKey)|\(appSettings.winterCareReminderMonth)|\(appSettings.winterCareReminderDay)|\(appSettings.winterCareFrostCelsius)|\(appSettings.springCareReminderMonth)|\(appSettings.springCareReminderDay)|\(appSettings.greenhouseSpringReminderMonth)|\(appSettings.greenhouseSpringReminderDay)|\(appSettings.fertilizerBagsIntervalWeeks)"
     }
 
     var body: some Scene {
@@ -346,6 +355,7 @@ struct Bonsai_HubApp: App {
             .environment(winterCareService)
             .environment(springCareService)
             .environment(greenhouseCareService)
+            .environment(fertilizerBagsService)
             .environment(repottingCareService)
             .environment(growingIntelligence)
             .environment(weatherService)
@@ -356,6 +366,7 @@ struct Bonsai_HubApp: App {
                 try? winterCareService.syncWinterCareTask(snapshot: weatherService.snapshot)
                 try? springCareService.syncSpringCareTask()
                 try? greenhouseCareService.syncGreenhouseSpringCheckTask()
+                try? fertilizerBagsService.syncFertilizerBagsTask()
             }
             .task {
                 // Cold launch with an already-open library never fires isLibraryReady onChange.
@@ -422,6 +433,7 @@ struct Bonsai_HubApp: App {
                     .environment(journalService)
                     .environment(taskService)
                     .environment(winterCareService)
+                    .environment(fertilizerBagsService)
                     .environment(springCareService)
                     .environment(greenhouseCareService)
             .environment(repottingCareService)
@@ -463,6 +475,7 @@ struct Bonsai_HubApp: App {
                     .environment(journalService)
                     .environment(taskService)
                     .environment(winterCareService)
+                    .environment(fertilizerBagsService)
                     .environment(springCareService)
                     .environment(greenhouseCareService)
             .environment(repottingCareService)
@@ -505,6 +518,7 @@ struct Bonsai_HubApp: App {
                     .environment(journalService)
                     .environment(taskService)
                     .environment(winterCareService)
+                    .environment(fertilizerBagsService)
                     .environment(springCareService)
                     .environment(greenhouseCareService)
             .environment(repottingCareService)
@@ -547,6 +561,7 @@ struct Bonsai_HubApp: App {
                     .environment(journalService)
                     .environment(taskService)
                     .environment(winterCareService)
+                    .environment(fertilizerBagsService)
                     .environment(springCareService)
                     .environment(greenhouseCareService)
             .environment(repottingCareService)
@@ -588,6 +603,7 @@ struct Bonsai_HubApp: App {
                     .environment(journalService)
                     .environment(taskService)
                     .environment(winterCareService)
+                    .environment(fertilizerBagsService)
                     .environment(springCareService)
                     .environment(greenhouseCareService)
             .environment(repottingCareService)
@@ -629,6 +645,7 @@ struct Bonsai_HubApp: App {
                     .environment(journalService)
                     .environment(taskService)
                     .environment(winterCareService)
+                    .environment(fertilizerBagsService)
                     .environment(springCareService)
                     .environment(greenhouseCareService)
             .environment(repottingCareService)

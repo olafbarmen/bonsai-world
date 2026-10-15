@@ -58,7 +58,7 @@ struct CarePlacementView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: FaloSpacing.xxLarge + FaloSpacing.large) {
-                CareHonestyLine(text: CareHonesty.recommendationActiveLine)
+                CarePageIntro(pageKey: "placement", helpBody: CarePageHelp.placement)
                 headerActions
                 adviceCard
 
@@ -75,7 +75,6 @@ struct CarePlacementView: View {
         .faloScrollSurface()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .faloWorkspaceCanvas()
-        .bonsaiWorkspaceNavigationTitle("Placement")
         .sheet(isPresented: $isRegisterPresented) {
             if let treeID = registerTreeID {
                 NavigationStack {

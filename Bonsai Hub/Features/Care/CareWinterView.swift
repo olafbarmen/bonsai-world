@@ -71,8 +71,16 @@ struct CareWinterView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: FaloSpacing.xxLarge + FaloSpacing.large) {
-                CareHonestyLine(text: CareHonesty.recommendationActiveLine)
-                seasonBanner
+                CarePageIntro(
+                    pageKey: "winter",
+                    status: winterStatusLine,
+                    helpBody: CarePageHelp.winter
+                )
+                if let statusMessage {
+                    Text(statusMessage)
+                        .font(FaloTypography.caption)
+                        .foregroundStyle(.secondary)
+                }
                 if !winterAdviceGroups.isEmpty {
                     winterAdviceCard
                 }
@@ -85,7 +93,6 @@ struct CareWinterView: View {
         .faloScrollSurface()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .faloWorkspaceCanvas()
-        .bonsaiWorkspaceNavigationTitle("Winter Care")
         .task {
             await weatherService.refreshIfNeeded()
             try? winterCare.syncWinterCareTask(snapshot: snapshot)
@@ -113,23 +120,11 @@ struct CareWinterView: View {
         }
     }
 
-    private var seasonBanner: some View {
-        VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
-            if isActive {
-                Text("Winter Care is active — seasonal trees still on Summer placement. Select several trees, then mark the step done. Where the tree stands (Location) is separate — update it when you move.")
-                    .font(FaloTypography.body)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("Winter Care starts on \(reminderLabel) or when the night low reaches \(frostLabel). Set Placement strategy to Seasonal and Season to Summer placement on each tree.")
-                    .font(FaloTypography.body)
-                    .foregroundStyle(.secondary)
-            }
-            if let statusMessage {
-                Text(statusMessage)
-                    .font(FaloTypography.caption)
-                    .foregroundStyle(.secondary)
-            }
+    private var winterStatusLine: String {
+        if isActive {
+            return "Winter Care is active — seasonal trees still on Summer placement."
         }
+        return "Starts \(reminderLabel), or when the night low reaches \(frostLabel)."
     }
 
     private var reminderLabel: String {

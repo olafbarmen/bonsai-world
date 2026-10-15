@@ -325,13 +325,75 @@ struct SidebarView: View {
                 }
             }
         } else if let route = routes.first {
-            navigationRow(
-                route,
-                title: module.title,
-                systemImage: module.systemImage,
-                level: .module
-            )
+            if module == .tasks {
+                tasksModuleRow(route: route)
+            } else if module == .care {
+                careModuleRow(route: route)
+            } else {
+                navigationRow(
+                    route,
+                    title: module.title,
+                    systemImage: module.systemImage,
+                    level: .module
+                )
+            }
         }
+    }
+
+    /// Single Tasks row — overdue count badge; horizons live on the Tasks page (BJ1).
+    private func tasksModuleRow(route: AppRoute) -> some View {
+        let overdueCount = taskService.pendingOccurrences(due: .overdue).count
+        let isSelected = appState.selectedSection?.module == .tasks
+        return HStack(spacing: FaloSpacing.small) {
+            Image(systemName: AppModule.tasks.systemImage)
+                .font(.system(size: SidebarChrome.iconSize, weight: .regular))
+                .symbolRenderingMode(.monochrome)
+                .foregroundStyle(BonsaiWorldColors.sidebarAccent)
+                .frame(width: SidebarChrome.iconFrame, height: SidebarChrome.iconFrame, alignment: .center)
+            Text(AppModule.tasks.title)
+                .font(SidebarChrome.moduleFont)
+                .foregroundStyle(BonsaiWorldColors.sidebarTextPrimary)
+            Spacer(minLength: FaloSpacing.xSmall)
+            if overdueCount > 0 {
+                Text("\(overdueCount)")
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(Capsule().fill(BonsaiWorldColors.statusAttention))
+                    .accessibilityLabel("\(overdueCount) overdue")
+            }
+        }
+        .padding(.vertical, FaloSpacing.xSmall)
+        .contentShape(Rectangle())
+        .tag(route)
+        .listRowInsets(SidebarChrome.moduleInsets)
+        .listRowBackground(SidebarRowBackground(isSelected: isSelected))
+        .accessibilityLabel("Tasks")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
+    }
+
+    /// Single Care row — pages live on the Care workspace picker (BV1).
+    private func careModuleRow(route: AppRoute) -> some View {
+        let isSelected = appState.selectedSection?.module == .care
+        return HStack(spacing: FaloSpacing.small) {
+            Image(systemName: AppModule.care.systemImage)
+                .font(.system(size: SidebarChrome.iconSize, weight: .regular))
+                .symbolRenderingMode(.monochrome)
+                .foregroundStyle(BonsaiWorldColors.sidebarAccent)
+                .frame(width: SidebarChrome.iconFrame, height: SidebarChrome.iconFrame, alignment: .center)
+            Text(AppModule.care.title)
+                .font(SidebarChrome.moduleFont)
+                .foregroundStyle(BonsaiWorldColors.sidebarTextPrimary)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, FaloSpacing.xSmall)
+        .contentShape(Rectangle())
+        .tag(route)
+        .listRowInsets(SidebarChrome.moduleInsets)
+        .listRowBackground(SidebarRowBackground(isSelected: isSelected))
+        .accessibilityLabel("Care")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     private func moduleLabel(title: String, systemImage: String) -> some View {
@@ -641,9 +703,7 @@ struct SidebarView: View {
     ) -> some View {
         let isSelected = appState.selectedSection == route
         return Group {
-            if route == .tasksOverdue {
-                overdueRow
-            } else if let systemImage {
+            if let systemImage {
                 Label {
                     Text(title)
                         .font(level.titleFont)
@@ -669,30 +729,6 @@ struct SidebarView: View {
         .tag(route)
         .listRowInsets(level.rowInsets)
         .listRowBackground(SidebarRowBackground(isSelected: isSelected))
-    }
-
-    private var overdueRow: some View {
-        let count = taskService.pendingOccurrences(due: .overdue).count
-        let isSelected = appState.selectedSection == .tasksOverdue
-        return HStack {
-            Text("Overdue")
-                .font(SidebarNavLevel.subpage.titleFont)
-                .foregroundStyle(
-                    count > 0
-                        ? BonsaiWorldColors.statusAttention
-                        : (isSelected ? BonsaiWorldColors.sidebarTextPrimary : SidebarNavLevel.subpage.titleColor)
-                )
-            Spacer(minLength: FaloSpacing.xSmall)
-            if count > 0 {
-                Text("\(count)")
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 1)
-                    .background(Capsule().fill(BonsaiWorldColors.statusAttention))
-                    .accessibilityLabel("\(count) overdue")
-            }
-        }
     }
 }
 

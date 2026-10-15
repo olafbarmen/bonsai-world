@@ -25,6 +25,7 @@ struct TaskDetailSheet: View {
     @Environment(YamadoriService.self) private var yamadoriService
     @Environment(NurseryPropagationService.self) private var nurseryPropagationService
     @Environment(WinterCareService.self) private var winterCare
+    @Environment(FertilizerBagsService.self) private var fertilizerBags
     @Environment(WeatherService.self) private var weatherService
     @Environment(AppState.self) private var appState
 
@@ -32,6 +33,7 @@ struct TaskDetailSheet: View {
     @State private var editChecklistTreeID: UUID?
     @State private var confirmDelete = false
     @State private var checklistError: String?
+    @State private var isPostponePresented = false
 
     private var workType: WorkType? {
         taskService.workType(id: occurrence.workTypeID)
@@ -86,6 +88,12 @@ struct TaskDetailSheet: View {
         oneOffTask != nil || schedule != nil
     }
 
+    /// Postpone this occurrence’s due date without changing Schedule recurrence (AX1).
+    private var canPostpone: Bool {
+        if schedule != nil { return occurrence.treeID != nil }
+        return oneOffTask != nil
+    }
+
     /// Wire Removal follow-up from logging Wiring work — complete or reschedule.
     private var isWireCheckTask: Bool {
         if occurrence.workTypeID == CanonicalWorkTypeID.wireRemoval { return true }
@@ -94,6 +102,10 @@ struct TaskDetailSheet: View {
 
     private var isWinterCareChecklist: Bool {
         oneOffTask?.systemKind == .winterCare && occurrence.treeID != nil
+    }
+
+    private var isFertilizerBagsTask: Bool {
+        oneOffTask?.systemKind == .fertilizerBags && occurrence.treeID != nil
     }
 
     var body: some View {
@@ -191,7 +203,9 @@ struct TaskDetailSheet: View {
                             }
                         }
                     }
-                    if !otherTreeNames.isEmpty {
+                    // Winter Care / fertilizer bags are per-tree. Do not list other trees —
+                    // Complete only finishes this tree; batch work lives in Care.
+                    if !isWinterCareChecklist, !isFertilizerBagsTask, !otherTreeNames.isEmpty {
                         Text("Also applies to \(otherTreeNames.joined(separator: ", ")) — completing this finishes it for all of them at once.")
                             .font(FaloTypography.caption)
                             .foregroundStyle(.secondary)
@@ -210,6 +224,11 @@ struct TaskDetailSheet: View {
                     if let dayPart = occurrence.dayPart {
                         LabeledContent("Time of day") {
                             Text(dayPart.title)
+                        }
+                    }
+                    if canPostpone {
+                        Button("Postpone…") {
+                            isPostponePresented = true
                         }
                     }
                 }
@@ -282,9 +301,11 @@ struct TaskDetailSheet: View {
                     }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button(winterCareCompleteTitle) {
+                    Button(primaryCompleteTitle) {
                         if isWinterCareChecklist {
                             completeWinterCareForThisTree()
+                        } else if isFertilizerBagsTask {
+                            completeFertilizerBagsForThisTree()
                         } else {
                             onComplete()
                             dismiss()
@@ -315,12 +336,18 @@ struct TaskDetailSheet: View {
                     dismiss()
                 }
             }
+            .sheet(isPresented: $isPostponePresented) {
+                PostponeOccurrenceSheet(occurrence: occurrence) {
+                    dismiss()
+                }
+            }
         }
         .frame(minWidth: 460, minHeight: 480)
     }
 
-    private var winterCareCompleteTitle: String {
+    private var primaryCompleteTitle: String {
         if isWinterCareChecklist { return "Complete all steps" }
+        if isFertilizerBagsTask { return "Mark bags replaced" }
         return occurrence.isInstant ? "Complete" : "Complete…"
     }
 
@@ -337,6 +364,17 @@ struct TaskDetailSheet: View {
         guard let treeID = occurrence.treeID else { return }
         do {
             try winterCare.markAllStepsDone(for: treeID, snapshot: weatherService.snapshot)
+            checklistError = nil
+            dismiss()
+        } catch {
+            checklistError = error.localizedDescription
+        }
+    }
+
+    private func completeFertilizerBagsForThisTree() {
+        guard let treeID = occurrence.treeID else { return }
+        do {
+            try fertilizerBags.markBagsReplaced(for: treeID)
             checklistError = nil
             dismiss()
         } catch {

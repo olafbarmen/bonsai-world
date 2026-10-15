@@ -617,19 +617,11 @@ struct TreeDetailView: View {
             }
 
             if showsShapingSegment {
-                HStack {
-                    Picker("Tree Detail", selection: segment) {
-                        ForEach(TreeDetailSegment.allCases) { segment in
-                            Text(segment.title).tag(segment)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .frame(maxWidth: 280)
-
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, FaloSpacing.xLarge)
-                .padding(.top, FaloSpacing.medium)
+                WorkspaceSegmentPickerChrome(
+                    title: "Tree Detail",
+                    selection: segment,
+                    options: TreeDetailSegment.allCases.map { ($0.title, $0) }
+                )
             }
 
             if isEditing, activeSegment == .overview {

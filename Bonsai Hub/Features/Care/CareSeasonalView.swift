@@ -45,7 +45,7 @@ struct CareSeasonalView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: FaloSpacing.xxLarge + FaloSpacing.large) {
-                CareHonestyLine(text: CareHonesty.seasonalTrackingLine)
+                CarePageIntro(pageKey: "seasonal", helpBody: CarePageHelp.seasonal)
                 headerActions
 
                 CareTwoColumnLayout {
@@ -61,7 +61,6 @@ struct CareSeasonalView: View {
         .faloScrollSurface()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .faloWorkspaceCanvas()
-        .bonsaiWorkspaceNavigationTitle("Seasonal Care")
         .sheet(isPresented: $isRegisterPresented) {
             if let treeID = registerTreeID {
                 NavigationStack {

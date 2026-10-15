@@ -39,11 +39,7 @@ struct YamadoriListView: View {
     var body: some View {
         Group {
             if rows.isEmpty {
-                ContentUnavailableView(
-                    "No Yamadories",
-                    systemImage: "mountain.2",
-                    description: Text("Use Context Tools → New Yamadori to add a trip.")
-                )
+                emptyState
             } else {
                 listScroll
             }
@@ -62,14 +58,34 @@ struct YamadoriListView: View {
         }
     }
 
+    private var emptyState: some View {
+        ContentUnavailableView {
+            Label("No Yamadories", systemImage: "mountain.2")
+        } description: {
+            Text("Add a trip to start collecting findings.")
+        } actions: {
+            Button("Add Yamadori") {
+                appState.presentNewYamadori()
+            }
+        }
+    }
+
     private var listScroll: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
-                Text("Yamadories")
-                    .font(FaloTypography.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, FaloSpacing.medium)
-                    .accessibilityAddTraits(.isHeader)
+                HStack(spacing: FaloSpacing.medium) {
+                    Text("Yamadories")
+                        .font(FaloTypography.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .accessibilityAddTraits(.isHeader)
+
+                    Spacer(minLength: 0)
+
+                    Button("Add Yamadori") {
+                        appState.presentNewYamadori()
+                    }
+                }
+                .padding(.horizontal, FaloSpacing.medium)
 
                 tripsTable
             }
@@ -134,8 +150,7 @@ struct YamadoriListView: View {
             }
             .width(min: 60, max: 100)
         }
-        .tableStyle(.inset(alternatesRowBackgrounds: false))
-        .faloWarmTableZebraRows()
+        .tableStyle(.inset(alternatesRowBackgrounds: true))
         .environment(imageService)
         .scrollDisabled(true)
         .contextMenu(forSelectionType: Yamadori.ID.self) { selection in
@@ -146,7 +161,6 @@ struct YamadoriListView: View {
                 Divider()
                 Button("Delete Yamadori", role: .destructive) {
                     appState.selectedYamadoriID = id
-                    appState.selectedYamadoriFindID = nil
                     appState.requestYamadoriQuickAction(.deleteYamadori)
                 }
             }
@@ -157,20 +171,20 @@ struct YamadoriListView: View {
     }
 
     private func tableHeight(for rowCount: Int) -> CGFloat {
-        let headerHeight: CGFloat = 30
-        let rowHeight: CGFloat = 60
-        return headerHeight + CGFloat(rowCount) * rowHeight
+        let header: CGFloat = 28
+        let row: CGFloat = 44
+        return header + CGFloat(max(rowCount, 1)) * row
     }
 
     private func syncSelectionFromAppState() {
-        if let id = appState.selectedYamadoriID {
-            tableSelection = [id]
-        } else {
-            tableSelection = []
+        let next = Set(appState.selectedYamadoriID.map { [$0] } ?? [])
+        if tableSelection != next {
+            tableSelection = next
         }
     }
 
     private func openTripWorkspace(tripID: UUID) {
+        appState.selectedYamadoriID = tripID
         openWindow(
             id: YamadoriTripWorkspaceWindowContext.windowID,
             value: YamadoriTripWorkspaceWindowContext(tripID: tripID)
@@ -178,7 +192,6 @@ struct YamadoriListView: View {
     }
 }
 
-@MainActor
 private struct YamadoriTripListRow: Identifiable {
     var id: UUID { trip.id }
     let trip: Yamadori
@@ -186,22 +199,20 @@ private struct YamadoriTripListRow: Identifiable {
     let imageService: ImageService
 
     var displayName: String {
-        let trimmed = trip.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { return trimmed }
-        if !trip.locationDescription.isEmpty { return trip.locationDescription }
-        return "Untitled trip"
+        let name = trip.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? "Untitled trip" : name
     }
 
     var locationLabel: String {
         trip.locationDescription.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    var tripDateSort: Date {
+        trip.tripDate ?? .distantPast
+    }
+
     var tripDateLabel: String {
         guard let date = trip.tripDate else { return "" }
         return date.formatted(date: .abbreviated, time: .omitted)
-    }
-
-    var tripDateSort: Date {
-        trip.tripDate ?? trip.createdDate
     }
 }

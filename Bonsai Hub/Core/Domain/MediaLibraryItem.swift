@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import UniformTypeIdentifiers
 
 enum MediaLibraryKind: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
     case document
@@ -59,6 +60,35 @@ enum MediaLibraryKind: String, Codable, CaseIterable, Identifiable, Hashable, Se
         case .audio: "Audio recordings and sound files"
         }
     }
+
+    /// Video and Document import a real file (CH1). Notes (and Audio for now) are metadata only.
+    var requiresImportedFile: Bool {
+        switch self {
+        case .video, .document: true
+        case .note, .audio: false
+        }
+    }
+
+    /// Finder panel types when ``requiresImportedFile`` is true.
+    var importContentTypes: [UTType] {
+        switch self {
+        case .video:
+            [.movie, .mpeg4Movie, .quickTimeMovie, .avi, .mpeg]
+        case .document:
+            [.pdf, .plainText, .rtf, .epub, .commaSeparatedText, .data]
+        case .note, .audio:
+            []
+        }
+    }
+
+    /// Package-relative folder under `Documents/` for imported files.
+    var importFolderName: String {
+        switch self {
+        case .video: "Videos"
+        case .document: "Files"
+        case .note, .audio: ""
+        }
+    }
 }
 
 struct MediaLibraryItem: Identifiable, Codable, Hashable, Sendable {
@@ -91,6 +121,7 @@ struct MediaLibraryItem: Identifiable, Codable, Hashable, Sendable {
 }
 
 struct MediaLibraryCreateDraft: Hashable, Sendable {
+    var id: UUID = UUID()
     var kind: MediaLibraryKind
     var title: String
     var notes: String

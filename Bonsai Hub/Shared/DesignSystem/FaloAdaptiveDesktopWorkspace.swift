@@ -48,6 +48,12 @@ struct FaloAdaptiveWorkspaceProfile: Hashable, Sendable {
 
     /// Tree Overview View Mode — same width math and inset as Dashboard (4 equal columns).
     static let treeOverview = dashboard
+
+    /// Tasks list — lower floor so the card follows a narrow window; rows keep Complete visible.
+    static let tasksList = FaloAdaptiveWorkspaceProfile(
+        minimumContentWidth: 520,
+        pageInset: DashboardSpacing.pageInset
+    )
 }
 
 // MARK: - Layout constants

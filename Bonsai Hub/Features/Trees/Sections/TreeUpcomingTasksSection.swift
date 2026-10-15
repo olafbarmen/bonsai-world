@@ -20,6 +20,9 @@ struct TreeUpcomingTasksSection: View {
     var fillsRowHeight: Bool = false
 
     @Environment(TaskService.self) private var taskService
+    @Environment(WinterCareService.self) private var winterCare
+    @Environment(FertilizerBagsService.self) private var fertilizerBags
+    @Environment(WeatherService.self) private var weatherService
     @State private var detailOccurrence: TaskOccurrence?
     @State private var completingTask: CareTask?
     @State private var completingShapingTask: CareTask?
@@ -162,6 +165,26 @@ struct TreeUpcomingTasksSection: View {
     private func attemptComplete(_ occurrence: TaskOccurrence) {
         if case .task(let task) = occurrence.source, task.shapingAreaID != nil {
             completingShapingTask = task
+            return
+        }
+        if case .task(let task) = occurrence.source,
+           task.systemKind == .winterCare,
+           let treeID = occurrence.treeID {
+            do {
+                try winterCare.markAllStepsDone(for: treeID, snapshot: weatherService.snapshot)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
+            return
+        }
+        if case .task(let task) = occurrence.source,
+           task.systemKind == .fertilizerBags,
+           let treeID = occurrence.treeID {
+            do {
+                try fertilizerBags.markBagsReplaced(for: treeID)
+            } catch {
+                errorMessage = error.localizedDescription
+            }
             return
         }
         guard occurrence.isInstant else {

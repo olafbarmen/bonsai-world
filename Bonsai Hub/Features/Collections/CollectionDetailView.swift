@@ -141,10 +141,11 @@ struct CollectionDetailView: View {
                         )
                     }
                 } else {
-                    metadataViewCard(collection)
-                    if collection.isManual {
+                    // Icon / color show in the list — Details card only while editing.
+                    // BR1: Watering card only when this Collection is a care-policy group.
+                    if collection.isManual, collection.isCarePolicyCollection {
                         CollectionCareWateringSection(
-                            isCarePolicyCollection: .constant(collection.isCarePolicyCollection),
+                            isCarePolicyCollection: .constant(true),
                             wateringMode: .constant(collection.wateringMode),
                             autoTimesPerDay: .constant(collection.autoTimesPerDay),
                             heatWatchEnabled: .constant(collection.heatWatchEnabled),
@@ -206,19 +207,6 @@ struct CollectionDetailView: View {
                 Text("Couldn’t save")
                     .font(FaloTypography.caption)
                     .foregroundStyle(BonsaiWorldColors.statusCritical)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func metadataViewCard(_ collection: Collection) -> some View {
-        DetailCard(title: "Details") {
-            VStack(alignment: .leading, spacing: FaloSpacing.small) {
-                DetailLabeledRow(label: "Icon", value: collection.icon ?? "")
-                DetailLabeledRow(
-                    label: "Color",
-                    value: CollectionAppearanceChoices.colorLabel(for: collection.color)
-                )
             }
         }
     }

@@ -4,6 +4,8 @@
 //
 //  Progressive disclosure for optional Tree measurements during New Tree creation.
 //  Pot dimensions are not included — they belong on the Pot card / future Pot entity.
+//  Uses Toggle (not DisclosureGroup) — nested DisclosureGroup in macOS Form often
+//  fails to expand, so growers cannot reach the fields.
 //
 
 import SwiftUI
@@ -22,7 +24,9 @@ struct NewTreeOptionalMeasurementsSection: View {
 
     var body: some View {
         Section {
-            DisclosureGroup(isExpanded: $isExpanded) {
+            Toggle("Enter measurements", isOn: $isExpanded.animation())
+
+            if isExpanded {
                 DatePicker(
                     "Measurement Date",
                     selection: $measuredAt,
@@ -33,9 +37,9 @@ struct NewTreeOptionalMeasurementsSection: View {
                 measurementField("Crown Width", .crownWidth, $crownWidthMillimetres)
                 measurementField("Nebari Width", .nebariWidth, $nebariWidthMillimetres)
                 measurementField("Trunk Diameter", .trunkDiameter, $trunkDiameterMillimetres)
-            } label: {
-                Text("Measurements (Optional)")
             }
+        } header: {
+            Text("Measurements (Optional)")
         } footer: {
             Text("Optional. Entered values become the first Tree Measurement when you add the tree.")
                 .font(FaloTypography.caption)

@@ -99,12 +99,20 @@ struct TreeListView: View {
     @Environment(WorkService.self) private var workService
     @Environment(\.openWindow) private var openWindow
 
-    @State private var sortState = TreeListSortState()
+    /// Must be `@State` value (not a class) so header sort redraws the rows.
+    @State private var sortOrder: [KeyPathComparator<TreeListRow>] = []
     /// Separate selections per Table — sharing one Binding across My Trees + Former Trees can hang SwiftUI.
     @State private var inCareSelection: Set<Tree.ID> = []
     @State private var formerSelection: Set<Tree.ID> = []
     /// True while syncing Table selection from AppState (ignore Table → AppState echoes).
     @State private var isApplyingExternalSelection = false
+    /// One list at a time — Former Trees no longer shares a split with My Trees.
+    @State private var listPopulation: TreeListPopulation = .myTrees
+
+    private enum TreeListPopulation: Hashable {
+        case myTrees
+        case formerTrees
+    }
 
     var body: some View {
         Group {
@@ -122,17 +130,19 @@ struct TreeListView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .faloWorkspaceCanvas()
         .modifier(TreeListNavigationChrome(embedded: embedded, title: scope.navigationTitle))
-    }
-
-    private var sortOrder: Binding<[KeyPathComparator<TreeListRow>]> {
-        Binding(
-            get: { sortState.sortOrder },
-            set: { sortState.sortOrder = $0 }
-        )
+        .onChange(of: appState.treesOverviewFilter) { _, filter in
+            if filter != .none {
+                listPopulation = .myTrees
+            }
+        }
     }
 
     private var showsOverviewFilterChip: Bool {
         scope == .garden && appState.treesOverviewFilter != .none
+    }
+
+    private var canShowFormerPopulation: Bool {
+        scope.formerSectionTitle != nil && appState.treesOverviewFilter == .none
     }
 
     private var overviewFilterChipBar: some View {
@@ -148,16 +158,58 @@ struct TreeListView: View {
         .padding(.horizontal, FaloSpacing.small)
     }
 
-    /// Vertical scroll only in the VSplit list pane. Dual-axis ScrollView clipped the
-    /// list and hid the scrollbar; nested horizontal ScrollView stole the wheel.
+    /// Same chrome as Tree Detail Overview/Shaping (label + fixed-width segments).
+    private var populationPicker: some View {
+        WorkspaceSegmentPickerChrome(
+            title: scope.navigationTitle,
+            selection: $listPopulation,
+            options: populationPickerOptions
+        )
+    }
+
+    private var populationPickerOptions: [(label: String, value: TreeListPopulation)] {
+        var options: [(label: String, value: TreeListPopulation)] = [
+            (scope.inCareSectionTitle, .myTrees),
+        ]
+        if let formerTitle = scope.formerSectionTitle {
+            options.append((formerTitle, .formerTrees))
+        }
+        return options
+    }
+
+    /// Each Table scrolls itself (no outer ScrollView + scrollDisabled — that hid the first row).
     private var listsScroll: some View {
         let minWidth = Self.tableMinimumWidth(for: columnConfiguration.visibleColumnIDs)
-        return ScrollView(.vertical, showsIndicators: true) {
-            VStack(alignment: .leading, spacing: FaloSpacing.xxLarge) {
-                if showsOverviewFilterChip {
-                    overviewFilterChipBar
-                }
+        let showingFormer = canShowFormerPopulation && listPopulation == .formerTrees
 
+        return VStack(alignment: .leading, spacing: 0) {
+            if showsOverviewFilterChip {
+                overviewFilterChipBar
+                    .padding(.top, FaloSpacing.small)
+            }
+            if canShowFormerPopulation {
+                populationPicker
+            } else {
+                // Workspace title is omitted when the segment row carries "Trees".
+                Text(scope.navigationTitle)
+                    .font(.headline)
+                    .foregroundStyle(BonsaiWorldColors.textPrimary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, FaloSpacing.xLarge)
+                    .padding(.top, FaloSpacing.medium)
+                    .padding(.bottom, FaloSpacing.medium)
+                    .accessibilityAddTraits(.isHeader)
+            }
+
+            if showingFormer {
+                listBlock(
+                    title: scope.formerSectionTitle ?? "Former Trees",
+                    subtitle: scope.formerSectionSubtitle,
+                    rows: sortedFormerRows,
+                    selection: $formerSelection,
+                    emptyMessage: "No former trees yet."
+                )
+            } else {
                 listBlock(
                     title: scope.inCareSectionTitle,
                     subtitle: nil,
@@ -165,27 +217,23 @@ struct TreeListView: View {
                     selection: $inCareSelection,
                     emptyMessage: scope.emptyInCareMessage
                 )
-                if let formerTitle = scope.formerSectionTitle,
-                   !formerRows.isEmpty,
-                   appState.treesOverviewFilter == .none {
-                    listBlock(
-                        title: formerTitle,
-                        subtitle: scope.formerSectionSubtitle,
-                        rows: sortedFormerRows,
-                        selection: $formerSelection,
-                        emptyMessage: nil
-                    )
-                }
             }
-            .padding(.top, FaloSpacing.small)
-            .padding(.bottom, FaloSpacing.xLarge)
-            .frame(minWidth: minWidth, maxWidth: .infinity, alignment: .leading)
         }
+        .frame(minWidth: minWidth, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .faloScrollSurface()
         .onAppear {
             syncTableSelectionFromAppState()
         }
         .onChange(of: appState.selectedTreeID) { _, _ in
+            syncTableSelectionFromAppState()
+        }
+        .onChange(of: listPopulation) { _, population in
+            switch population {
+            case .myTrees:
+                formerSelection = []
+            case .formerTrees:
+                inCareSelection = []
+            }
             syncTableSelectionFromAppState()
         }
         .onChange(of: inCareSelection) { _, newValue in
@@ -205,18 +253,27 @@ struct TreeListView: View {
         emptyMessage: String? = nil
     ) -> some View {
         VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(FaloTypography.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                if let subtitle {
-                    Text(subtitle)
-                        .font(FaloTypography.caption)
-                        .foregroundStyle(.tertiary)
+            if !canShowFormerPopulation {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(FaloTypography.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    if let subtitle {
+                        Text(subtitle)
+                            .font(FaloTypography.caption)
+                            .foregroundStyle(.tertiary)
+                    }
                 }
+                .padding(.horizontal, FaloSpacing.medium)
+                .padding(.top, FaloSpacing.small)
+                .accessibilityAddTraits(.isHeader)
+            } else if let subtitle, listPopulation == .formerTrees {
+                Text(subtitle)
+                    .font(FaloTypography.caption)
+                    .foregroundStyle(.tertiary)
+                    .padding(.horizontal, FaloSpacing.medium)
+                    .padding(.top, FaloSpacing.xSmall)
             }
-            .padding(.horizontal, FaloSpacing.medium)
-            .accessibilityAddTraits(.isHeader)
 
             if rows.isEmpty, let emptyMessage {
                 Text(emptyMessage)
@@ -224,17 +281,13 @@ struct TreeListView: View {
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, FaloSpacing.medium)
                     .padding(.bottom, FaloSpacing.small)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else if !rows.isEmpty {
                 treesTable(rows, selection: selection)
-                    .frame(height: tableHeight(for: rows.count))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-    }
-
-    private func tableHeight(for rowCount: Int) -> CGFloat {
-        let headerHeight: CGFloat = 30
-        let rowHeight: CGFloat = 60
-        return headerHeight + CGFloat(rowCount) * rowHeight
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     private static func tableMinimumWidth(for columns: [TreeListColumnID]) -> CGFloat {
@@ -246,7 +299,7 @@ struct TreeListView: View {
         selection: Binding<Set<Tree.ID>>
     ) -> some View {
         let visibleColumns = columnConfiguration.visibleColumnIDs
-        return Table(rows, selection: selection, sortOrder: sortOrder) {
+        return Table(rows, selection: selection, sortOrder: $sortOrder) {
             // Indexed optionals (not ForEach) so column order follows configuration
             // without TableColumnBuilder / ForEach overload ambiguity.
             tableColumn(at: 0, visibleColumns: visibleColumns)
@@ -257,11 +310,9 @@ struct TreeListView: View {
             tableColumn(at: 5, visibleColumns: visibleColumns)
             tableColumn(at: 6, visibleColumns: visibleColumns)
         }
-        .tableStyle(.inset(alternatesRowBackgrounds: false))
-        .faloWarmTableZebraRows()
+        // CF1 — system selection + system zebra only (no custom row chrome).
+        .tableStyle(.inset(alternatesRowBackgrounds: true))
         .environment(imageService)
-        // Outer ScrollView owns scrolling — Table must not nest another scroll.
-        .scrollDisabled(true)
         .contextMenu(forSelectionType: Tree.ID.self) { selection in
             if selection.count == 1, let id = selection.first,
                let tree = treeService.getTree(id: id) {
@@ -400,10 +451,16 @@ struct TreeListView: View {
         }
 
         if scopedInCareTrees.contains(where: { $0.id == id }) {
+            if canShowFormerPopulation, listPopulation != .myTrees {
+                listPopulation = .myTrees
+            }
             let next = Set([id])
             if inCareSelection != next { inCareSelection = next }
             if !formerSelection.isEmpty { formerSelection = [] }
         } else if scopedFormerTrees.contains(where: { $0.id == id }) {
+            if canShowFormerPopulation, listPopulation != .formerTrees {
+                listPopulation = .formerTrees
+            }
             let next = Set([id])
             if formerSelection != next { formerSelection = next }
             if !inCareSelection.isEmpty { inCareSelection = [] }
@@ -547,21 +604,21 @@ struct TreeListView: View {
 
     /// Table updates `sortOrder` on header click but does not reorder rows itself.
     private var sortedInCareRows: [TreeListRow] {
-        if sortState.sortOrder.isEmpty {
+        if sortOrder.isEmpty {
             return inCareRows.sorted {
                 $0.botanicalName.localizedStandardCompare($1.botanicalName) == .orderedAscending
             }
         }
-        return inCareRows.sorted(using: sortState.sortOrder)
+        return inCareRows.sorted(using: sortOrder)
     }
 
     private var sortedFormerRows: [TreeListRow] {
-        if sortState.sortOrder.isEmpty {
+        if sortOrder.isEmpty {
             return formerRows.sorted {
                 $0.botanicalName.localizedStandardCompare($1.botanicalName) == .orderedAscending
             }
         }
-        return formerRows.sorted(using: sortState.sortOrder)
+        return formerRows.sorted(using: sortOrder)
     }
 
     private var emptyState: some View {
@@ -596,11 +653,6 @@ struct TreeListView: View {
 }
 
 // MARK: - Sortable row
-
-@MainActor
-private final class TreeListSortState: @unchecked Sendable {
-    var sortOrder: [KeyPathComparator<TreeListRow>] = []
-}
 
 /// Display strings used for header sort. Acquisition year uses `Int.max` when unset so blanks sort last.
 private struct TreeListRow: Identifiable, Sendable {

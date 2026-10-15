@@ -53,6 +53,7 @@ final class MediaLibraryService {
         let title = draft.title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !title.isEmpty else { throw MediaLibraryServiceError.missingTitle }
         let item = MediaLibraryItem(
+            id: draft.id,
             kind: draft.kind,
             title: title,
             notes: draft.notes.trimmingCharacters(in: .whitespacesAndNewlines),

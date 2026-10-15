@@ -55,13 +55,15 @@ private struct BonsaiWorkspaceNavigationTitleModifier: ViewModifier {
                 .font(.headline)
                 .foregroundStyle(BonsaiWorldColors.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
+                // When the shell already insets the page, keep a small leading pad so
+                // list-column titles (Pots / Inventory) are not clipped at the sidebar edge.
                 .padding(
                     .leading,
-                    shellProvidesLeadingInset ? 0 : DashboardSpacing.pageInset
+                    shellProvidesLeadingInset ? FaloSpacing.medium : DashboardSpacing.pageInset
                 )
                 .padding(
                     .trailing,
-                    shellProvidesLeadingInset ? 0 : DashboardSpacing.pageInset
+                    shellProvidesLeadingInset ? FaloSpacing.medium : DashboardSpacing.pageInset
                 )
                 .padding(.top, FaloSpacing.small)
                 .padding(.bottom, FaloSpacing.medium)

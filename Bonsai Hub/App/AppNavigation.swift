@@ -289,6 +289,13 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .careToday:
             // Tasks → Today owns the day list. Care is recommendations, not a second task list.
             false
+        case .careFertilizing, .carePlacement, .careWinter, .careSpring,
+             .careRepotting, .careTreeHealth, .careSeasonal:
+            // Care pages live on the Care workspace picker (BV1) — sidebar shows one Care row.
+            false
+        case .tasksOverdue, .tasksThisWeek, .tasksThisMonth, .tasksThisYear, .tasksNextYear:
+            // Horizons live on the Tasks page (BJ1) — sidebar shows one Tasks row only.
+            false
         case .designVision, .designStyle, .designFrontSelection, .designVirtual,
              .designBranchPlan, .designTrunkDevelopment, .designRamification,
              .designApex, .designDeadwood, .designTimeline:
@@ -304,6 +311,10 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .socialContacts, .socialLinks, .socialSharedTrees:
             true
         case .nurseryFieldTree:
+            true
+        case .careFertilizing, .carePlacement, .careWinter, .careSpring,
+             .careRepotting, .careTreeHealth, .careSeasonal:
+            // Sidebar is one Care row; Search still opens the matching Care page (BV1).
             true
         default:
             false

@@ -140,9 +140,9 @@ private struct SpeciesLibraryRow: View {
     }
 }
 
-// MARK: - Row background (warm zebra + solid forest selection)
+// MARK: - Row background (warm zebra + sage selection)
 
-/// Inside the raised panel: calm zebra bands; selected = solid World accent (My Trees rhythm).
+/// Inside the raised panel: calm zebra bands; selected = World accent.
 private struct SpeciesLibraryRowBackground: View {
     var isSelected: Bool
     var isAlternate: Bool
@@ -164,7 +164,6 @@ private struct SpeciesLibraryRowBackground: View {
     }
 
     private var zebraBase: Color {
-        // Same canvas / surface bands as My Trees (``WarmTableZebraChrome``).
         isAlternate ? BonsaiWorldColors.surface : BonsaiWorldColors.canvas
     }
 }

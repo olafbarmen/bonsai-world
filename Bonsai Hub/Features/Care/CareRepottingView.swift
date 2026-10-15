@@ -54,7 +54,7 @@ struct CareRepottingView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: FaloSpacing.xxLarge + FaloSpacing.large) {
-                CareHonestyLine(text: CareHonesty.trackingOnlyLine)
+                CarePageIntro(pageKey: "repotting", helpBody: CarePageHelp.repotting)
                 headerActions
 
                 CareTwoColumnLayout {
@@ -70,7 +70,6 @@ struct CareRepottingView: View {
         .faloScrollSurface()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .faloWorkspaceCanvas()
-        .bonsaiWorkspaceNavigationTitle("Repotting")
         .sheet(item: $registerDraft) { draft in
             NavigationStack {
                 AddWorkSheet(

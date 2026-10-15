@@ -2,7 +2,7 @@
 //  TasksHorizon.swift
 //  Bonsai World
 //
-//  Time-horizon grouping for the Tasks workspace (sidebar entries + TaskService
+//  Time-horizon grouping for the Tasks workspace (on-page picker + TaskService
 //  filtering). Pure domain enum — no UI dependencies.
 //
 
@@ -35,4 +35,9 @@ enum TasksHorizon: String, CaseIterable, Identifiable, Sendable {
         case .nextYear: "Next Year"
         }
     }
+
+    /// Segmented control on the Tasks page (Year horizons use More…).
+    static let primaryPickerCases: [TasksHorizon] = [.overdue, .today, .thisWeek, .thisMonth]
+
+    var isPrimaryPickerCase: Bool { Self.primaryPickerCases.contains(self) }
 }

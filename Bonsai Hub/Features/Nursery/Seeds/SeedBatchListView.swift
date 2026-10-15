@@ -174,8 +174,7 @@ struct SeedBatchListView: View {
             }
             .width(min: 120, max: .infinity)
         }
-        .tableStyle(.inset(alternatesRowBackgrounds: false))
-        .faloWarmTableZebraRows()
+        .tableStyle(.inset(alternatesRowBackgrounds: true))
         .scrollDisabled(true)
         .contextMenu(forSelectionType: UUID.self) { selection in
             if selection.count == 1, let id = selection.first {

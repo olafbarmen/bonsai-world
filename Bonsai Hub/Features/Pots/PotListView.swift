@@ -97,7 +97,6 @@ struct PotListView: View {
             }
         }
         .bonsaiWorkspaceNavigationTitle("Pots")
-        .navigationSplitViewColumnWidth(min: 320, ideal: 420, max: 640)
         .onAppear { reconcileSelection() }
         .onChange(of: filter) { _, _ in reconcileSelection() }
         .onChange(of: potService.pots.map(\.id)) { _, _ in reconcileSelection() }

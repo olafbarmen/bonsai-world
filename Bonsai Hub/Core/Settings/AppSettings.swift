@@ -29,6 +29,7 @@ final class AppSettings {
     private static let springCareReminderDayKey = "falo.appSettings.springCareReminderDay"
     private static let greenhouseSpringReminderMonthKey = "falo.appSettings.greenhouseSpringReminderMonth"
     private static let greenhouseSpringReminderDayKey = "falo.appSettings.greenhouseSpringReminderDay"
+    private static let fertilizerBagsIntervalWeeksKey = "falo.appSettings.fertilizerBagsIntervalWeeks"
 
     var currency: AppCurrency {
         didSet {
@@ -184,6 +185,19 @@ final class AppSettings {
         }
     }
 
+    /// Weeks between fertilizer-bag replaces — default 6 (grower can change).
+    var fertilizerBagsIntervalWeeks: Int {
+        didSet {
+            let clamped = min(26, max(1, fertilizerBagsIntervalWeeks))
+            if clamped != fertilizerBagsIntervalWeeks {
+                fertilizerBagsIntervalWeeks = clamped
+                return
+            }
+            guard fertilizerBagsIntervalWeeks != oldValue else { return }
+            UserDefaults.standard.set(fertilizerBagsIntervalWeeks, forKey: Self.fertilizerBagsIntervalWeeksKey)
+        }
+    }
+
     init(
         currency: AppCurrency? = nil,
         measurementSystem: MeasurementSystem? = nil,
@@ -200,7 +214,8 @@ final class AppSettings {
         springCareReminderMonth: Int? = nil,
         springCareReminderDay: Int? = nil,
         greenhouseSpringReminderMonth: Int? = nil,
-        greenhouseSpringReminderDay: Int? = nil
+        greenhouseSpringReminderDay: Int? = nil,
+        fertilizerBagsIntervalWeeks: Int? = nil
     ) {
         self.currency = currency
             ?? UserDefaults.standard.string(forKey: Self.currencyKey).flatMap(AppCurrency.init)
@@ -275,6 +290,12 @@ final class AppSettings {
         } else {
             let stored = UserDefaults.standard.object(forKey: Self.greenhouseSpringReminderDayKey) as? Int
             self.greenhouseSpringReminderDay = min(28, max(1, stored ?? 1))
+        }
+        if let fertilizerBagsIntervalWeeks {
+            self.fertilizerBagsIntervalWeeks = min(26, max(1, fertilizerBagsIntervalWeeks))
+        } else {
+            let stored = UserDefaults.standard.object(forKey: Self.fertilizerBagsIntervalWeeksKey) as? Int
+            self.fertilizerBagsIntervalWeeks = min(26, max(1, stored ?? 6))
         }
         BonsaiWorldColors.apply(self.theme)
         ExperienceEditionStore.apply(self.experienceEdition)

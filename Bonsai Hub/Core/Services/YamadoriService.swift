@@ -64,11 +64,11 @@ final class YamadoriService {
         find(linkedToTreeID: treeID)
     }
 
-    // MARK: - Create trip + first Find
+    // MARK: - Create trip
 
-    /// Creates a trip and its first Find from the New Yamadori form.
+    /// Creates a trip from the New Yamadori form. Finds are added later via Add Find (CB1).
     @discardableResult
-    func createYamadori(fromDraft draft: NewYamadoriDraft) throws -> (trip: Yamadori, find: YamadoriFind) {
+    func createYamadori(fromDraft draft: NewYamadoriDraft) throws -> Yamadori {
         let now = Date.now
         let name = draft.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let trip = Yamadori(
@@ -82,26 +82,9 @@ final class YamadoriService {
             countryRegion: draft.countryRegion.trimmingCharacters(in: .whitespacesAndNewlines),
             permissionNotes: draft.permissionNotes.trimmingCharacters(in: .whitespacesAndNewlines),
             siteKey: draft.siteKey.trimmingCharacters(in: .whitespacesAndNewlines),
-            notes: ""
-        )
-        let createdTrip = try createYamadori(trip)
-        let code = YamadoriIDService.nextCode(existing: finds)
-        let find = YamadoriFind(
-            yamadoriID: createdTrip.id,
-            yamadoriCode: code,
-            displayName: name,
-            genusID: draft.genusID,
-            speciesID: draft.speciesID,
-            cultivarID: draft.cultivarID,
-            status: .scout,
-            createdDate: now,
-            modifiedDate: now,
-            discoveryDate: draft.discoveryDate,
-            history: [YamadoriHistoryEntry(kind: .created, date: now)],
             notes: draft.notes.trimmingCharacters(in: .whitespacesAndNewlines)
         )
-        let createdFind = try createFind(find)
-        return (createdTrip, createdFind)
+        return try createYamadori(trip)
     }
 
     @discardableResult

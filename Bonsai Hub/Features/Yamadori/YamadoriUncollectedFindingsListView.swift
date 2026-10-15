@@ -169,9 +169,8 @@ struct YamadoriUncollectedFindingsListView: View {
             }
             .width(min: 160, max: .infinity)
         }
-        .tableStyle(.inset(alternatesRowBackgrounds: false))
-        .faloWarmTableZebraRows()
-        .environment(imageService)
+        .tableStyle(.inset(alternatesRowBackgrounds: true))
+                .environment(imageService)
         .scrollDisabled(true)
         .contextMenu(forSelectionType: YamadoriFind.ID.self) { selection in
             if selection.count == 1, let id = selection.first,

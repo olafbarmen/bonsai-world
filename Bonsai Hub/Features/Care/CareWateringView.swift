@@ -118,7 +118,7 @@ struct CareWateringView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: FaloSpacing.xxLarge + FaloSpacing.large) {
-                CareHonestyLine(text: CareHonesty.recommendationActiveLine)
+                CarePageIntro(pageKey: "watering", helpBody: CarePageHelp.watering)
                 headerActions
 
                 if let statusMessage {
@@ -141,7 +141,6 @@ struct CareWateringView: View {
         .faloScrollSurface()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .faloWorkspaceCanvas()
-        .bonsaiWorkspaceNavigationTitle("Watering")
         .task {
             await weatherService.refreshIfNeeded()
         }

@@ -2,35 +2,23 @@
 //  TasksHorizonViews.swift
 //  Bonsai World
 //
-//  Route entry points for Tasks horizons — each opens TasksWorkspaceView.
+//  Compatibility entry — Tasks is one workspace; horizon is AppState.tasksHorizon.
 //
 
 import SwiftUI
 
 enum TasksHorizonViews {
-    static var overdue: some View {
-        TasksWorkspaceView(horizon: .overdue)
+    static var root: some View {
+        TasksWorkspaceView()
     }
 
-    static var today: some View {
-        TasksWorkspaceView(horizon: .today)
-    }
-
-    static var thisWeek: some View {
-        TasksWorkspaceView(horizon: .thisWeek)
-    }
-
-    static var thisMonth: some View {
-        TasksWorkspaceView(horizon: .thisMonth)
-    }
-
-    static var thisYear: some View {
-        TasksWorkspaceView(horizon: .thisYear)
-    }
-
-    static var nextYear: some View {
-        TasksWorkspaceView(horizon: .nextYear)
-    }
+    /// Legacy names — all open the same Tasks page (horizon set by AppState / deep link).
+    static var overdue: some View { root }
+    static var today: some View { root }
+    static var thisWeek: some View { root }
+    static var thisMonth: some View { root }
+    static var thisYear: some View { root }
+    static var nextYear: some View { root }
 }
 
 /// Compatibility alias — prefer ``TasksHorizonViews``.

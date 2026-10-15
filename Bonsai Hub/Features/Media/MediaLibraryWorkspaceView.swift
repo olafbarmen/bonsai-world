@@ -14,8 +14,10 @@ struct MediaLibraryWorkspaceView: View {
 
     @Environment(AppState.self) private var appState
     @Environment(MediaLibraryService.self) private var service
+    @Environment(StorageService.self) private var storage
 
     @State private var isCreatePresented = false
+    @State private var importErrorMessage: String?
 
     private var selectedID: UUID? {
         appState.selectedMediaLibraryItemID(for: kind)
@@ -35,6 +37,14 @@ struct MediaLibraryWorkspaceView: View {
         .sheet(isPresented: $isCreatePresented) {
             NewMediaLibraryItemView(kind: kind)
         }
+        .alert("Could not add \(kind.singularTitle.lowercased())", isPresented: Binding(
+            get: { importErrorMessage != nil },
+            set: { if !$0 { importErrorMessage = nil } }
+        )) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(importErrorMessage ?? "")
+        }
         .onAppear { consumeWantsNewMediaItem() }
         .onChange(of: appState.wantsNewMediaLibraryKind) { _, pending in
             guard pending == kind else { return }
@@ -44,8 +54,58 @@ struct MediaLibraryWorkspaceView: View {
 
     private func consumeWantsNewMediaItem() {
         guard appState.wantsNewMediaLibraryKind == kind else { return }
-        isCreatePresented = true
         appState.wantsNewMediaLibraryKind = nil
+        if kind.requiresImportedFile {
+            Task { await importFileAndCreate() }
+        } else {
+            isCreatePresented = true
+        }
+    }
+
+    /// Finder → copy into library package → catalog row (CH1, Video / Document).
+    private func importFileAndCreate() async {
+        guard let url = await ImportFilePanel.chooseFile(
+            contentTypes: kind.importContentTypes,
+            prompt: "Add \(kind.singularTitle)"
+        ) else { return }
+
+        let didAccess = url.startAccessingSecurityScopedResource()
+        defer {
+            if didAccess { url.stopAccessingSecurityScopedResource() }
+        }
+
+        do {
+            let data = try Data(contentsOf: url)
+            guard !data.isEmpty else {
+                importErrorMessage = "The selected file is empty."
+                return
+            }
+            let ext = url.pathExtension.trimmingCharacters(in: .whitespacesAndNewlines)
+            let safeExt = ext.isEmpty ? "bin" : ext.lowercased()
+            let id = UUID()
+            let relativePath = "\(LibraryPackageLayout.documents)/\(kind.importFolderName)/\(id.uuidString).\(safeExt)"
+            try storage.savePackageFile(relativePath: relativePath, data: data)
+
+            let title = url.deletingPathExtension().lastPathComponent
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            do {
+                let item = try service.create(
+                    MediaLibraryCreateDraft(
+                        id: id,
+                        kind: kind,
+                        title: title.isEmpty ? kind.singularTitle : title,
+                        notes: "",
+                        relativePath: relativePath
+                    )
+                )
+                appState.setSelectedMediaLibraryItemID(item.id, for: kind)
+            } catch {
+                try? storage.deletePackageFile(relativePath: relativePath)
+                throw error
+            }
+        } catch {
+            importErrorMessage = error.localizedDescription
+        }
     }
 }
 
@@ -114,6 +174,7 @@ struct MediaLibraryDetailView: View {
 
     @Environment(AppState.self) private var appState
     @Environment(MediaLibraryService.self) private var service
+    @Environment(StorageService.self) private var storage
 
     @State private var notesDraft = ""
     @State private var errorMessage: String?
@@ -132,6 +193,9 @@ struct MediaLibraryDetailView: View {
                             .buttonStyle(.borderless)
                             Spacer()
                             Button("Delete", role: .destructive) {
+                                if let relativePath = item.relativePath, !relativePath.isEmpty {
+                                    try? storage.deletePackageFile(relativePath: relativePath)
+                                }
                                 try? service.delete(id: item.id)
                                 appState.setSelectedMediaLibraryItemID(nil, for: kind)
                             }
@@ -178,6 +242,7 @@ struct MediaLibraryDetailView: View {
     }
 }
 
+/// Notes (and Audio stub) — title/notes only. Video / Document use Finder import instead.
 struct NewMediaLibraryItemView: View {
     let kind: MediaLibraryKind
 

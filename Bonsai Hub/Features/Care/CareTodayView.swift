@@ -21,7 +21,7 @@ struct CareTodayView: View {
                 VStack(alignment: .leading, spacing: FaloSpacing.small) {
                     Text("Today")
                         .font(FaloTypography.headline)
-                    CareHonestyLine(text: CareHonesty.todayTrackingLine)
+                    CarePageIntro(pageKey: "today", helpBody: CarePageHelp.today)
                     Text("\(dueToday.count) tasks due today")
                         .font(FaloTypography.caption)
                         .foregroundStyle(.secondary)

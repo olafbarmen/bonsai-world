@@ -29,6 +29,8 @@ enum CareTaskSystemKind: String, Codable, Hashable, Sendable {
     case springCare
     /// Greenhouse spring heat / vent check — progress lives on each Location.
     case greenhouseSpringCheck
+    /// Batch fertilizer-bag replace — last replace date lives on each Tree.
+    case fertilizerBags
 }
 
 /// A planned care activity for one or more Trees, tied to a Work Type so its

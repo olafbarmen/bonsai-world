@@ -139,7 +139,6 @@ struct YamadoriFindDetailView: View {
                 observationsSection(find)
                 historySection(find)
                 notesSection(find)
-                guidesStubSection
             }
         }
         .navigationTitle(displayName(for: find))
@@ -379,14 +378,6 @@ struct YamadoriFindDetailView: View {
                 DetailEditableTextRow(label: "Notes", text: binding.notes)
             } else {
                 DetailLabeledRow(label: "Notes", value: find.notes)
-            }
-        }
-    }
-
-    private var guidesStubSection: some View {
-        DetailCard(title: "Quick Guides") {
-            ForEach(YamadoriQuickGuide.stubs) { guide in
-                DetailLabeledRow(label: guide.kind.title, value: "Coming later")
             }
         }
     }

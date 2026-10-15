@@ -191,8 +191,8 @@ struct TreeDeleteIntegrityTests {
             treeService: treeService
         )
         let tree = try makeTree(treeService, bonsaiName: "PIN-MUG-DEL-2026-020")
-        let created = try yamadori.createYamadori(fromDraft: NewYamadoriDraft(displayName: "Link Clear"))
-        var find = created.find
+        let trip = try yamadori.createYamadori(fromDraft: NewYamadoriDraft(displayName: "Link Clear"))
+        var find = try yamadori.createFind(onYamadoriID: trip.id, displayName: "Link Clear")
         find.linkedTreeID = tree.id
         _ = try yamadori.updateFind(find)
 

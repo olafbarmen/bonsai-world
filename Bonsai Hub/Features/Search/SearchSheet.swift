@@ -83,7 +83,7 @@ struct SearchSheet: View {
                 HStack(spacing: FaloSpacing.medium) {
                     TreeListThumbnail(imageID: tree.listImageID, imageService: imageService)
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(TreePresentation.title(for: tree))
+                        Text(TreePresentation.registryName(for: tree))
                             .foregroundStyle(.primary)
                         Text(treeSubtitle(tree))
                             .font(FaloTypography.caption)

@@ -131,6 +131,9 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
     /// How often this tree should be repotted, in years. Nil = no automatic schedule.
     var repottingIntervalYears: Int?
 
+    /// When set, this tree is on the fertilizer-bags program. Date of last place/replace.
+    var lastFertilizerBagReplacedAt: Date?
+
     // MARK: - Placement strategy & season (Winter / Spring Care)
 
     /// Always outdoors vs seasonal in/out — distinct from Location (where it stands now).
@@ -225,6 +228,7 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
         socialShareLevel: SocialShareLevel = .off,
         lastRepottedDate: Date? = nil,
         repottingIntervalYears: Int? = nil,
+        lastFertilizerBagReplacedAt: Date? = nil,
         placementStrategy: TreePlacementStrategy = .seasonal,
         seasonPlacement: TreeSeasonPlacement = .summer,
         winterCareCompletedSteps: [WinterCareStep] = [],
@@ -286,6 +290,7 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
         self.socialShareLevel = socialShareLevel
         self.lastRepottedDate = lastRepottedDate
         self.repottingIntervalYears = repottingIntervalYears.map { max(1, min(20, $0)) }
+        self.lastFertilizerBagReplacedAt = lastFertilizerBagReplacedAt
         self.placementStrategy = placementStrategy
         self.seasonPlacement = seasonPlacement
         self.winterCareCompletedSteps = winterCareCompletedSteps
@@ -345,7 +350,7 @@ extension Tree {
         case acquisitionDate, acquisitionMethodID, acquisitionSourceName, purchasePrice, acquisitionNotes
         case disposalDate, disposalMethodID, disposalPartyName, disposalPrice, disposalNotes
         case notes, knownHistory, socialShareLevel
-        case lastRepottedDate, repottingIntervalYears
+        case lastRepottedDate, repottingIntervalYears, lastFertilizerBagReplacedAt
         case placementStrategy, seasonPlacement, winterCareCompletedSteps, springCareCompletedSteps
         case seasonalStorage // legacy single-field migration
         case carePolicyCollectionID, wateringModeOverride, autoTimesPerDayOverride
@@ -405,6 +410,7 @@ extension Tree {
         } else {
             repottingIntervalYears = nil
         }
+        lastFertilizerBagReplacedAt = try c.decodeIfPresent(Date.self, forKey: .lastFertilizerBagReplacedAt)
         if let strategy = try c.decodeIfPresent(TreePlacementStrategy.self, forKey: .placementStrategy),
            let season = try c.decodeIfPresent(TreeSeasonPlacement.self, forKey: .seasonPlacement) {
             placementStrategy = strategy
@@ -488,6 +494,7 @@ extension Tree {
         try c.encode(socialShareLevel, forKey: .socialShareLevel)
         try c.encodeIfPresent(lastRepottedDate, forKey: .lastRepottedDate)
         try c.encodeIfPresent(repottingIntervalYears, forKey: .repottingIntervalYears)
+        try c.encodeIfPresent(lastFertilizerBagReplacedAt, forKey: .lastFertilizerBagReplacedAt)
         try c.encode(placementStrategy, forKey: .placementStrategy)
         try c.encode(seasonPlacement, forKey: .seasonPlacement)
         try c.encode(winterCareCompletedSteps, forKey: .winterCareCompletedSteps)

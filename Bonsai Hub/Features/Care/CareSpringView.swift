@@ -38,8 +38,16 @@ struct CareSpringView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: FaloSpacing.xxLarge + FaloSpacing.large) {
-                CareHonestyLine(text: CareHonesty.recommendationActiveLine)
-                seasonBanner
+                CarePageIntro(
+                    pageKey: "spring",
+                    status: springStatusLine,
+                    helpBody: CarePageHelp.spring
+                )
+                if let statusMessage {
+                    Text(statusMessage)
+                        .font(FaloTypography.caption)
+                        .foregroundStyle(.secondary)
+                }
                 checklistCard
                 greenhouseCard
             }
@@ -50,7 +58,6 @@ struct CareSpringView: View {
         .faloScrollSurface()
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .faloWorkspaceCanvas()
-        .bonsaiWorkspaceNavigationTitle("Spring Care")
         .task {
             try? springCare.syncSpringCareTask()
             try? greenhouseCare.syncGreenhouseSpringCheckTask()
@@ -71,23 +78,11 @@ struct CareSpringView: View {
         }
     }
 
-    private var seasonBanner: some View {
-        VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
-            if isActive {
-                Text("Spring Care is active — seasonal trees still on Winter placement. Select several trees, then mark the step done. Update Location after you move them.")
-                    .font(FaloTypography.body)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text("Spring Care starts on \(reminderLabel) (date only — no temperature). Set Placement strategy to Seasonal and Season to Winter placement on trees that should move out.")
-                    .font(FaloTypography.body)
-                    .foregroundStyle(.secondary)
-            }
-            if let statusMessage {
-                Text(statusMessage)
-                    .font(FaloTypography.caption)
-                    .foregroundStyle(.secondary)
-            }
+    private var springStatusLine: String {
+        if isActive {
+            return "Spring Care is active — seasonal trees still on Winter placement."
         }
+        return "Starts \(reminderLabel) (date only — no temperature)."
     }
 
     private var reminderLabel: String {
