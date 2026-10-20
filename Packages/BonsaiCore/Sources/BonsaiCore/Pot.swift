@@ -1,6 +1,6 @@
 //
 //  Pot.swift
-//  Bonsai World
+//  BonsaiCore
 //
 //  Central domain entity for an individual pot — a first-class inventory object,
 //  not a label on Tree. Mirrors Tree.swift shape and conventions.

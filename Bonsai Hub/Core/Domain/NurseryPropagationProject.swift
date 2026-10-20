@@ -80,6 +80,16 @@ enum NurseryPropagationKind: String, Codable, CaseIterable, Identifiable, Hashab
         }
     }
 
+    /// Birth of a tree created from this project. Field Tree is not one of these.
+    var treePropagation: TreePropagation? {
+        switch self {
+        case .cutting: .cutting
+        case .airLayer: .airLayer
+        case .grafting: .grafting
+        case .fieldTree: nil
+        }
+    }
+
     var systemImage: String {
         switch self {
         case .cutting: "scissors"

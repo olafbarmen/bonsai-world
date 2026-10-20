@@ -1,0 +1,13 @@
+---
+description: Mac is the source of truth for iPhone layout, names, and grouping
+alwaysApply: true
+---
+
+# Mac is the source of truth
+
+When iPhone and Mac show the same thing, follow the Mac app. Do not invent a
+parallel layout, label, or grouping for iOS.
+
+- Use the Mac name, section order, and open or collapsed state.
+- If Mac has no equivalent, ask before adding one.
+- A combined iPhone count that mixes Mac sections is wrong. Count the same set Mac shows in that place.

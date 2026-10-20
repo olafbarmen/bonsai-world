@@ -36,9 +36,9 @@ extension DashboardPlaceholderData {
             )
         case .upcoming:
             DashboardHoverInfo(
-                title: "Upcoming",
+                title: "Upcoming Tasks",
                 lines: [
-                    "This Week / Month / Year / Next Year",
+                    "Tasks This Week / Month / Year / Next Year",
                     "Today lives on the Tasks card",
                     "Tap a row to open that Tasks horizon"
                 ]
@@ -98,6 +98,14 @@ extension DashboardPlaceholderData {
                     "Tap opens the matching destination"
                 ]
             )
+        case .careCalendar:
+            DashboardHoverInfo(
+                title: "Care Calendar",
+                lines: [
+                    "This month on the default Garden",
+                    "Tap opens Care Calendar"
+                ]
+            )
         case .tasks:
             DashboardHoverInfo(
                 title: "Today’s care",
@@ -130,6 +138,14 @@ extension DashboardPlaceholderData {
                 lines: [
                     "Latest Work records from the library",
                     "Tap opens the Tree"
+                ]
+            )
+        case .shapingInProgress:
+            DashboardHoverInfo(
+                title: "In Progress",
+                lines: [
+                    "Shaping areas marked In Progress",
+                    "Tap opens Shaping"
                 ]
             )
         }

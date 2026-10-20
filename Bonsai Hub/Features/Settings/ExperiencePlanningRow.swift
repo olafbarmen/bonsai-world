@@ -95,6 +95,7 @@ enum ExperiencePlanningCatalog {
         .init(id: "knowledge.handbook.collectionManagement", title: "Knowledge — Handbook — Bonsai Collection Management", group: .library),
         .init(id: "knowledge.handbook.treeHealth", title: "Knowledge — Handbook — Tree Health", group: .library),
         .init(id: "knowledge.handbook.seasonalCare", title: "Knowledge — Handbook — Seasonal Care & Protection", group: .library),
+        .init(id: "knowledge.careCalendar", title: "Knowledge — Care Calendar", group: .library),
         .init(id: "knowledge.speciesLibrary", title: "Knowledge — Species Library", group: .library),
         .init(id: "knowledge.fertilizerGuides", title: "Knowledge — Fertilizer Guides", group: .library),
         .init(id: "knowledge.seedStratification", title: "Knowledge — Seed Stratification", group: .library)

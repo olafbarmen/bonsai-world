@@ -7,40 +7,54 @@
 
 import SwiftUI
 
-private enum TreeSoilMixFilter: Hashable {
-    case all
-    case none
-    case mix(UUID)
-}
-
-private enum TreeHealthFilter: Hashable {
-    case all
-    case attention
-    case status(TreeHealthStatus)
-}
-
 struct TreeListView: View {
     @Environment(DemoLibrary.self) private var library
     @Environment(\.openMobileTree) private var openMobileTree
 
-    /// When true, opens with Health filter set to Attention (Home Attention → See all).
-    var initialAttentionOnly: Bool = false
-
-    @State private var soilMixFilter: TreeSoilMixFilter = .all
-    @State private var healthFilter: TreeHealthFilter = .all
-    @State private var didApplyInitialHealthFilter = false
+    @State private var searchText = ""
+    @State private var isSearchPresented = false
     @State private var isShowingNewTree = false
     @State private var pendingCreatedTreeID: UUID?
     @State private var treePendingDelete: UUID?
     @State private var confirmDeleteTree = false
+    /// Mac default is Botanical Name. Bonsai Name is the code.
+    @State private var nameSort: TreeNameSort = .botanicalName
+
+    private enum TreeNameSort: String, CaseIterable, Identifiable {
+        case botanicalName
+        case bonsaiName
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .botanicalName: "Botanical Name"
+            case .bonsaiName: "Bonsai Name"
+            }
+        }
+    }
 
     private var displayedTrees: [Tree] {
-        filteredTrees(library.myTrees)
-            .sorted {
-                MobileTreePresentation.bonsaiNameLine(for: $0)
-                    .localizedStandardCompare(MobileTreePresentation.bonsaiNameLine(for: $1))
+        matchingSearch(library.myTrees)
+            .sorted { lhs, rhs in
+                let left = sortKey(lhs)
+                let right = sortKey(rhs)
+                let order = left.localizedStandardCompare(right)
+                if order != .orderedSame { return order == .orderedAscending }
+                return MobileTreePresentation.bonsaiNameLine(for: lhs)
+                    .localizedStandardCompare(MobileTreePresentation.bonsaiNameLine(for: rhs))
                     == .orderedAscending
             }
+    }
+
+    private func sortKey(_ tree: Tree) -> String {
+        switch nameSort {
+        case .botanicalName:
+            let botanical = MobileTreePresentation.botanicalLine(for: tree)
+            return botanical.isEmpty ? MobileTreePresentation.title(for: tree) : botanical
+        case .bonsaiName:
+            return MobileTreePresentation.bonsaiNameLine(for: tree)
+        }
     }
 
     var body: some View {
@@ -62,7 +76,28 @@ struct TreeListView: View {
         }
         .navigationTitle("My Trees")
         .navigationBarTitleDisplayMode(.large)
+        .searchable(text: $searchText, isPresented: $isSearchPresented, prompt: "Search")
         .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    isSearchPresented = true
+                } label: {
+                    Image(systemName: "magnifyingglass")
+                }
+                .accessibilityLabel("Search")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    ForEach(TreeNameSort.allCases) { sort in
+                        Button(sort.title) {
+                            nameSort = sort
+                        }
+                    }
+                } label: {
+                    Image(systemName: "arrow.up.arrow.down")
+                }
+                .accessibilityLabel(nameSort.title)
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button("New Tree") {
                     isShowingNewTree = true
@@ -97,13 +132,6 @@ struct TreeListView: View {
         } message: {
             Text("Photos, work history, and tasks for this tree are removed. This cannot be undone.")
         }
-        .onAppear {
-            guard !didApplyInitialHealthFilter else { return }
-            if initialAttentionOnly {
-                healthFilter = .attention
-            }
-            didApplyInitialHealthFilter = true
-        }
     }
 
     private var deleteTreeDialogTitle: String {
@@ -114,71 +142,10 @@ struct TreeListView: View {
     }
 
     private var treeList: some View {
-        let attention = library.treesNeedingAttention
-        return List {
-            Section {
-                Button {
-                    if healthFilter == .attention {
-                        healthFilter = .all
-                    } else {
-                        guard !attention.isEmpty else { return }
-                        healthFilter = .attention
-                    }
-                } label: {
-                    HStack {
-                        Text(attentionCaption(attention.count))
-                            .font(FaloTypography.caption)
-                            .foregroundStyle(
-                                attention.isEmpty
-                                    ? BonsaiWorldColors.textTertiary
-                                    : BonsaiWorldColors.statusAttention
-                            )
-                        Spacer(minLength: 0)
-                        if healthFilter == .attention {
-                            Text("Clear")
-                                .font(FaloTypography.caption.weight(.semibold))
-                                .foregroundStyle(BonsaiWorldColors.accent)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .disabled(attention.isEmpty && healthFilter != .attention)
-                .listRowBackground(BonsaiWorldColors.surface)
-                .accessibilityLabel(attentionCaption(attention.count))
-                .accessibilityHint(
-                    healthFilter == .attention
-                        ? "Clears the attention filter"
-                        : (attention.isEmpty ? "" : "Filters the list to trees that need attention")
-                )
-            }
-
-            Section {
-                Picker("Soil Mix", selection: $soilMixFilter) {
-                    Text("All").tag(TreeSoilMixFilter.all)
-                    Text("None").tag(TreeSoilMixFilter.none)
-                    ForEach(library.orderedSoilMixes) { mix in
-                        Text(mix.name).tag(TreeSoilMixFilter.mix(mix.id))
-                    }
-                }
-                .accessibilityLabel("Soil Mix filter")
-
-                Picker("Health", selection: $healthFilter) {
-                    Text("All").tag(TreeHealthFilter.all)
-                    Text("Attention").tag(TreeHealthFilter.attention)
-                    ForEach(TreeHealthStatus.allCases) { status in
-                        Text(status.title).tag(TreeHealthFilter.status(status))
-                    }
-                }
-                .accessibilityLabel("Health filter")
-            } header: {
-                Text("Filter")
-            }
-
+        List {
             Section {
                 if displayedTrees.isEmpty {
-                    Text(emptyFilterMessage)
+                    Text("No trees")
                         .font(FaloTypography.body)
                         .foregroundStyle(BonsaiWorldColors.textSecondary)
                         .listRowBackground(BonsaiWorldColors.surface)
@@ -204,40 +171,16 @@ struct TreeListView: View {
         .background(BonsaiWorldColors.canvas)
     }
 
-    private func attentionCaption(_ count: Int) -> String {
-        if count == 0 { return "No trees need attention" }
-        if count == 1 { return "1 needs attention" }
-        return "\(count) need attention"
-    }
-
-    private var emptyFilterMessage: String {
-        if soilMixFilter != .all || healthFilter != .all {
-            return "No trees match these filters."
+    /// Same tree fields as Mac Search: Botanical Name, Bonsai Name, nickname, notes.
+    private func matchingSearch(_ trees: [Tree]) -> [Tree] {
+        let needle = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return trees }
+        return trees.filter { tree in
+            tree.botanicalName.localizedStandardContains(needle)
+                || tree.bonsaiName.localizedStandardContains(needle)
+                || tree.nickname.localizedStandardContains(needle)
+                || tree.notes.localizedStandardContains(needle)
         }
-        return "No trees"
-    }
-
-    private func filteredTrees(_ trees: [Tree]) -> [Tree] {
-        var result = trees
-        switch soilMixFilter {
-        case .all:
-            break
-        case .none:
-            result = result.filter { $0.soilMixID == nil }
-        case .mix(let id):
-            result = result.filter { $0.soilMixID == id }
-        }
-        switch healthFilter {
-        case .all:
-            break
-        case .attention:
-            result = result.filter {
-                $0.healthStatus == .needsAttention || $0.healthStatus == .recovering
-            }
-        case .status(let status):
-            result = result.filter { $0.healthStatus == status }
-        }
-        return result
     }
 }
 
@@ -282,8 +225,6 @@ private struct TreeRowView: View {
                         .font(FaloTypography.caption)
                         .foregroundStyle(BonsaiWorldColors.textTertiary)
                 }
-
-                MobileHealthBadge(status: tree.healthStatus)
             }
         }
         .padding(.vertical, FaloSpacing.xSmall)

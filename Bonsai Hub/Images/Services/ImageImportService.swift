@@ -2,12 +2,13 @@
 //  ImageImportService.swift
 //  Bonsai World
 //
-//  Finder-based single-image import into the Bonsai World Library.
-//  Reads the picked file, copies bytes via StorageService, and creates ImageAsset metadata.
+//  Finder-based image import into the Bonsai World Library.
+//  Reads picked file(s), copies bytes via StorageService, and creates ImageAsset metadata.
 //  TreeDetailView must call this service — never touch the file system itself.
 //  File selection and pixel decoding go through ImageFilePicking / ImagePixelSizeReading —
 //  this file never references a concrete OS picker or decoder (Constitution §11).
 //
+
 
 import Foundation
 import Observation
@@ -92,17 +93,36 @@ final class ImageImportService {
         } catch {
             throw ImageImportError.unreadableFile
         }
+        return try await importImage(
+            data: data,
+            fileExtension: fileExtension,
+            fileName: url.lastPathComponent,
+            asPrimary: asPrimary
+        )
+    }
+
+    /// Imports image bytes (Photos drag-and-drop, etc.).
+    func importImage(
+        data: Data,
+        fileExtension: String,
+        fileName: String,
+        asPrimary: Bool
+    ) async throws -> ImageAsset {
+        let ext = fileExtension.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard Self.supportedExtensions.contains(ext) else {
+            throw ImageImportError.unsupportedFormat
+        }
         guard !data.isEmpty else { throw ImageImportError.emptyFile }
 
         let id = UUID()
         let size = pixelSizeReader.pixelSize(of: data)
         let now = Date.now
         let captureDate = ImageCaptureDateReader.captureDate(from: data) ?? now
-        let relativePath = ImageAsset.originalsRelativePath(id: id, fileExtension: fileExtension)
-
+        let relativePath = ImageAsset.originalsRelativePath(id: id, fileExtension: ext)
+        let resolvedName = fileName.trimmingCharacters(in: .whitespacesAndNewlines)
         let asset = ImageAsset(
             id: id,
-            fileName: url.lastPathComponent,
+            fileName: resolvedName.isEmpty ? "Photo.\(ext)" : resolvedName,
             photoName: ImageAsset.defaultPhotoName(for: captureDate),
             relativePath: relativePath,
             createdDate: now,
@@ -122,7 +142,7 @@ final class ImageImportService {
         try await storage.saveImage(
             id: StorageAssetID(id),
             data: data,
-            fileExtension: fileExtension
+            fileExtension: ext
         )
 
         if asPrimary {
@@ -132,7 +152,21 @@ final class ImageImportService {
         return asset
     }
 
-    /// Imports a gallery photo without forcing Primary (unless `asPrimary` is true).
+    func importImage(from source: ImageDropSource, asPrimary: Bool) async throws -> ImageAsset {
+        switch source {
+        case .fileURL(let url):
+            return try await importImage(from: url, asPrimary: asPrimary)
+        case .imageData(let data, let fileExtension, let fileName):
+            return try await importImage(
+                data: data,
+                fileExtension: fileExtension,
+                fileName: fileName,
+                asPrimary: asPrimary
+            )
+        }
+    }
+
+    /// Imports one gallery photo (single-file Finder panel).
     func importGalleryImageFromFinder() async throws -> ImageAsset {
         let url = try await pickSingleImageURL(
             title: "Choose a Tree Image",
@@ -142,15 +176,55 @@ final class ImageImportService {
         return try await importImage(from: url, asPrimary: false)
     }
 
+    /// Multi-select Finder import for tree galleries (and similar). Order matches picker selection.
+    func importGalleryImagesFromFinder() async throws -> [ImageAsset] {
+        let urls = try await pickImageURLs(
+            title: "Choose Tree Images",
+            message: "Select one or more HEIC, JPEG, PNG, or TIFF images.",
+            prompt: "Import",
+            allowMultiple: true
+        )
+        var imported: [ImageAsset] = []
+        imported.reserveCapacity(urls.count)
+        for url in urls {
+            imported.append(try await importImage(from: url, asPrimary: false))
+        }
+        return imported
+    }
+
     // MARK: - Finder
 
     private func pickSingleImageURL(title: String, message: String, prompt: String) async throws -> URL {
+        let urls = try await pickImageURLs(
+            title: title,
+            message: message,
+            prompt: prompt,
+            allowMultiple: false
+        )
+        guard let url = urls.first else { throw ImageImportError.cancelled }
+        return url
+    }
+
+    private func pickImageURLs(
+        title: String,
+        message: String,
+        prompt: String,
+        allowMultiple: Bool
+    ) async throws -> [URL] {
         do {
-            return try await filePicker.pickImageFile(
+            if allowMultiple {
+                return try await filePicker.pickImageFiles(
+                    title: title,
+                    message: message,
+                    prompt: prompt
+                )
+            }
+            let url = try await filePicker.pickImageFile(
                 title: title,
                 message: message,
                 prompt: prompt
             )
+            return [url]
         } catch is ImageFilePickingCancelled {
             throw ImageImportError.cancelled
         }
@@ -159,7 +233,7 @@ final class ImageImportService {
     // MARK: - Helpers
 
     static let supportedExtensions: Set<String> = [
-        "heic", "heif", "jpg", "jpeg", "png", "tif", "tiff"
+        "heic", "heif", "jpg", "jpeg", "png", "tif", "tiff", "webp"
     ]
 
     private func normalizedExtension(for url: URL) -> String {

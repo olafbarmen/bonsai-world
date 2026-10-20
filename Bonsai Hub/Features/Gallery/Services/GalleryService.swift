@@ -89,11 +89,13 @@ final class GalleryService {
         case .soil:
             let imageIDs = soilStockImageIDs()
             filtered = all.filter { imageIDs.contains($0.id) }
+        case .byTree:
+            filtered = treePhotos.filter(\.hasTreeContext)
         case .featured:
             filtered = all.filter(\.isFeatured)
         case .unattached:
             filtered = all.filter { !$0.hasTreeContext }
-        case .byTree, .byCollection, .bySpecies, .byLocation, .byYamadori, .beforeAfter:
+        case .byCollection, .bySpecies, .byLocation, .byYamadori, .beforeAfter:
             // Reserved filters — return empty until scoped browse ships.
             filtered = []
         }
@@ -362,9 +364,17 @@ final class GalleryService {
                 }
                 return lhs.photoName.localizedCaseInsensitiveCompare(rhs.photoName) == .orderedAscending
             }
+        case .byTree:
+            return entries.sorted { lhs, rhs in
+                let left = lhs.treeDisplayName ?? lhs.photoName
+                let right = rhs.treeDisplayName ?? rhs.photoName
+                let order = left.localizedCaseInsensitiveCompare(right)
+                if order != .orderedSame { return order == .orderedAscending }
+                return lhs.captureDate > rhs.captureDate
+            }
         case .featured, .unattached, .referenceImages, .uncollectedFindings, .yamadoriTrees,
              .pots, .profilePhoto, .wire, .tools, .chemicals, .consumables, .fertilizers, .soil,
-             .byTree, .byCollection, .bySpecies, .byLocation, .byYamadori, .beforeAfter:
+             .byCollection, .bySpecies, .byLocation, .byYamadori, .beforeAfter:
             return entries.sorted { lhs, rhs in
                 lhs.captureDate > rhs.captureDate
             }
@@ -412,9 +422,6 @@ final class GalleryService {
     }
 
     private static func treeDisplayName(_ tree: Tree) -> String {
-        let nickname = tree.nickname.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !nickname.isEmpty { return nickname }
-        let botanical = tree.botanicalName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return botanical.isEmpty ? "Untitled Tree" : botanical
+        TreePresentation.registryLabel(for: tree)
     }
 }

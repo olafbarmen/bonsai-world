@@ -38,7 +38,7 @@ enum SeasonalCareKnowledge {
         "Understanding the annual rhythm of bonsai and protecting trees through changing conditions."
 
     static let disclaimer =
-        "This chapter does not provide a universal calendar. Timing depends on species, climate, local weather, growing conditions, tree health and development stage. Care → Seasonal Care and Care → Winter Care are the practical surfaces. Species Library remains species-specific."
+        "This chapter does not provide a universal calendar. Timing depends on species, climate, local weather, growing conditions, tree health and development stage. Care Calendar places a temperate year onto the default Garden's hemisphere and season. Care → Seasonal Care and Care → Winter Care are the practical surfaces. Species Library remains species-specific."
 
     static let lessons: [SeasonalCareLesson] = [
         overview,

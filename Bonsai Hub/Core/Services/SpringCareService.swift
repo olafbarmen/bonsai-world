@@ -86,6 +86,7 @@ final class SpringCareService {
             if steps.isSuperset(of: Set(SpringCareStep.allCases)) {
                 tree.seasonPlacement = .summer
                 tree.winterCareCompletedSteps = []
+                tree.syncStandingLocationFromPlacement()
             }
             tree.modifiedDate = .now
             _ = try treeService.updateTree(tree)

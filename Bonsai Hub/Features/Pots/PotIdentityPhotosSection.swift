@@ -20,14 +20,16 @@ struct PotIdentityPhotosSection: View {
     let primaryImageID: UUID?
     @Binding var selectedImageID: UUID?
     var onAddImage: () -> Void
+    var onDropImageFiles: (([ImageDropSource]) -> Void)? = nil
     var onSetPrimary: (UUID) -> Void
     var onRemove: (UUID) -> Void
 
     @Environment(ImageService.self) private var imageService
-    @Environment(\.openWindow) private var openWindow
+    @Environment(AppState.self) private var appState
 
     @State private var mainImage: Image?
     @State private var thumbnails: [UUID: Image] = [:]
+    @State private var isDropTargeted = false
 
     var body: some View {
         let _ = imageService.presentationRevision
@@ -54,6 +56,24 @@ struct PotIdentityPhotosSection: View {
         }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Pot photos")
+        .background {
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: FaloRadius.medium, style: .continuous)
+                    .fill(BonsaiWorldColors.accentSubtle.opacity(0.45))
+            }
+        }
+        .overlay {
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: FaloRadius.medium, style: .continuous)
+                    .strokeBorder(BonsaiWorldColors.accent, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+            }
+        }
+        .bonsaiImageFileDrop(
+            isEnabled: onDropImageFiles != nil,
+            isTargeted: $isDropTargeted
+        ) { sources in
+            onDropImageFiles?(sources)
+        }
     }
 
     // MARK: - Main preview
@@ -260,9 +280,6 @@ struct PotIdentityPhotosSection: View {
     }
 
     private func openViewer(for imageID: UUID) {
-        openWindow(
-            id: ImageWorkspaceWindowContext.windowID,
-            value: ImageWorkspaceWindowContext(imageID: imageID)
-        )
+        appState.openImageInPlace(imageID: imageID)
     }
 }

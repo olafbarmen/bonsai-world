@@ -67,6 +67,7 @@ struct EditCollectionView: View {
         }
         .toolbarBackground(BonsaiWorldColors.canvas, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(.light, for: .navigationBar)
         .onAppear {
             guard !didLoadDraft, let collection else { return }
             name = collection.name

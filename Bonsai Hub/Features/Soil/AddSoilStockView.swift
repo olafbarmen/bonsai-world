@@ -79,7 +79,10 @@ struct AddSoilStockView: View {
                     primaryImageID: $draft.primaryImageID,
                     imageIDs: $draft.imageIDs,
                     selectedImageID: $selectedImageID,
-                    onAddImage: addImage
+                    onAddImage: addImage,
+                    onDropImageFiles: { sources in
+                        Task { await importDroppedImages(sources) }
+                    }
                 )
 
                 Section("Optional") {
@@ -128,14 +131,25 @@ struct AddSoilStockView: View {
     private func addImage() {
         Task {
             guard let asset = try? await imageImportService.importGalleryImageFromFinder() else { return }
-            if !draft.imageIDs.contains(asset.id) {
-                draft.imageIDs.append(asset.id)
-            }
-            if draft.primaryImageID == nil {
-                draft.primaryImageID = asset.id
-            }
-            selectedImageID = asset.id
+            attach(asset)
         }
+    }
+
+    private func importDroppedImages(_ sources: [ImageDropSource]) async {
+        for source in sources {
+            guard let asset = try? await imageImportService.importImage(from: source, asPrimary: false) else { continue }
+            attach(asset)
+        }
+    }
+
+    private func attach(_ asset: ImageAsset) {
+        if !draft.imageIDs.contains(asset.id) {
+            draft.imageIDs.append(asset.id)
+        }
+        if draft.primaryImageID == nil {
+            draft.primaryImageID = asset.id
+        }
+        selectedImageID = asset.id
     }
 
     private func save() {

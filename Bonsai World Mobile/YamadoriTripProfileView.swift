@@ -9,6 +9,7 @@ import SwiftUI
 
 struct YamadoriTripProfileView: View {
     @Environment(DemoLibrary.self) private var library
+    @Environment(\.dismiss) private var dismiss
 
     let tripID: UUID
     var onCreatedFind: ((UUID) -> Void)? = nil
@@ -19,6 +20,7 @@ struct YamadoriTripProfileView: View {
     @State private var latitude: Double?
     @State private var longitude: Double?
     @State private var didLoadSite = false
+    @State private var confirmDeleteTrip = false
 
     private var trip: Yamadori? { library.yamadoriTrip(id: tripID) }
 
@@ -107,13 +109,27 @@ struct YamadoriTripProfileView: View {
                 .listRowBackground(BonsaiWorldColors.surface)
                 .accessibilityLabel("Add Find")
             }
+
+            Section {
+                Button("Delete Trip", role: .destructive) {
+                    confirmDeleteTrip = true
+                }
+                .font(FaloTypography.body)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+                .listRowBackground(BonsaiWorldColors.surface)
+                .accessibilityLabel("Delete Trip")
+            }
         }
         .listStyle(.insetGrouped)
         .scrollContentBackground(.hidden)
         .background(BonsaiWorldColors.canvas)
         .navigationTitle("Yamadori")
         .navigationBarTitleDisplayMode(.inline)
-        .sheet(isPresented: $isShowingEditTrip) {
+        .sheet(isPresented: $isShowingEditTrip, onDismiss: {
+            didLoadSite = false
+            loadSiteIfNeeded()
+        }) {
             EditYamadoriTripView(tripID: tripID)
         }
         .sheet(isPresented: $isShowingAddFind, onDismiss: {
@@ -125,6 +141,19 @@ struct YamadoriTripProfileView: View {
             NewYamadoriFindView(tripID: tripID) { findID in
                 pendingCreatedFindID = findID
             }
+        }
+        .confirmationDialog(
+            "Delete this Yamadori?",
+            isPresented: $confirmDeleteTrip,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Trip and Finds", role: .destructive) {
+                library.deleteYamadoriTrip(id: tripID)
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes the trip and all Finds on it.")
         }
     }
 

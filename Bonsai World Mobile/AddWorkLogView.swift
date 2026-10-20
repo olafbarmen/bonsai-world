@@ -38,6 +38,7 @@ struct AddWorkLogView: View {
                 .toolbar { formToolbar }
                 .toolbarBackground(BonsaiWorldColors.canvas, for: .navigationBar)
                 .toolbarBackground(.visible, for: .navigationBar)
+                .toolbarColorScheme(.light, for: .navigationBar)
                 .onAppear(perform: loadInitialIfNeeded)
         }
     }

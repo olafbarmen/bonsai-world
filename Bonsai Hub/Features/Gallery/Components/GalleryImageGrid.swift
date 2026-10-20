@@ -6,15 +6,39 @@
 //
 
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
+
+struct GallerySelectionModifiers: OptionSet {
+    let rawValue: Int
+
+    static let command = GallerySelectionModifiers(rawValue: 1 << 0)
+    static let shift = GallerySelectionModifiers(rawValue: 1 << 1)
+
+    static var current: GallerySelectionModifiers {
+        #if os(macOS)
+        let flags = NSEvent.modifierFlags
+        var mods: GallerySelectionModifiers = []
+        if flags.contains(.command) { mods.insert(.command) }
+        if flags.contains(.shift) { mods.insert(.shift) }
+        return mods
+        #else
+        return []
+        #endif
+    }
+}
 
 struct GalleryImageGrid: View {
     let entries: [GalleryEntry]
-    let selectedImageID: UUID?
+    let selectedImageIDs: Set<UUID>
     let showsFeaturedBadge: Bool
-    let onSelect: (GalleryEntry) -> Void
+    let onSelect: (GalleryEntry, GallerySelectionModifiers) -> Void
     let onOpenWorkspace: (GalleryEntry) -> Void
     var onCrop: (GalleryEntry) -> Void = { _ in }
     var onDelete: (GalleryEntry) -> Void = { _ in }
+    /// Last cell when a tree is selected. Dropped files attach to that tree.
+    var onDropImages: (([ImageDropSource]) -> Void)? = nil
 
     private var columns: [GridItem] {
         [
@@ -34,13 +58,16 @@ struct GalleryImageGrid: View {
             ForEach(entries) { entry in
                 GalleryImageTile(
                     entry: entry,
-                    isSelected: entry.id == selectedImageID,
+                    isSelected: selectedImageIDs.contains(entry.id),
                     showsFeaturedBadge: showsFeaturedBadge,
-                    onSelect: { onSelect(entry) },
+                    onSelect: { onSelect(entry, $0) },
                     onOpenWorkspace: { onOpenWorkspace(entry) },
                     onCrop: { onCrop(entry) },
                     onDelete: { onDelete(entry) }
                 )
+            }
+            if let onDropImages {
+                GalleryImageDropTile(onDrop: onDropImages)
             }
         }
         .padding(.top, FaloSpacing.xSmall)

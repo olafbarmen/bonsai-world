@@ -212,6 +212,7 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
     // Knowledge
     case knowledgeQuickGuides
     case knowledgeHandbook
+    case knowledgeCareCalendar
     case knowledgePotGuidelines
     case knowledgeSpeciesLibrary
     case knowledgeSoilGuides
@@ -392,6 +393,7 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
 
         case .knowledgeQuickGuides: "Quick Guides"
         case .knowledgeHandbook: "Bonsai Handbook"
+        case .knowledgeCareCalendar: "Care Calendar"
         case .knowledgePotGuidelines: "Pots & Containers"
         case .knowledgeSpeciesLibrary: "Species Library"
         case .knowledgeSoilGuides: "Soil & Substrate"
@@ -443,7 +445,7 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
         case .inventoryPots, .inventorySoil, .inventorySoilComponents, .inventorySoilMixes,
              .inventoryFertilizers, .inventoryWire, .inventoryTools,
              .inventoryChemicals, .inventoryConsumables, .inventoryStockReport: .inventory
-        case .knowledgeQuickGuides, .knowledgeHandbook, .knowledgePotGuidelines,
+        case .knowledgeQuickGuides, .knowledgeHandbook, .knowledgeCareCalendar, .knowledgePotGuidelines,
              .knowledgeSpeciesLibrary, .knowledgeSoilGuides, .knowledgeFertilizerGuides,
              .knowledgeSeedStratification,
              .knowledgeVideos, .knowledgeCourses, .knowledgeFAQ, .knowledgeExternalLinks: .knowledge
@@ -497,7 +499,7 @@ enum AppRoute: String, CaseIterable, Identifiable, Hashable, Sendable {
             [.mediaImages, .mediaVideo, .mediaDocuments, .mediaNotes, .mediaAudio]
         case .knowledge:
             [
-                .knowledgeQuickGuides, .knowledgeHandbook,
+                .knowledgeQuickGuides, .knowledgeHandbook, .knowledgeCareCalendar,
                 .knowledgeSpeciesLibrary, .knowledgeFertilizerGuides,
                 .knowledgeSeedStratification,
                 .knowledgeVideos, .knowledgeCourses, .knowledgeFAQ, .knowledgeExternalLinks

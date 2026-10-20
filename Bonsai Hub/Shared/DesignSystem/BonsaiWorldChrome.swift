@@ -16,6 +16,10 @@ extension View {
             .tint(BonsaiWorldColors.accent)
             .toolbarBackground(BonsaiWorldColors.canvas, for: .windowToolbar)
             .toolbarBackground(.visible, for: .windowToolbar)
+            // The bar and the page are light. Without this, a Mac in Dark Mode
+            // draws toolbar labels and body text white on the cream surface.
+            .toolbarColorScheme(.light, for: .windowToolbar)
+            .preferredColorScheme(.light)
             .toolbar(removing: .title)
             .containerBackground(BonsaiWorldColors.canvas, for: .window)
     }
@@ -40,32 +44,57 @@ extension View {
     /// `HSplitView` / `NavigationSplitView` children often ignore top `safeAreaInset`
     /// and draw under the toolbar — clipping the first lines (Species Library, etc.).
     /// Do not wrap in `ignoresSafeArea(.top)` — that asserts with `GeometryReader` (Dashboard).
-    func bonsaiWorkspaceNavigationTitle(_ title: String) -> some View {
-        modifier(BonsaiWorkspaceNavigationTitleModifier(title: title))
+    func bonsaiWorkspaceNavigationTitle(
+        _ title: String,
+        onBack: (() -> Void)? = nil
+    ) -> some View {
+        modifier(BonsaiWorkspaceNavigationTitleModifier(title: title, onBack: onBack))
     }
 }
 
 private struct BonsaiWorkspaceNavigationTitleModifier: ViewModifier {
     let title: String
+    var onBack: (() -> Void)? = nil
     @Environment(\.faloShellProvidesLeadingInset) private var shellProvidesLeadingInset
+
+    private var leadingInset: CGFloat {
+        shellProvidesLeadingInset ? FaloSpacing.medium : DashboardSpacing.pageInset
+    }
+
+    private var trailingInset: CGFloat {
+        shellProvidesLeadingInset ? FaloSpacing.medium : DashboardSpacing.pageInset
+    }
 
     func body(content: Content) -> some View {
         VStack(spacing: 0) {
+            if let onBack {
+                Button(action: onBack) {
+                    HStack(spacing: FaloSpacing.xSmall) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 13, weight: .semibold))
+                        Text("Back")
+                            .font(FaloTypography.body)
+                    }
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(BonsaiWorldColors.accent)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
+                .padding(.top, FaloSpacing.small)
+                .padding(.bottom, FaloSpacing.xSmall)
+                .accessibilityLabel("Back")
+            }
+
             Text(title)
                 .font(.headline)
                 .foregroundStyle(BonsaiWorldColors.textPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 // When the shell already insets the page, keep a small leading pad so
                 // list-column titles (Pots / Inventory) are not clipped at the sidebar edge.
-                .padding(
-                    .leading,
-                    shellProvidesLeadingInset ? FaloSpacing.medium : DashboardSpacing.pageInset
-                )
-                .padding(
-                    .trailing,
-                    shellProvidesLeadingInset ? FaloSpacing.medium : DashboardSpacing.pageInset
-                )
-                .padding(.top, FaloSpacing.small)
+                .padding(.leading, leadingInset)
+                .padding(.trailing, trailingInset)
+                .padding(.top, onBack == nil ? FaloSpacing.small : 0)
                 .padding(.bottom, FaloSpacing.medium)
                 .accessibilityAddTraits(.isHeader)
 

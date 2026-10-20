@@ -3,16 +3,17 @@
 //  BonsaiCore
 //
 //  Whether a Tree moves with the seasons, or stays outdoors year-round.
-//  Distinct from Location (where it stands now) and SeasonPlacement (summer/winter).
+//  Home / Winter Locations are stored on Tree; ``locationID`` is standing now
+//  and follows Season for seasonal trees.
 //
 
 import Foundation
 
 /// Year-round placement policy for a Tree.
 enum TreePlacementStrategy: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
-    /// Moves between summer and winter placements.
+    /// Moves between Home (summer) and Winter Locations by season.
     case seasonal
-    /// Stays outdoors all year — no Winter/Spring Care move reminders.
+    /// Stays at Home year-round — no Winter/Spring Care move reminders.
     case alwaysOutdoors
 
     var id: Self { self }
@@ -26,6 +27,7 @@ enum TreePlacementStrategy: String, Codable, CaseIterable, Identifiable, Hashabl
 }
 
 /// Current season mode for a seasonal Tree (not used for Always outdoors reminders).
+/// Drives ``Tree/locationID`` (standing now) from Home / Winter.
 enum TreeSeasonPlacement: String, Codable, CaseIterable, Identifiable, Hashable, Sendable {
     case summer
     case winter

@@ -97,7 +97,6 @@ struct TreeListView: View {
     @Environment(ImageService.self) private var imageService
     @Environment(PotService.self) private var potService
     @Environment(WorkService.self) private var workService
-    @Environment(\.openWindow) private var openWindow
 
     /// Must be `@State` value (not a class) so header sort redraws the rows.
     @State private var sortOrder: [KeyPathComparator<TreeListRow>] = []
@@ -228,13 +227,7 @@ struct TreeListView: View {
             syncTableSelectionFromAppState()
         }
         .onChange(of: listPopulation) { _, population in
-            switch population {
-            case .myTrees:
-                formerSelection = []
-            case .formerTrees:
-                inCareSelection = []
-            }
-            syncTableSelectionFromAppState()
+            adoptListPopulation(population)
         }
         .onChange(of: inCareSelection) { _, newValue in
             handleTableSelectionChange(newValue, clearing: $formerSelection)
@@ -309,6 +302,7 @@ struct TreeListView: View {
             tableColumn(at: 4, visibleColumns: visibleColumns)
             tableColumn(at: 5, visibleColumns: visibleColumns)
             tableColumn(at: 6, visibleColumns: visibleColumns)
+            tableColumn(at: 7, visibleColumns: visibleColumns)
         }
         // CF1 — system selection + system zebra only (no custom row chrome).
         .tableStyle(.inset(alternatesRowBackgrounds: true))
@@ -390,18 +384,10 @@ struct TreeListView: View {
         appState.requestTreeQuickAction(command)
     }
 
-    /// Opens a dedicated Tree Workspace window for a single selected Tree.
+    /// Opens the Tree in this window. Back returns to the list.
     private func openTreeWorkspace(for treeIDs: Set<Tree.ID>) {
         guard treeIDs.count == 1, let treeID = treeIDs.first else { return }
-        Task { @MainActor in
-            if appState.selectedTreeID != treeID {
-                appState.selectedTreeID = treeID
-            }
-        }
-        openWindow(
-            id: TreeWorkspaceWindowContext.windowID,
-            value: TreeWorkspaceWindowContext(treeID: treeID)
-        )
+        appState.openTreeInPlace(treeID: treeID)
     }
 
     /// One slot per possible column; empty when fewer columns are visible.
@@ -437,6 +423,25 @@ struct TreeListView: View {
         Task { @MainActor in
             guard appState.selectedTreeID != nil else { return }
             appState.selectedTreeID = nil
+        }
+    }
+
+    /// The segment the grower tapped wins. A tree from the other list is closed
+    /// so selection sync does not snap the segment back.
+    private func adoptListPopulation(_ population: TreeListPopulation) {
+        switch population {
+        case .myTrees:
+            if !formerSelection.isEmpty { formerSelection = [] }
+            if let id = appState.selectedTreeID,
+               scopedFormerTrees.contains(where: { $0.id == id }) {
+                appState.selectedTreeID = nil
+            }
+        case .formerTrees:
+            if !inCareSelection.isEmpty { inCareSelection = [] }
+            if let id = appState.selectedTreeID,
+               scopedInCareTrees.contains(where: { $0.id == id }) {
+                appState.selectedTreeID = nil
+            }
         }
     }
 
@@ -498,6 +503,11 @@ struct TreeListView: View {
                 columnCell(columnID, row: row)
             }
             .width(min: columnID.minimumWidth, max: .infinity)
+        case .age:
+            TableColumn(columnID.title, value: \TreeListRow.ageYears) { row in
+                columnCell(columnID, row: row)
+            }
+            .width(min: columnID.minimumWidth, max: .infinity)
         case .acquisition:
             TableColumn(columnID.title, value: \TreeListRow.acquisitionYear) { row in
                 columnCell(columnID, row: row)
@@ -519,6 +529,16 @@ struct TreeListView: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .opacity(row.tree.isInCare ? 1 : 0.72)
+        } else if columnID == .age {
+            Text(row.ageLabel)
+                .font(FaloTypography.body)
+                .monospacedDigit()
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .opacity(row.tree.isInCare ? 1 : 0.72)
+                .accessibilityLabel(row.ageLabel == FaloDisplayValue.empty
+                    ? "Age, none recorded"
+                    : "Age, \(row.ageLabel) years")
         } else if columnID == .lastRepot {
             Text(row.lastRepotLabel)
                 .font(FaloTypography.body)
@@ -654,7 +674,7 @@ struct TreeListView: View {
 
 // MARK: - Sortable row
 
-/// Display strings used for header sort. Acquisition year uses `Int.max` when unset so blanks sort last.
+/// Display strings used for header sort. Acquisition / Age use `Int.max` when unset so blanks sort last.
 private struct TreeListRow: Identifiable, Sendable {
     let tree: Tree
     let botanicalName: String
@@ -662,6 +682,8 @@ private struct TreeListRow: Identifiable, Sendable {
     let treeStageName: String
     let locationName: String
     let potName: String
+    let ageYears: Int
+    let ageLabel: String
     let acquisitionYear: Int
     let lastRepotLabel: String
 
@@ -688,6 +710,13 @@ private struct TreeListRow: Identifiable, Sendable {
         }
         locationName = FaloDisplayValue.text(referenceData.location(id: tree.locationID)?.name)
         potName = Self.resolvePotName(tree: tree, referenceData: referenceData, potService: potService)
+        if let age = tree.ageInWholeYears() {
+            ageYears = age
+            ageLabel = String(age)
+        } else {
+            ageYears = Int.max
+            ageLabel = FaloDisplayValue.empty
+        }
         if let date = tree.acquisitionDate {
             acquisitionYear = Calendar.current.component(.year, from: date)
         } else {
@@ -738,7 +767,7 @@ private struct TreeListColumnCell: View {
                 .monospacedDigit()
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-        case .pot, .lastRepot:
+        case .age, .pot, .lastRepot:
             // Rendered by ``TreeListView/columnCell`` using ``TreeListRow`` values.
             EmptyView()
         }

@@ -28,7 +28,11 @@ struct NurseryPropagationWorkspaceView: View {
 
     var body: some View {
         Group {
-            if usesSplitListDetail {
+            if let openedID = appState.openedNurseryProjectID,
+               openedID == selectedID,
+               service.project(id: openedID) != nil {
+                NurseryPropagationDetailView(kind: kind, projectID: openedID)
+            } else if usesSplitListDetail {
                 vegetativeSplitWorkspace
             } else if let selectedID, service.project(id: selectedID) != nil {
                 NurseryPropagationDetailView(kind: kind, projectID: selectedID)
@@ -38,7 +42,10 @@ struct NurseryPropagationWorkspaceView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .faloWorkspaceCanvas()
-        .bonsaiWorkspaceNavigationTitle(kind.title)
+        .bonsaiWorkspaceNavigationTitle(
+            kind.title,
+            onBack: appState.openedNurseryProjectID == nil ? nil : { appState.showCurrentList() }
+        )
         .sheet(isPresented: $isCreatePresented) {
             NewNurseryPropagationProjectView(kind: kind)
         }
@@ -70,7 +77,7 @@ struct NurseryPropagationWorkspaceView: View {
             ContentUnavailableView(
                 "Select a \(kind.singularTitle)",
                 systemImage: kind.systemImage,
-                description: Text("Choose a row above to see details. Double-click to open in a new window.")
+                description: Text("Choose a row above to see details. Double-click to open.")
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }

@@ -38,6 +38,31 @@ struct SeedWorkspaceView: View {
     @State private var isCreatePresented = false
 
     var body: some View {
+        Group {
+            if let batchID = appState.openedSeedBatchID,
+               seedBatchService.batch(id: batchID) != nil {
+                SeedBatchDetailView(batchID: batchID)
+            } else {
+                seedListAndDetail
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .faloWorkspaceCanvas()
+        .bonsaiWorkspaceNavigationTitle(
+            "Seeds",
+            onBack: appState.openedSeedBatchID == nil ? nil : { appState.showCurrentList() }
+        )
+        .sheet(isPresented: $isCreatePresented) {
+            NewSeedBatchView()
+        }
+        .onAppear { consumeWantsNewSeedBatch() }
+        .onChange(of: appState.wantsNewSeedBatch) { _, wants in
+            guard wants else { return }
+            consumeWantsNewSeedBatch()
+        }
+    }
+
+    private var seedListAndDetail: some View {
         VStack(spacing: 0) {
             Picker("Seeds", selection: $selectedTab) {
                 ForEach(SeedWorkspaceTab.allCases) { tab in
@@ -61,17 +86,6 @@ struct SeedWorkspaceView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .faloWorkspaceCanvas()
-        .bonsaiWorkspaceNavigationTitle("Seeds")
-        .sheet(isPresented: $isCreatePresented) {
-            NewSeedBatchView()
-        }
-        .onAppear { consumeWantsNewSeedBatch() }
-        .onChange(of: appState.wantsNewSeedBatch) { _, wants in
-            guard wants else { return }
-            consumeWantsNewSeedBatch()
-        }
     }
 
     @ViewBuilder
@@ -83,7 +97,7 @@ struct SeedWorkspaceView: View {
             ContentUnavailableView(
                 "Select a Seed Batch",
                 systemImage: "leaf.circle",
-                description: Text("Choose a row above to see details. Double-click to open in a new window.")
+                description: Text("Choose a row above to see details. Double-click to open.")
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }

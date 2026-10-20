@@ -75,7 +75,6 @@ extension Style: ReferenceNamedItem {}
 extension SizeClass: ReferenceNamedItem {}
 extension TreeStage: ReferenceNamedItem {}
 extension WorkType: ReferenceNamedItem {}
-extension LocationReference: ReferenceNamedItem {}
 extension LocationType: ReferenceNamedItem {}
 extension PotType: ReferenceNamedItem {}
 extension LightCondition: ReferenceNamedItem {}

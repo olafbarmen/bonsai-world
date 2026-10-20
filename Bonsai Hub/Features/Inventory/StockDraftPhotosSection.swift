@@ -14,6 +14,7 @@ struct StockDraftPhotosSection: View {
     @Binding var selectedImageID: UUID?
 
     var onAddImage: () -> Void
+    var onDropImageFiles: (([ImageDropSource]) -> Void)? = nil
 
     var body: some View {
         Section("Photos") {
@@ -22,6 +23,7 @@ struct StockDraftPhotosSection: View {
                 primaryImageID: primaryImageID,
                 selectedImageID: $selectedImageID,
                 onAddImage: onAddImage,
+                onDropImageFiles: onDropImageFiles,
                 onSetPrimary: { id in
                     primaryImageID = id
                     if !imageIDs.contains(id) {

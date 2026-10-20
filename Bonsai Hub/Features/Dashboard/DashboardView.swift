@@ -51,7 +51,14 @@ struct DashboardView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(BonsaiWorldColors.canvas)
+        .background {
+            ZStack(alignment: .topTrailing) {
+                BonsaiWorldColors.canvas
+                FaloBonsaiWash(width: 440)
+                    .padding(.top, 8)
+                    .padding(.trailing, 12)
+            }
+        }
         .bonsaiWorkspaceNavigationTitle("Dashboard")
     }
 
@@ -63,7 +70,6 @@ struct DashboardView: View {
             .padding(.top, pageInset)
             .padding(.bottom, DashboardSpacing.cardGap)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(BonsaiWorldColors.canvas)
     }
 
     private func cardStack(contentWidth: CGFloat) -> some View {
@@ -76,19 +82,10 @@ struct DashboardView: View {
 private struct DashboardAdaptiveContent: View {
     @Environment(\.faloAdaptiveContentWidth) private var contentWidth
 
-    private let columns = 4
     private var gap: CGFloat { DashboardSpacing.cardGap }
 
-    private var column: CGFloat {
-        FaloGridMetrics.columnWidth(columns: columns, in: contentWidth, gap: gap)
-    }
-
-    private var span2: CGFloat {
-        FaloGridMetrics.spanWidth(columnSpan: 2, columns: columns, in: contentWidth, gap: gap)
-    }
-
-    private var span4: CGFloat {
-        FaloGridMetrics.spanWidth(columnSpan: 4, columns: columns, in: contentWidth, gap: gap)
+    private var columnWidth: CGFloat {
+        FaloGridMetrics.columnWidth(columns: 2, in: contentWidth, gap: gap)
     }
 
     var body: some View {
@@ -96,58 +93,61 @@ private struct DashboardAdaptiveContent: View {
             DashboardStatStrip()
                 .frame(width: contentWidth, alignment: .topLeading)
 
-            DashboardEqualHeightRow(spacing: gap) {
-                TreesAttentionDashboardCard(fillsRowHeight: true)
-                    .frame(width: span2)
-                TasksDashboardCard(prominence: .primary, fillsRowHeight: true)
-                    .frame(width: column)
-                AlertsDashboardCard(prominence: .primary, fillsRowHeight: true)
-                    .frame(width: column)
+            row {
+                CareCalendarDashboardCard(fillsRowHeight: true).frame(width: columnWidth)
+                TasksDashboardCard(prominence: .primary, fillsRowHeight: true).frame(width: columnWidth)
             }
+            row {
+                TreesAttentionDashboardCard(fillsRowHeight: true).frame(width: columnWidth)
+                AlertsDashboardCard(prominence: .primary, fillsRowHeight: true).frame(width: columnWidth)
+            }
+            row {
+                WeatherDashboardCard(fillsRowHeight: true).frame(width: columnWidth)
+                LibraryDashboardCard(fillsRowHeight: true).frame(width: columnWidth)
+            }
+            row {
+                UpcomingDashboardCard(prominence: .secondary, fillsRowHeight: true).frame(width: columnWidth)
+                InventoryAlertsDashboardCard(fillsRowHeight: true).frame(width: columnWidth)
+            }
+            row {
+                ShapingInProgressDashboardCard(fillsRowHeight: true).frame(width: columnWidth)
+                CollectionOverviewDashboardCard(fillsRowHeight: true).frame(width: columnWidth)
+            }
+            DashboardKnowledgeCard()
+                .frame(width: contentWidth, alignment: .topLeading)
+        }
+        .frame(width: contentWidth, alignment: .topLeading)
+    }
 
-            DashboardEqualHeightRow(spacing: gap) {
-                WeatherDashboardCard(fillsRowHeight: true)
-                    .frame(width: span2)
-                UpcomingDashboardCard(prominence: .primary, fillsRowHeight: true)
-                    .frame(width: column)
-                LibraryDashboardCard(prominence: .secondary, fillsRowHeight: true)
-                    .frame(width: column)
-            }
-
-            DashboardEqualHeightRow(spacing: gap) {
-                CollectionOverviewDashboardCard(prominence: .secondary, fillsRowHeight: true)
-                    .frame(width: span2)
-                RecentWorkDashboardCard(prominence: .secondary, fillsRowHeight: true)
-                    .frame(width: column)
-                InventoryAlertsDashboardCard(prominence: .secondary, fillsRowHeight: true)
-                    .frame(width: column)
-            }
-
-            DashboardEqualHeightRow(spacing: gap) {
-                RepottingDashboardCard(prominence: .secondary, fillsRowHeight: true)
-                    .frame(width: span2)
-                QuickStatisticsDashboardCard(prominence: .secondary, fillsRowHeight: true)
-                    .frame(width: span2)
-            }
-
-            DashboardEqualHeightRow(spacing: gap) {
-                DashboardKnowledgeCard(fillsRowHeight: true)
-                    .frame(width: span4)
-            }
+    private func row<Content: View>(@ViewBuilder content: @escaping () -> Content) -> some View {
+        FaloEqualHeightRow(spacing: gap) {
+            content()
         }
         .frame(width: contentWidth, alignment: .topLeading)
     }
 }
 
-/// Lays out cards in a row at the tallest child’s height so chrome bottoms align.
-private struct DashboardEqualHeightRow<Content: View>: View {
-    var spacing: CGFloat
-    @ViewBuilder var content: () -> Content
+/// Falo mark, faded into the canvas at the top trailing corner.
+private struct FaloBonsaiWash: View {
+    var width: CGFloat
 
     var body: some View {
-        FaloEqualHeightRow(spacing: spacing) {
-            content()
-        }
+        Image("FaloBonsaiWash")
+            .resizable()
+            .scaledToFit()
+            .frame(width: width)
+            .blendMode(.multiply)
+            .opacity(0.88)
+            .mask(
+                RadialGradient(
+                    colors: [.black, .black.opacity(0.45), .clear],
+                    center: .center,
+                    startRadius: width * 0.18,
+                    endRadius: width * 0.52
+                )
+            )
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 

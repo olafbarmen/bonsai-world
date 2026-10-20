@@ -38,6 +38,8 @@ struct TreePhotoManagerSection: View {
     /// When set, the main preview scales to fit within this height (aspect preserved).
     var previewMaxHeight: CGFloat? = nil
     var onAddImage: () -> Void = {}
+    /// Finder / Photos drag-and-drop of one or more images (Edit only).
+    var onDropImageFiles: (([ImageDropSource]) -> Void)? = nil
     var onSelectImage: (UUID) -> Void = { _ in }
     var onSetPrimary: (UUID) -> Void = { _ in }
     var onUpdatePhotoMetadata: (UUID, String, Date) -> Void = { _, _, _ in }
@@ -58,6 +60,7 @@ struct TreePhotoManagerSection: View {
     @State private var deleteTargetID: UUID?
     /// When dismissing Photo Information to show delete confirmation, skip metadata commit.
     @State private var suppressInfoCommitOnDismiss = false
+    @State private var isDropTargeted = false
 
     var body: some View {
         let _ = imageService.presentationRevision
@@ -65,6 +68,23 @@ struct TreePhotoManagerSection: View {
             mainPreview
             if showsFilmstrip {
                 filmstrip
+            }
+        }
+        .bonsaiImageFileDrop(
+            isEnabled: isEditing && onDropImageFiles != nil,
+            isTargeted: $isDropTargeted
+        ) { urls in
+            onDropImageFiles?(urls)
+        }
+        .overlay {
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: FaloRadius.hero, style: .continuous)
+                    .strokeBorder(BonsaiWorldColors.accent, style: StrokeStyle(lineWidth: 2, dash: [7, 4]))
+                    .background(
+                        RoundedRectangle(cornerRadius: FaloRadius.hero, style: .continuous)
+                            .fill(BonsaiWorldColors.accentSubtle.opacity(0.35))
+                    )
+                    .allowsHitTesting(false)
             }
         }
         .task(id: imageIDs) {
@@ -423,23 +443,37 @@ struct TreePhotoManagerSection: View {
         }
         do {
             let nsImage = try await imageService.loadDisplayNSImage(for: selectedImageID, context: .treeThumbnail)
-            mainImage = Image(nsImage: nsImage)
+            let image = Image(nsImage: nsImage)
+            mainImage = image
+            // The strip uses the same pixels. A failed small load must not leave a hole under a photo that is already on screen.
+            thumbnails[selectedImageID] = image
         } catch {
             mainImage = nil
         }
     }
 
     private func loadThumbnails() async {
+        var loaded = thumbnails
         for imageID in imageIDs {
-            if thumbnails[imageID] != nil { continue }
-            do {
-                let nsImage = try await imageService.loadDisplayNSImage(for: imageID, context: .treeThumbnail)
-                thumbnails[imageID] = Image(nsImage: nsImage)
-            } catch {
-                continue
+            if loaded[imageID] != nil { continue }
+            if let image = await thumbnailImage(for: imageID) {
+                loaded[imageID] = image
             }
         }
         let valid = Set(imageIDs)
-        thumbnails = thumbnails.filter { valid.contains($0.key) }
+        for (id, image) in thumbnails where valid.contains(id) {
+            loaded[id] = image
+        }
+        thumbnails = loaded.filter { valid.contains($0.key) }
+    }
+
+    private func thumbnailImage(for imageID: UUID) async -> Image? {
+        if let first = try? await imageService.loadDisplayNSImage(for: imageID, context: .treeThumbnail) {
+            return Image(nsImage: first)
+        }
+        if let second = try? await imageService.loadDisplayNSImage(for: imageID, context: .treeThumbnail) {
+            return Image(nsImage: second)
+        }
+        return nil
     }
 }

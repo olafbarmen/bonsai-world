@@ -19,6 +19,7 @@ struct PotSection: View {
     var inventoryPotDisplayName: String = ""
 
     @Binding var potTypeID: UUID?
+    @Binding var potColor: String
     @Binding var potLengthMillimetres: Int?
     @Binding var potWidthMillimetres: Int?
     @Binding var potHeightMillimetres: Int?
@@ -136,6 +137,7 @@ struct PotSection: View {
                 placeholder: "Select Pot Type",
                 options: potTypes
             )
+            DetailEditableTextRow(label: "Color", text: $potColor)
             dimensionsBlock(
                 length: potLengthMillimetresBinding,
                 width: potWidthMillimetresBinding,
@@ -150,6 +152,12 @@ struct PotSection: View {
                 value: typeName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                     ? FaloDisplayValue.empty
                     : typeName
+            )
+            DetailLabeledRow(
+                label: "Color",
+                value: potColor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? FaloDisplayValue.empty
+                    : potColor
             )
             dimensionsBlock(
                 length: .constant(potLengthMillimetres),

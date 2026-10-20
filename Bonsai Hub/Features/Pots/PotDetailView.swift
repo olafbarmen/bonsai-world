@@ -114,6 +114,9 @@ struct PotDetailView: View {
                 primaryImageID: pot.primaryImageID,
                 selectedImageID: $selectedPhotoID,
                 onAddImage: { addImage(to: pot) },
+                onDropImageFiles: { sources in
+                    Task { await importDroppedImages(sources, to: pot) }
+                },
                 onSetPrimary: { id in try? potService.setPrimaryImage(potID: pot.id, imageID: id) },
                 onRemove: { id in
                     try? potService.removeImage(potID: pot.id, imageID: id)
@@ -425,6 +428,9 @@ struct PotDetailView: View {
                 imageIDs: pot.stampImageIDs,
                 primaryImageID: nil,
                 onAdd: { addStampImage(to: pot) },
+                onDropImageFiles: { sources in
+                    Task { await importDroppedStampImages(sources, to: pot) }
+                },
                 onSetPrimary: nil,
                 onRemove: { id in try? potService.removeStampImage(potID: pot.id, imageID: id) }
             )
@@ -455,22 +461,42 @@ struct PotDetailView: View {
     private func addImage(to pot: Pot) {
         Task {
             guard let asset = try? await imageImportService.importGalleryImageFromFinder() else { return }
-            if pot.primaryImageID == nil {
-                try? potService.setPrimaryImage(potID: pot.id, imageID: asset.id)
-            } else {
-                var updated = pot
-                if !updated.imageIDs.contains(asset.id) {
-                    updated.imageIDs.append(asset.id)
-                }
-                _ = try? potService.updatePot(updated)
-            }
-            selectedPhotoID = asset.id
+            attach(asset, to: pot)
         }
+    }
+
+    private func importDroppedImages(_ sources: [ImageDropSource], to pot: Pot) async {
+        var current = pot
+        for source in sources {
+            guard let asset = try? await imageImportService.importImage(from: source, asPrimary: false) else { continue }
+            attach(asset, to: current)
+            current = potService.getPot(id: pot.id) ?? current
+        }
+    }
+
+    private func attach(_ asset: ImageAsset, to pot: Pot) {
+        if pot.primaryImageID == nil {
+            try? potService.setPrimaryImage(potID: pot.id, imageID: asset.id)
+        } else {
+            var updated = pot
+            if !updated.imageIDs.contains(asset.id) {
+                updated.imageIDs.append(asset.id)
+            }
+            _ = try? potService.updatePot(updated)
+        }
+        selectedPhotoID = asset.id
     }
 
     private func addStampImage(to pot: Pot) {
         Task {
             guard let asset = try? await imageImportService.importGalleryImageFromFinder() else { return }
+            try? potService.addStampImage(potID: pot.id, imageID: asset.id)
+        }
+    }
+
+    private func importDroppedStampImages(_ sources: [ImageDropSource], to pot: Pot) async {
+        for source in sources {
+            guard let asset = try? await imageImportService.importImage(from: source, asPrimary: false) else { continue }
             try? potService.addStampImage(potID: pot.id, imageID: asset.id)
         }
     }

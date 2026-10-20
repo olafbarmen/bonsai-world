@@ -2,14 +2,13 @@
 //  CollectionMigrationService.swift
 //  Bonsai World
 //
-//  One-time migration from PreviewCollectionRepository seed catalog to
-//  Database/Collections.json. Orchestration only — persistence stays in
-//  LibraryCollectionRepository.
+//  One-time first library: system Smart Collections only.
+//  Manual collections from the development catalog are not copied.
 //
 
 import Foundation
 
-/// First-run migration of preview seed collections into the library package.
+/// First-run system Smart Collections for a new library package.
 @MainActor
 enum CollectionMigrationService {
 
@@ -18,17 +17,17 @@ enum CollectionMigrationService {
         case skippedLibraryNotReady
         /// `Database/Collections.json` already present.
         case notRequired
-        /// Preview catalog copied to disk and verified.
+        /// Empty catalog written and verified.
         case migrated(collectionCount: Int)
         /// Write or verification failed; catalog file rolled back when needed.
         case failed
     }
 
-    /// Migrates preview collections when the persisted catalog is absent.
+    /// Writes system Smart Collections when the catalog is absent.
+    /// Manual collections from the development catalog are not copied.
     static func migrateIfNeeded(
         storage: StorageService,
         libraryReady: Bool,
-        previewRepository: PreviewCollectionRepository,
         libraryRepository: LibraryCollectionRepository
     ) -> Result {
         guard libraryReady else {
@@ -39,7 +38,8 @@ enum CollectionMigrationService {
             return .notRequired
         }
 
-        let sourceCollections = previewRepository.getAllCollections()
+        // System lists only. Manual names from the development catalog stay out of a new library.
+        let sourceCollections = SystemSmartCollections.makeCollections()
         let expectedIDs = Set(sourceCollections.map(\.id))
 
         do {

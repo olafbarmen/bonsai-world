@@ -31,6 +31,12 @@ enum CareTaskSystemKind: String, Codable, Hashable, Sendable {
     case greenhouseSpringCheck
     /// Batch fertilizer-bag replace — last replace date lives on each Tree.
     case fertilizerBags
+    /// Single-flush pine: finger-pinch candles. Not used for two-flush pines.
+    case pineCandlePinch
+    /// Japanese maple: pinch the opening shoot back to the first two leaves.
+    case mapleShootPinch
+    /// Juniper: cut runners back into the pad. Not a hedge pinch.
+    case juniperRunnerCut
 }
 
 /// A planned care activity for one or more Trees, tied to a Work Type so its

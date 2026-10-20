@@ -18,7 +18,6 @@ struct ImageWorkspaceView: View {
     @Environment(ImageImportService.self) private var imageImportService
     @Environment(AppSettings.self) private var appSettings
     @Environment(\.openWindow) private var openWindow
-    @Environment(\.dismissWindow) private var dismissWindow
 
     @State private var pendingDeleteConfirmation = false
 
@@ -44,7 +43,7 @@ struct ImageWorkspaceView: View {
             }
         }
         .faloWorkspaceCanvas()
-        .bonsaiWorkspaceNavigationTitle(entryTitle)
+        .bonsaiWorkspaceNavigationTitle(entryTitle, onBack: { appState.showCurrentList() })
         .onChange(of: appState.pendingImageQuickAction) { _, request in
             guard let request else { return }
             handleImageTool(request.command)
@@ -89,10 +88,7 @@ struct ImageWorkspaceView: View {
     private func importPhotoFromFinder() async {
         do {
             let asset = try await imageImportService.importGalleryImageFromFinder()
-            openWindow(
-                id: ImageWorkspaceWindowContext.windowID,
-                value: ImageWorkspaceWindowContext(imageID: asset.id)
-            )
+            appState.openImageInPlace(imageID: asset.id)
         } catch {
             // User cancelled Finder or import failed — no parallel error UI here.
         }
@@ -106,7 +102,7 @@ struct ImageWorkspaceView: View {
     private func confirmDeleteImage() {
         Task {
             try? await galleryService.deleteLibraryImage(id: imageID)
-            dismissWindow(id: ImageWorkspaceWindowContext.windowID)
+            appState.showCurrentList()
         }
     }
 
@@ -140,10 +136,7 @@ struct ImageWorkspaceView: View {
     }
 
     private func openRelatedImage(_ entry: GalleryEntry) {
-        openWindow(
-            id: ImageWorkspaceWindowContext.windowID,
-            value: ImageWorkspaceWindowContext(imageID: entry.id)
-        )
+        appState.openImageInPlace(imageID: entry.id)
     }
 }
 

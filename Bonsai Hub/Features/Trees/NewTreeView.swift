@@ -53,6 +53,7 @@ struct NewTreeView: View {
     // MARK: - Acquisition
 
     @State private var acquisitionMethodID: UUID?
+    @State private var propagation: TreePropagation?
     @State private var acquisitionDate = Date.now
     @State private var acquisitionSourceName = ""
     @State private var purchasePriceText = ""
@@ -271,6 +272,13 @@ struct NewTreeView: View {
                 }
 
                 Section("Acquisition") {
+                    Picker("Propagation", selection: $propagation) {
+                        Text("Select Propagation").tag(Optional<TreePropagation>.none)
+                        ForEach(TreePropagation.allCases) { value in
+                            Text(value.title).tag(Optional(value))
+                        }
+                    }
+
                     DatePicker(
                         "Acquisition Date",
                         selection: $acquisitionDate,
@@ -519,6 +527,7 @@ struct NewTreeView: View {
             lightConditionID: lightConditionID,
             acquisitionDate: acquisitionDate,
             acquisitionMethodID: acquisitionMethodID,
+            propagation: propagation,
             acquisitionSourceName: acquisitionSourceName,
             purchasePrice: parsePurchasePrice(),
             acquisitionNotes: acquisitionNotes,

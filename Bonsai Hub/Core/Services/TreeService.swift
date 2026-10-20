@@ -463,9 +463,12 @@ final class TreeService {
             sizeClassID: draft.sizeClassID,
             treeStageID: draft.treeStageID,
             locationID: locationID,
+            homeLocationID: locationID,
+            winterLocationID: nil,
             soilMixID: draft.soilMixID,
             potTypeID: draft.potTypeID,
             lightConditionID: draft.lightConditionID,
+            propagation: draft.propagation,
             acquisitionDate: draft.acquisitionDate,
             acquisitionMethodID: draft.acquisitionMethodID,
             acquisitionSourceName: draft.acquisitionSourceName.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -632,16 +635,23 @@ final class TreeService {
             sizeClassID: source.sizeClassID,
             treeStageID: source.treeStageID,
             healthStatus: source.healthStatus,
+            healthCause: source.healthCause,
             fertilizerHealth: source.fertilizerHealth,
             fertilizerKindOverride: source.fertilizerKindOverride,
             locationID: source.locationID,
+            homeLocationID: source.homeLocationID,
+            winterLocationID: source.winterLocationID,
             soilMixID: source.soilMixID,
             potTypeID: source.potTypeID,
+            potColor: source.potColor,
             lightConditionID: source.lightConditionID,
             potLengthMillimetres: source.potLengthMillimetres,
             potWidthMillimetres: source.potWidthMillimetres,
             potHeightMillimetres: source.potHeightMillimetres,
             potDiameterMillimetres: source.potDiameterMillimetres,
+            originYear: source.originYear,
+            countryOfOrigin: source.countryOfOrigin,
+            propagation: source.propagation,
             acquisitionDate: source.acquisitionDate,
             acquisitionMethodID: source.acquisitionMethodID,
             acquisitionSourceName: source.acquisitionSourceName,
@@ -948,9 +958,11 @@ final class TreeService {
             sizeClassID: existing.sizeClassID,
             treeStageID: existing.treeStageID,
             healthStatus: existing.healthStatus,
+            healthCause: existing.healthCause,
             locationID: existing.locationID,
             soilMixID: existing.soilMixID,
             potTypeID: existing.potTypeID,
+            potColor: existing.potColor,
             lightConditionID: existing.lightConditionID,
             heightMillimetres: existing.heightMillimetres,
             crownWidthMillimetres: existing.crownWidthMillimetres,
@@ -998,6 +1010,7 @@ final class TreeService {
         tree.sizeClassID = draft.sizeClassID
         tree.treeStageID = draft.treeStageID
         tree.healthStatus = draft.healthStatus
+        tree.healthCause = draft.healthCause.trimmingCharacters(in: .whitespacesAndNewlines)
         tree.lastRepottedDate = draft.lastRepottedDate
         tree.repottingIntervalYears = draft.repottingIntervalYears.map { max(1, min(20, $0)) }
         tree.placementStrategy = draft.placementStrategy
@@ -1006,12 +1019,15 @@ final class TreeService {
         tree.springCareCompletedSteps = draft.springCareCompletedSteps
         tree.fertilizerHealth = draft.fertilizerHealth
         tree.fertilizerKindOverride = draft.fertilizerKindOverride
-        if let locationID = draft.locationID {
-            tree.locationID = locationID
+        if let homeLocationID = draft.homeLocationID {
+            tree.homeLocationID = homeLocationID
         }
+        tree.winterLocationID = draft.winterLocationID
+        tree.syncStandingLocationFromPlacement()
         tree.lightConditionID = draft.lightConditionID
         tree.soilMixID = draft.soilMixID
         tree.potTypeID = draft.potTypeID
+        tree.potColor = draft.potColor.trimmingCharacters(in: .whitespacesAndNewlines)
         // Height / Crown / Nebari / Trunk are measurement history events only.
         // Edit Tree must not write them from the draft — use Add Measurement →
         // ``applyLatestMeasurement``.
@@ -1019,6 +1035,10 @@ final class TreeService {
         tree.potWidthMillimetres = draft.potWidthMillimetres
         tree.potHeightMillimetres = draft.potHeightMillimetres
         tree.potDiameterMillimetres = draft.potDiameterMillimetres
+
+        tree.originYear = Tree.sanitizedOriginYear(draft.originYear)
+        tree.countryOfOrigin = draft.countryOfOrigin.trimmingCharacters(in: .whitespacesAndNewlines)
+        tree.propagation = draft.propagation
 
         tree.acquisitionDate = draft.acquisitionDate
         tree.acquisitionMethodID = draft.acquisitionMethodID

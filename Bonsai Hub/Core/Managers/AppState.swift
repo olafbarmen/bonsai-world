@@ -164,6 +164,15 @@ final class AppState {
     /// Selected Seed Batch in Seed Work.
     var selectedSeedBatchID: UUID?
 
+    /// Seed Batch opened in this window (list hidden until Back).
+    var openedSeedBatchID: UUID?
+
+    /// Cutting or Air Layer opened in this window (list hidden until Back).
+    var openedNurseryProjectID: UUID?
+
+    /// Section to restore when Back leaves an image opened from somewhere else.
+    var inPlaceReturnSection: AppRoute?
+
     /// One-shot Context Tools request for the active Seed Batch Detail.
     var pendingSeedBatchQuickAction: SeedBatchQuickActionRequest?
 
@@ -361,6 +370,80 @@ final class AppState {
     var isYamadoriTripWorkspaceWindow: Bool { yamadoriWorkspaceTripID != nil }
     var isYamadoriFindWorkspaceWindow: Bool { yamadoriWorkspaceFindID != nil }
 
+    /// Opens one Tree in this window. Back returns to the list.
+    func openTreeInPlace(treeID: UUID) {
+        if selectedSection != .shaping {
+            selectedSection = .gardenTrees
+        }
+        selectedTreeID = treeID
+        treeWorkspaceTreeID = treeID
+    }
+
+    /// Opens one image in this window. Back returns to Images, or to the page it was opened from.
+    func openImageInPlace(imageID: UUID) {
+        if imageWorkspaceImageID == nil {
+            inPlaceReturnSection = selectedSection
+        }
+        selectedMediaImageID = imageID
+        imageWorkspaceImageID = imageID
+        selectedSection = .mediaImages
+    }
+
+    func openYamadoriTripInPlace(tripID: UUID) {
+        yamadoriWorkspaceFindID = nil
+        yamadoriWorkspaceTripID = tripID
+        selectedYamadoriID = tripID
+        selectedYamadoriWorkspaceTab = .yamadories
+        selectedSection = .nurseryYamadori
+    }
+
+    func openYamadoriFindInPlace(findID: UUID, tripID: UUID) {
+        yamadoriWorkspaceTripID = nil
+        yamadoriWorkspaceFindID = findID
+        selectedYamadoriFindID = findID
+        selectedYamadoriID = tripID
+        selectedYamadoriWorkspaceTab = .uncollectedFindings
+        selectedSection = .nurseryYamadori
+    }
+
+    func openSeedBatchInPlace(batchID: UUID) {
+        selectedSeedBatchID = batchID
+        openedSeedBatchID = batchID
+        selectedSection = .nurserySeeds
+    }
+
+    func openNurseryProjectInPlace(projectID: UUID, kind: NurseryPropagationKind) {
+        setSelectedNurseryPropagationProjectID(projectID, for: kind)
+        openedNurseryProjectID = projectID
+        selectedSection = kind.route
+    }
+
+    /// Back — show the list for the page that is open.
+    /// An image opened from another page returns there.
+    func showCurrentList() {
+        switch selectedSection {
+        case .gardenTrees, .shaping:
+            treeWorkspaceTreeID = nil
+        case .mediaImages:
+            imageWorkspaceImageID = nil
+            if let returnSection = inPlaceReturnSection, returnSection != .mediaImages {
+                inPlaceReturnSection = nil
+                selectedSection = returnSection
+                return
+            }
+            inPlaceReturnSection = nil
+        case .nurseryYamadori:
+            yamadoriWorkspaceTripID = nil
+            yamadoriWorkspaceFindID = nil
+        case .nurserySeeds:
+            openedSeedBatchID = nil
+        case .nurseryCuttings, .nurseryAirLayers, .nurseryGrafting, .nurseryFieldTree:
+            openedNurseryProjectID = nil
+        default:
+            break
+        }
+    }
+
     /// Fresh navigation state for a Tree Workspace window focused on one Tree.
     /// Shares no UI state with other windows — only library services are shared.
     static func makeTreeWorkspace(treeID: UUID) -> AppState {
@@ -518,6 +601,12 @@ final class AppState {
     func showTreeFromMap(treeID: UUID) {
         selectedTreeID = treeID
         selectSection(.gardenTrees)
+    }
+
+    /// Opens this Tree on the Shaping segment.
+    func showTreeShaping(treeID: UUID) {
+        selectedTreeID = treeID
+        selectSection(.shaping)
     }
 
     func clearPendingLocationMapFocus() {
@@ -789,17 +878,18 @@ final class AppState {
         selectedSection = .nurseryYamadori
         yamadoriDetailInteractionMode = .viewing
         treeDetailInteractionMode = .viewing
+        pendingYamadoriQuickAction = nil
         if let tree {
-            selectedYamadoriWorkspaceTab = tree.yamadoriNursery ? .yamadoriTrees : .transferredTrees
-            selectedTreeID = tree.id
             selectedYamadoriFindID = nil
             selectedYamadoriID = nil
-            pendingYamadoriQuickAction = nil
+            selectedTreeID = tree.id
+            selectedYamadoriWorkspaceTab = tree.yamadoriNursery ? .yamadoriTrees : .transferredTrees
         } else {
-            selectedYamadoriWorkspaceTab = .uncollectedFindings
-            selectedYamadoriFindID = find.id
-            selectedYamadoriID = find.yamadoriID
+            // Selection before tab — tab onChange must not wipe the Find.
             selectedTreeID = nil
+            selectedYamadoriID = find.yamadoriID
+            selectedYamadoriFindID = find.id
+            selectedYamadoriWorkspaceTab = .uncollectedFindings
         }
     }
 
@@ -827,6 +917,11 @@ final class AppState {
             selectedMediaImageID = nil
             pendingImageQuickAction = nil
             galleryFocusTreeID = nil
+            imageWorkspaceImageID = nil
+            inPlaceReturnSection = nil
+        }
+        if section != .gardenTrees, section != .shaping {
+            treeWorkspaceTreeID = nil
         }
         if section != .mediaDocuments { selectedMediaDocumentID = nil }
         if section != .mediaVideo { selectedMediaVideoID = nil }
@@ -842,7 +937,7 @@ final class AppState {
         } else {
             selectedSimpleCatalogEntryIDs = [:]
         }
-        if section != .inventoryPots {
+        if section != .inventoryPots, inPlaceReturnSection != .inventoryPots {
             selectedPotID = nil
             potDetailInteractionMode = .viewing
             pendingPotQuickAction = nil
@@ -853,11 +948,14 @@ final class AppState {
             selectedYamadoriWorkspaceTab = .yamadories
             yamadoriDetailInteractionMode = .viewing
             pendingYamadoriQuickAction = nil
+            yamadoriWorkspaceTripID = nil
+            yamadoriWorkspaceFindID = nil
         }
         if section != .nurserySeeds {
             selectedSeedWorkspaceTab = .seedWork
             selectedSeedBatchID = nil
             pendingSeedBatchQuickAction = nil
+            openedSeedBatchID = nil
         }
         if section != .nurseryCuttings {
             selectedCuttingProjectID = nil
@@ -872,6 +970,7 @@ final class AppState {
             && section != .nurseryAirLayers
             && section != .nurseryGrafting {
             nurseryPropagationDetailInteractionMode = .viewing
+            openedNurseryProjectID = nil
         }
         if section != .nurseryFieldTree {
             selectedFieldTreeProjectID = nil
@@ -903,11 +1002,6 @@ final class AppState {
         }
         if section != .knowledgeSpeciesLibrary {
             selectedSpeciesProfileID = nil
-        }
-
-        // Tree Workspace windows always re-focus their single Tree when returning to Trees or Shaping.
-        if section == .gardenTrees || section == .shaping, let workspaceTreeID = treeWorkspaceTreeID {
-            selectedTreeID = workspaceTreeID
         }
     }
 }

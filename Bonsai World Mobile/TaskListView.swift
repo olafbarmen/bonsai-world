@@ -2,7 +2,7 @@
 //  TaskListView.swift
 //  Bonsai World
 //
-//  Field Tasks — Overdue + Today. Complete watering instantly; other types open Add Work.
+//  Field Tasks — horizons + complete + Postpone (Mac labels).
 //
 
 import SwiftUI
@@ -12,7 +12,9 @@ struct TaskListView: View {
     @Environment(\.openMobileTree) private var openMobileTree
 
     @State private var workSheet: WorkSheetRequest?
+    @State private var postponeTask: CareTask?
     @State private var isShowingNewTask = false
+    @State private var horizon: DemoLibrary.MobileTasksHorizon = .today
 
     private struct WorkSheetRequest: Identifiable {
         var id: UUID { taskID }
@@ -22,16 +24,15 @@ struct TaskListView: View {
     }
 
     var body: some View {
-        let overdue = library.pendingTasks(due: .overdue)
-        let today = library.pendingTasks(due: .today)
-        let isEmpty = overdue.isEmpty && today.isEmpty
+        let items = library.pendingTasks(due: horizon)
 
-        Group {
-            if isEmpty {
+        VStack(spacing: 0) {
+            horizonPicker
+            if items.isEmpty {
                 ContentUnavailableView {
                     Label("No tasks", systemImage: "checklist")
                 } description: {
-                    Text("Add a task for today or later.")
+                    Text(emptyDescription)
                 } actions: {
                     Button("New Task") {
                         isShowingNewTask = true
@@ -39,7 +40,7 @@ struct TaskListView: View {
                     .accessibilityLabel("New Task")
                 }
             } else {
-                taskList(overdue: overdue, today: today)
+                taskList(items)
             }
         }
         .navigationTitle("Tasks")
@@ -62,45 +63,48 @@ struct TaskListView: View {
                 completingTaskID: request.taskID
             )
         }
+        .sheet(item: $postponeTask) { task in
+            PostponeTaskSheet(task: task)
+        }
     }
 
-    private func taskList(
-        overdue: [DemoLibrary.MobileTaskItem],
-        today: [DemoLibrary.MobileTaskItem]
-    ) -> some View {
+    private var horizonPicker: some View {
+        Picker("Horizon", selection: $horizon) {
+            ForEach(DemoLibrary.MobileTasksHorizon.allCases) { item in
+                Text(item.title).tag(item)
+            }
+        }
+        .pickerStyle(.menu)
+        .font(FaloTypography.body)
+        .padding(.horizontal, FaloSpacing.large)
+        .padding(.vertical, FaloSpacing.small)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(BonsaiWorldColors.canvas)
+        .accessibilityLabel(horizon.title)
+    }
+
+    private var emptyDescription: String {
+        switch horizon {
+        case .overdue: "Nothing overdue."
+        case .today: "Nothing due today."
+        case .thisWeek: "Nothing due this week."
+        case .thisMonth: "Nothing due this month."
+        case .thisYear: "Nothing due this year."
+        case .nextYear: "Nothing due next year."
+        }
+    }
+
+    private func taskList(_ items: [DemoLibrary.MobileTaskItem]) -> some View {
         List {
             Section {
-                if overdue.isEmpty {
-                    emptyLine("Nothing overdue.")
-                } else {
-                    ForEach(overdue) { item in
-                        taskRow(item)
-                    }
+                ForEach(items) { item in
+                    taskRow(item)
                 }
             } header: {
-                Text("Overdue")
+                Text(horizon.title)
             } footer: {
-                if !overdue.isEmpty {
-                    Text("Swipe left to complete. Swipe right to open tree.")
-                        .font(FaloTypography.caption)
-                }
-            }
-
-            Section {
-                if today.isEmpty {
-                    emptyLine("Nothing due today.")
-                } else {
-                    ForEach(today) { item in
-                        taskRow(item)
-                    }
-                }
-            } header: {
-                Text("Today")
-            } footer: {
-                if !today.isEmpty && overdue.isEmpty {
-                    Text("Swipe left to complete. Swipe right to open tree.")
-                        .font(FaloTypography.caption)
-                }
+                Text("Swipe left to complete. Swipe right for Postpone or Open Tree.")
+                    .font(FaloTypography.caption)
             }
         }
         .listStyle(.insetGrouped)
@@ -152,8 +156,14 @@ struct TaskListView: View {
         .listRowBackground(BonsaiWorldColors.surface)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(item.task.title.isEmpty ? typeName : item.task.title), \(treeTitle), \(dueCaption)")
-        .accessibilityHint("Swipe left to complete, swipe right to open tree")
-        .swipeActions(edge: .leading, allowsFullSwipe: true) {
+        .accessibilityHint("Swipe left to complete, swipe right to postpone or open tree")
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            Button("Postpone…") {
+                postponeTask = item.task
+            }
+            .tint(BonsaiWorldColors.statusAttention)
+            .accessibilityLabel("Postpone")
+
             Button("Open Tree") {
                 openMobileTree(item.treeID)
             }
@@ -190,12 +200,6 @@ struct TaskListView: View {
         }
     }
 
-    private func emptyLine(_ text: String) -> some View {
-        Text(text)
-            .font(FaloTypography.body)
-            .foregroundStyle(BonsaiWorldColors.textSecondary)
-            .listRowBackground(BonsaiWorldColors.surface)
-    }
 }
 
 #Preview {

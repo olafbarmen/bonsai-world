@@ -73,6 +73,6 @@ struct FaloStatCard: View {
         .padding(.horizontal, FaloSpacing.large)
         .padding(.vertical, FaloSpacing.medium)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .faloRaisedSurface()
+        .faloRaisedSurface(fillOpacity: 0.55)
     }
 }

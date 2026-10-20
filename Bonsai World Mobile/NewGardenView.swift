@@ -2,7 +2,7 @@
 //  NewGardenView.swift
 //  Bonsai World
 //
-//  Field New Garden — Name, Default, Address fields (no map).
+//  Field New Garden — Name, Default, Address, Climate (no map).
 //
 
 import SwiftUI
@@ -19,6 +19,8 @@ struct NewGardenView: View {
     @State private var postalCode = ""
     @State private var city = ""
     @State private var country = ""
+    @State private var hemisphere: GardenHemisphere?
+    @State private var season: GardenSeason?
 
     private var canSave: Bool {
         !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -56,6 +58,31 @@ struct NewGardenView: View {
                         .foregroundStyle(BonsaiWorldColors.textPrimary)
                         .accessibilityLabel("Country")
                 }
+
+                Section {
+                    Picker("Hemisphere", selection: $hemisphere) {
+                        Text("Not Set").tag(GardenHemisphere?.none)
+                        ForEach(GardenHemisphere.allCases) { item in
+                            Text(item.title).tag(Optional(item))
+                        }
+                    }
+                    .font(FaloTypography.body)
+                    .accessibilityLabel("Hemisphere")
+
+                    Picker("Season", selection: $season) {
+                        Text("Not Set").tag(GardenSeason?.none)
+                        ForEach(GardenSeason.allCases) { item in
+                            Text(item.title).tag(Optional(item))
+                        }
+                    }
+                    .font(FaloTypography.body)
+                    .accessibilityLabel("Season")
+                } header: {
+                    Text("Climate")
+                } footer: {
+                    Text(GardenClimate.settingsFooter(hemisphereFollowsPosition: false, season: season))
+                        .font(FaloTypography.caption)
+                }
             }
             .scrollContentBackground(.hidden)
             .background(BonsaiWorldColors.canvas)
@@ -74,6 +101,7 @@ struct NewGardenView: View {
             }
             .toolbarBackground(BonsaiWorldColors.canvas, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.light, for: .navigationBar)
         }
     }
 
@@ -84,7 +112,9 @@ struct NewGardenView: View {
             address: address,
             postalCode: postalCode,
             city: city,
-            country: country
+            country: country,
+            hemisphere: hemisphere,
+            season: season
         ) else { return }
         onCreated(garden.id)
         dismiss()

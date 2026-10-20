@@ -8,17 +8,19 @@ import SwiftUI
 /// Presentation routes for iOS NavigationStacks. Not a domain model.
 enum MobileRoute: Hashable {
     case myTrees
-    case myTreesAttention
     case tasks
     case yamadori
     case yamadoriTrip(UUID)
     case yamadoriFind(UUID)
     case seeds
     case seedBatch(UUID)
+    case propagation
     case soil
     case soilMix(UUID)
     case inventory(lowOnly: Bool)
     case inventoryItem(UUID)
+    case pots
+    case pot(UUID)
     case gardens
     case garden(UUID)
     case editGarden(UUID)
@@ -30,6 +32,18 @@ enum MobileRoute: Hashable {
     case editCollection(UUID)
     case tree(UUID)
     case editTree(UUID)
+    case handbook
+    case handbookChapter(BonsaiHandbookChapter)
+    case handbookLesson(BonsaiHandbookChapter, String)
+    case speciesLibrary
+    case speciesProfile(UUID)
+    case fertilizerGuides
+    case seedStratification
+    case careCalendar
+    case careCalendarEntry(String)
+    case knowledgeShelf(MobileKnowledgeShelf)
+    case images
+    case work
 }
 
 enum MobileRootTab: Hashable {
@@ -81,6 +95,8 @@ struct MobileRootView: View {
         }
         .tint(BonsaiWorldColors.accent)
         .preferredColorScheme(.light)
+        .toolbarColorScheme(.light, for: .navigationBar)
+        .toolbarColorScheme(.light, for: .tabBar)
         .environment(\.appendMobileRoute, appendRoute)
         .environment(\.openMobileTree, openTree)
         .sheet(isPresented: $isShowingSettings) {
@@ -105,9 +121,6 @@ struct MobileRootView: View {
         case .myTrees:
             selectedTab = .home
             homePath = [.myTrees]
-        case .myTreesAttention:
-            selectedTab = .home
-            homePath = [.myTreesAttention]
         case .tasks:
             selectedTab = .tasks
             tasksPath = []
@@ -135,13 +148,11 @@ struct MobileRootView: View {
         switch route {
         case .myTrees:
             TreeListView()
-        case .myTreesAttention:
-            TreeListView(initialAttentionOnly: true)
         case .tasks:
             TaskListView()
         case .yamadori:
-            YamadoriListView { findID in
-                path.wrappedValue.append(.yamadoriFind(findID))
+            YamadoriListView { tripID in
+                path.wrappedValue.append(.yamadoriTrip(tripID))
             }
         case .yamadoriTrip(let tripID):
             YamadoriTripProfileView(tripID: tripID) { findID in
@@ -157,6 +168,8 @@ struct MobileRootView: View {
             }
         case .seedBatch(let batchID):
             SeedBatchProfileView(batchID: batchID)
+        case .propagation:
+            PropagationHubView()
         case .soil:
             SoilMixListView { mixID in
                 path.wrappedValue.append(.soilMix(mixID))
@@ -169,6 +182,12 @@ struct MobileRootView: View {
             }
         case .inventoryItem(let itemID):
             InventoryItemProfileView(itemID: itemID)
+        case .pots:
+            PotListView { potID in
+                path.wrappedValue.append(.pot(potID))
+            }
+        case .pot(let potID):
+            PotProfileView(potID: potID)
         case .gardens:
             GardenListView { gardenID in
                 path.wrappedValue.append(.garden(gardenID))
@@ -201,6 +220,30 @@ struct MobileRootView: View {
             }
         case .editTree(let treeID):
             EditTreeView(treeID: treeID)
+        case .handbook:
+            MobileHandbookChapterListView()
+        case .handbookChapter(let chapter):
+            MobileHandbookLessonListView(chapter: chapter)
+        case .handbookLesson(let chapter, let lessonID):
+            MobileHandbookLessonView(chapter: chapter, lessonID: lessonID)
+        case .speciesLibrary:
+            MobileSpeciesLibraryView()
+        case .speciesProfile(let profileID):
+            MobileSpeciesProfileView(profileID: profileID)
+        case .fertilizerGuides:
+            MobileFertilizerGuidesView()
+        case .seedStratification:
+            MobileSeedStratificationView()
+        case .careCalendar:
+            MobileCareCalendarListView()
+        case .careCalendarEntry(let entryID):
+            MobileCareCalendarEntryView(entryID: entryID)
+        case .knowledgeShelf(let shelf):
+            MobileKnowledgeShelfView(shelf: shelf)
+        case .images:
+            MobileImagesBrowseView()
+        case .work:
+            MobileWorkBrowseView()
         }
     }
 }

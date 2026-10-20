@@ -182,6 +182,12 @@ struct UserProfileView: View {
                         .font(FaloTypography.caption)
                         .foregroundStyle(.secondary)
 
+                    if let climate = garden.climateSummary {
+                        Text(climate)
+                            .font(FaloTypography.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
                     if let coordinate = garden.gardenPosition {
                         Text(String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude))
                             .font(FaloTypography.caption.monospaced())

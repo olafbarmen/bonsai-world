@@ -20,17 +20,27 @@ struct TreeProfileView: View {
     @State private var isPhotoPickerPresented = false
     @State private var isShowingAddWork = false
     @State private var workSheet: DueWorkSheetRequest?
+    @State private var postponeTask: CareTask?
     @State private var isShowingMove = false
     @State private var photoPendingRemoval: UUID?
     @State private var confirmRemovePhoto = false
     @State private var confirmDeleteTree = false
+    @State private var confirmRemovePot = false
+    @State private var isAssignPotPresented = false
     @State private var workTypeFilter: TreeWorkTypeFilter = .all
     @State private var didLoadWorkFilter = false
+    @State private var photoViewer: PhotoViewerRequest?
 
     private struct DueWorkSheetRequest: Identifiable {
         var id: UUID { taskID }
         let taskID: UUID
         let workTypeID: UUID
+    }
+
+    private struct PhotoViewerRequest: Identifiable {
+        let id = UUID()
+        let pages: [MobilePhotoPage]
+        let index: Int
     }
 
     private enum TreeWorkTypeFilter: Hashable {
@@ -53,6 +63,9 @@ struct TreeProfileView: View {
                 ContentUnavailableView("Tree not found", systemImage: "leaf")
             }
         }
+        .fullScreenCover(item: $photoViewer) { viewer in
+            MobilePhotoViewer(pages: viewer.pages, startIndex: viewer.index)
+        }
     }
 
     @ViewBuilder
@@ -60,7 +73,15 @@ struct TreeProfileView: View {
         List {
             Section {
                 VStack(alignment: .leading, spacing: FaloSpacing.medium) {
-                    MobileTreeImage(tree: tree, style: .hero)
+                    Button {
+                        presentPhotoViewer(tree, imageID: tree.primaryImageID ?? tree.imageIDs.first)
+                    } label: {
+                        MobileTreeImage(tree: tree, style: .hero)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(tree.imageIDs.isEmpty)
+                    .accessibilityLabel("Photo")
+                    .accessibilityHint(tree.imageIDs.isEmpty ? "" : "Shows the photo large. Pinch to zoom")
 
                     Text(MobileTreePresentation.title(for: tree))
                         .font(FaloTypography.pageTitle)
@@ -79,6 +100,7 @@ struct TreeProfileView: View {
             }
 
             dueNowSection(tree)
+            schedulesSection(tree)
 
             if let recent = library.work(for: tree.id).first {
                 Section("Recent Work") {
@@ -133,6 +155,39 @@ struct TreeProfileView: View {
                 }
             }
 
+            Section("Inventory Pot") {
+                if let pot = library.pot(linkedToTreeID: tree.id) {
+                    NavigationLink(value: MobileRoute.pot(pot.id)) {
+                        Text(library.displayName(for: pot))
+                            .font(FaloTypography.body)
+                            .foregroundStyle(BonsaiWorldColors.textPrimary)
+                    }
+                    .listRowBackground(BonsaiWorldColors.surface)
+                    .accessibilityHint("Open inventory pot")
+                    Button("Change Inventory Pot") {
+                        isAssignPotPresented = true
+                    }
+                    .font(FaloTypography.body)
+                    .foregroundStyle(BonsaiWorldColors.accent)
+                    .listRowBackground(BonsaiWorldColors.surface)
+                    .accessibilityLabel("Change Inventory Pot")
+                    Button("Remove Inventory Pot", role: .destructive) {
+                        confirmRemovePot = true
+                    }
+                    .font(FaloTypography.body)
+                    .listRowBackground(BonsaiWorldColors.surface)
+                    .accessibilityLabel("Remove Inventory Pot")
+                } else {
+                    Button("Assign Inventory Pot") {
+                        isAssignPotPresented = true
+                    }
+                    .font(FaloTypography.body)
+                    .foregroundStyle(BonsaiWorldColors.accent)
+                    .listRowBackground(BonsaiWorldColors.surface)
+                    .accessibilityLabel("Assign Inventory Pot")
+                }
+            }
+
             Section {
                 if let date = library.lastRepotDate(for: tree.id) {
                     VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
@@ -159,6 +214,47 @@ struct TreeProfileView: View {
                     .accessibilityElement(children: .combine)
                     .accessibilityLabel("Last repot, Never")
                 }
+            }
+
+            if hasAnyMeasurement(tree) {
+                Section("Measurements") {
+                    if let height = tree.heightMillimetres {
+                        profileRow(label: "Height", value: centimetresLabel(fromMillimetres: height))
+                    }
+                    if let crown = tree.crownWidthMillimetres {
+                        profileRow(label: "Crown Width", value: centimetresLabel(fromMillimetres: crown))
+                    }
+                    if let nebari = tree.nebariWidthMillimetres {
+                        profileRow(label: "Nebari Width", value: centimetresLabel(fromMillimetres: nebari))
+                    }
+                    if let trunk = tree.trunkDiameterMillimetres {
+                        profileRow(label: "Trunk Diameter", value: "\(trunk) mm")
+                    }
+                }
+            }
+
+            Section("Shaping") {
+                let inProgress = shapingInProgressSummary(for: tree)
+                NavigationLink {
+                    TreeShapingView(treeID: tree.id)
+                } label: {
+                    VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+                        Text("Shaping")
+                            .font(FaloTypography.body)
+                            .foregroundStyle(BonsaiWorldColors.textPrimary)
+                        if inProgress.isEmpty {
+                            Text("Areas and status")
+                                .font(FaloTypography.caption)
+                                .foregroundStyle(BonsaiWorldColors.textSecondary)
+                        } else {
+                            Text(inProgress)
+                                .font(FaloTypography.caption)
+                                .foregroundStyle(BonsaiWorldColors.statusAttention)
+                        }
+                    }
+                }
+                .listRowBackground(BonsaiWorldColors.surface)
+                .accessibilityHint("Open Shaping")
             }
 
             photosSection(tree)
@@ -217,6 +313,12 @@ struct TreeProfileView: View {
                 MoveYamadoriToMyTreesView(findID: findID) { _ in }
             }
         }
+        .sheet(isPresented: $isAssignPotPresented) {
+            AssignInventoryPotView(
+                treeID: tree.id,
+                excludingPotID: library.pot(linkedToTreeID: tree.id)?.id
+            )
+        }
         .confirmationDialog("Add Photo", isPresented: $isShowingAddPhotoOptions, titleVisibility: .visible) {
             if cameraAvailable {
                 Button("Take Photo") { isShowingCamera = true }
@@ -249,6 +351,9 @@ struct TreeProfileView: View {
                 completingTaskID: request.taskID
             )
         }
+        .sheet(item: $postponeTask) { task in
+            PostponeTaskSheet(task: task)
+        }
         .onAppear { loadWorkTypeFilterIfNeeded(for: tree) }
         .onChange(of: workTypeFilter) { _, newValue in
             Self.rememberWorkTypeFilter(newValue, for: tree.id)
@@ -280,6 +385,16 @@ struct TreeProfileView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Photos, work history, and tasks for this tree are removed. This cannot be undone.")
+        }
+        .confirmationDialog(
+            "Remove inventory pot from this tree?",
+            isPresented: $confirmRemovePot,
+            titleVisibility: .visible
+        ) {
+            Button("Remove Inventory Pot", role: .destructive) {
+                _ = library.unassignCurrentPot(fromTreeID: tree.id)
+            }
+            Button("Cancel", role: .cancel) {}
         }
     }
 
@@ -317,6 +432,16 @@ struct TreeProfileView: View {
         didLoadWorkFilter = true
     }
 
+    private func presentPhotoViewer(_ tree: Tree, imageID: UUID?) {
+        let pages = tree.imageIDs.compactMap { id -> MobilePhotoPage? in
+            guard let data = library.jpegData(for: id), !data.isEmpty else { return nil }
+            return MobilePhotoPage(id: id, data: data)
+        }
+        guard !pages.isEmpty else { return }
+        let index = pages.firstIndex { $0.id == imageID } ?? 0
+        photoViewer = PhotoViewerRequest(pages: pages, index: index)
+    }
+
     @ViewBuilder
     private func photosSection(_ tree: Tree) -> some View {
         Section("Photos") {
@@ -330,7 +455,7 @@ struct TreeProfileView: View {
                     HStack(spacing: FaloSpacing.small) {
                         ForEach(tree.imageIDs, id: \.self) { imageID in
                             Button {
-                                library.setPrimaryImage(treeID: tree.id, imageID: imageID)
+                                presentPhotoViewer(tree, imageID: imageID)
                             } label: {
                                 ZStack(alignment: .bottomLeading) {
                                     MobileTreeImage(tree: tree, imageID: imageID, style: .thumbnail)
@@ -356,8 +481,8 @@ struct TreeProfileView: View {
                                     confirmRemovePhoto = true
                                 }
                             }
-                            .accessibilityLabel(tree.primaryImageID == imageID ? "Primary photo" : "Set as primary photo")
-                            .accessibilityHint("Long press for more options")
+                            .accessibilityLabel(tree.primaryImageID == imageID ? "Primary photo" : "Photo")
+                            .accessibilityHint("Shows the photo large. Pinch to zoom. Long press for more options")
                         }
                     }
                     .padding(.vertical, FaloSpacing.xSmall)
@@ -403,8 +528,43 @@ struct TreeProfileView: View {
             Text("Due Now")
         } footer: {
             if !dueItems.isEmpty {
-                Text("Swipe left to complete.")
+                Text("Swipe left to complete. Swipe right to Postpone.")
                     .font(FaloTypography.caption)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func schedulesSection(_ tree: Tree) -> some View {
+        let schedules = library.activeSchedules(forTree: tree.id)
+        Section("Schedules") {
+            if schedules.isEmpty {
+                Text("No active schedules.")
+                    .font(FaloTypography.body)
+                    .foregroundStyle(BonsaiWorldColors.textSecondary)
+                    .listRowBackground(BonsaiWorldColors.surface)
+            } else {
+                ForEach(schedules) { schedule in
+                    VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+                        Text(schedule.title.isEmpty
+                             ? CanonicalWorkTypeID.name(for: schedule.workTypeID)
+                             : schedule.title)
+                            .font(FaloTypography.body)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(BonsaiWorldColors.textPrimary)
+                        Text("\(CanonicalWorkTypeID.name(for: schedule.workTypeID)) · \(schedule.recurrence.summary)")
+                            .font(FaloTypography.caption)
+                            .foregroundStyle(BonsaiWorldColors.textSecondary)
+                        if !schedule.notes.isEmpty {
+                            Text(schedule.notes)
+                                .font(FaloTypography.caption)
+                                .foregroundStyle(BonsaiWorldColors.textTertiary)
+                        }
+                    }
+                    .padding(.vertical, FaloSpacing.xSmall)
+                    .listRowBackground(BonsaiWorldColors.surface)
+                    .accessibilityElement(children: .combine)
+                }
             }
         }
     }
@@ -432,7 +592,14 @@ struct TreeProfileView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .listRowBackground(BonsaiWorldColors.surface)
         .accessibilityElement(children: .combine)
-        .accessibilityHint("Swipe left to complete")
+        .accessibilityHint("Swipe left to complete, swipe right to postpone")
+        .swipeActions(edge: .leading, allowsFullSwipe: false) {
+            Button("Postpone…") {
+                postponeTask = item.task
+            }
+            .tint(BonsaiWorldColors.statusAttention)
+            .accessibilityLabel("Postpone")
+        }
         .swipeActions(edge: .trailing, allowsFullSwipe: true) {
             Button("Complete") {
                 completeDueItem(item)
@@ -590,6 +757,29 @@ struct TreeProfileView: View {
 
     private func trimmed(_ value: String) -> String {
         value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func hasAnyMeasurement(_ tree: Tree) -> Bool {
+        tree.heightMillimetres != nil
+            || tree.crownWidthMillimetres != nil
+            || tree.nebariWidthMillimetres != nil
+            || tree.trunkDiameterMillimetres != nil
+    }
+
+    private func centimetresLabel(fromMillimetres mm: Int) -> String {
+        let cm = Decimal(mm) / 10
+        return "\(cm) cm"
+    }
+
+    private func shapingInProgressSummary(for tree: Tree) -> String {
+        guard let areas = tree.shaping?.areas else { return "" }
+        let titles = ShapingAreaID.allCases.compactMap { area -> String? in
+            guard let record = areas[area.rawValue], record.status == .inProgress else { return nil }
+            return area.title
+        }
+        guard !titles.isEmpty else { return "" }
+        if titles.count == 1 { return "In Progress · \(titles[0])" }
+        return "In Progress · \(titles.count) areas"
     }
 }
 

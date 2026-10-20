@@ -1,18 +1,10 @@
 //
 //  CareSchedule.swift
-//  Bonsai World
+//  BonsaiCore
 //
-//  Tasks domain — recurring care rules. Any Task can repeat at a chosen
-//  cadence (daily watering, weekly liquid fertilizer, monthly slow-release
-//  fertilizer, every-3-years repotting, annual winter work, …), optionally
-//  restricted to a season (e.g. no fertilizing before August). A schedule
-//  already bakes in every detail (Work Type, fertilizer, interval), so
-//  completing one of its due occurrences never needs a form — see
-//  ``TaskService/completeScheduleOccurrence(scheduleID:treeID:)``.
-//
-//  Due occurrences are computed on demand from the last matching WorkRecord
-//  per (schedule, tree) — no daily/background generation job, no persisted
-//  "instance" rows. See ``TaskService/pendingOccurrences(due:)``.
+//  Tasks domain — recurring care rules. Shared Mac + iOS JSON shape for
+//  Database/Schedules.json. Due occurrences are computed on demand from the
+//  last matching WorkRecord per (schedule, tree).
 //
 
 import Foundation

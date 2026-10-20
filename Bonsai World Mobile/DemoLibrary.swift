@@ -20,25 +20,37 @@ final class DemoLibrary: @unchecked Sendable {
     private(set) var locations: [Location]
     private(set) var gardens: [Garden]
     private(set) var careTasks: [CareTask]
+    private(set) var careSchedules: [CareSchedule]
     private(set) var yamadoriTrips: [Yamadori]
     private(set) var yamadoriFinds: [YamadoriFind]
     private(set) var seedBatches: [SeedBatch]
     private(set) var soilMixes: [SoilMix]
     private(set) var inventoryStock: [InventoryStockItem]
+    private(set) var pots: [Pot]
     /// Grower display name (Settings → User Profile). Same field as Mac User Profile.
     private(set) var growerName: String
     /// Canonical ImageAsset catalog.
     private(set) var imageAssets: [UUID: ImageAsset]
     /// Original JPEG bytes keyed by ImageAsset.id (memory cache of on-disk originals).
     private(set) var imageJPEGData: [UUID: Data]
+    @ObservationIgnored private var jpegOrder: [UUID] = []
+    /// Must not be observed — mutating during image layout would re-enter SwiftUI forever.
+    @ObservationIgnored private var pendingImagePaths: Set<String> = []
+    private var waitingForICloudLibrary = false
+    private let jpegCacheLimit = 4
     /// Set when load fails. Existing files are left untouched; demo is not reseeded.
     private(set) var lastLoadError: String?
     /// Set when a save fails. In-memory changes remain; files are not replaced with demo.
     private(set) var lastSaveError: String?
+    /// Newest library-file modification seen at the last load. Used to pick up Mac saves.
+    @ObservationIgnored private var loadedContentStamp: Date?
+    @ObservationIgnored private var refreshTimer: Timer?
+    /// Ignores our own writes for a moment so a save does not reload the screen.
+    @ObservationIgnored private var suppressRefreshUntil: Date?
 
     /// App launch — load preferred package (local or iCloud), or seed demo once when Trees.json is missing.
     convenience init() {
-        self.init(store: .resolvedPreferred())
+        self.init(store: .resolvedPreferredWithoutLookup())
     }
 
     /// SwiftUI previews — sample data, no disk.
@@ -59,15 +71,22 @@ final class DemoLibrary: @unchecked Sendable {
         self.locations = []
         self.gardens = []
         self.careTasks = []
+        self.careSchedules = []
         self.yamadoriTrips = []
         self.yamadoriFinds = []
         self.seedBatches = []
         self.soilMixes = []
         self.inventoryStock = []
+        self.pots = []
         self.growerName = ""
         self.imageAssets = [:]
         self.imageJPEGData = [:]
         loadOrSeed()
+        startLibraryRefresh()
+    }
+
+    deinit {
+        refreshTimer?.invalidate()
     }
 
     /// In-memory only (previews / isolated fixtures). Does not touch disk.
@@ -83,11 +102,13 @@ final class DemoLibrary: @unchecked Sendable {
         self.locations = CanonicalLocationID.seedLocations
         self.gardens = Garden.seedCatalog
         self.careTasks = DemoLibrary.sampleTasks(for: trees)
+        self.careSchedules = []
         self.yamadoriTrips = []
         self.yamadoriFinds = []
         self.seedBatches = []
         self.soilMixes = []
         self.inventoryStock = []
+        self.pots = []
         self.growerName = "Olaf"
         self.imageAssets = imageAssets
         self.imageJPEGData = imageJPEGData
@@ -259,7 +280,9 @@ final class DemoLibrary: @unchecked Sendable {
         address: String = "",
         postalCode: String = "",
         city: String = "",
-        country: String = ""
+        country: String = "",
+        hemisphere: GardenHemisphere? = nil,
+        season: GardenSeason? = nil
     ) -> Garden? {
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else { return nil }
@@ -269,6 +292,8 @@ final class DemoLibrary: @unchecked Sendable {
             postalCode: postalCode.trimmingCharacters(in: .whitespacesAndNewlines),
             city: city.trimmingCharacters(in: .whitespacesAndNewlines),
             country: country.trimmingCharacters(in: .whitespacesAndNewlines),
+            hemisphere: hemisphere,
+            season: season,
             isDefault: isDefault || gardens.isEmpty
         )
         gardens.append(garden)
@@ -282,6 +307,7 @@ final class DemoLibrary: @unchecked Sendable {
     }
 
     /// Updates Garden Name, Default, and address fields. Preserves map coordinates.
+    /// Climate is left unchanged unless `includeClimate` is true.
     func updateGarden(
         id: UUID,
         name: String,
@@ -289,7 +315,10 @@ final class DemoLibrary: @unchecked Sendable {
         address: String = "",
         postalCode: String = "",
         city: String = "",
-        country: String = ""
+        country: String = "",
+        hemisphere: GardenHemisphere? = nil,
+        season: GardenSeason? = nil,
+        includeClimate: Bool = false
     ) {
         guard let index = gardens.firstIndex(where: { $0.id == id }) else { return }
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -299,6 +328,10 @@ final class DemoLibrary: @unchecked Sendable {
         gardens[index].postalCode = postalCode.trimmingCharacters(in: .whitespacesAndNewlines)
         gardens[index].city = city.trimmingCharacters(in: .whitespacesAndNewlines)
         gardens[index].country = country.trimmingCharacters(in: .whitespacesAndNewlines)
+        if includeClimate {
+            gardens[index].hemisphere = hemisphere
+            gardens[index].season = season
+        }
         if isDefault {
             applyDefaultGarden(id: id)
         } else {
@@ -398,13 +431,54 @@ final class DemoLibrary: @unchecked Sendable {
             }
     }
 
+    /// Bumps when a cloud photo finishes downloading, so lists can show it.
+    private(set) var imageRevision = 0
+
+    var isOpeningICloudLibrary: Bool { waitingForICloudLibrary }
+
+    /// Local file for one photo. Returns nil until the bytes are on this device.
+    /// Does not talk to CloudDocs — folder downloads run on the refresh timer instead.
+    func residentImageURL(for imageID: UUID?) -> URL? {
+        guard let imageID,
+              let relativePath = imageAssets[imageID]?.relativePath,
+              let store
+        else { return nil }
+        guard store.isImageResident(relativePath: relativePath) else {
+            pendingImagePaths.insert(relativePath)
+            return nil
+        }
+        return store.url(for: relativePath)
+    }
+
     func jpegData(for imageID: UUID?) -> Data? {
         guard let imageID else { return nil }
-        return imageJPEGData[imageID]
+        if let cached = imageJPEGData[imageID] { return cached }
+        guard let relativePath = imageAssets[imageID]?.relativePath else { return nil }
+        guard let data = store?.residentImageData(relativePath: relativePath), !data.isEmpty else {
+            pendingImagePaths.insert(relativePath)
+            return nil
+        }
+        rememberJPEG(imageID, data: data)
+        return data
     }
 
     func asset(id: UUID) -> ImageAsset? {
         imageAssets[id]
+    }
+
+    /// Library catalog newest-first (Mac Media → Images browse order).
+    var orderedImageAssets: [ImageAsset] {
+        imageAssets.values.sorted { lhs, rhs in
+            if lhs.captureDate != rhs.captureDate {
+                return lhs.captureDate > rhs.captureDate
+            }
+            return lhs.id.uuidString > rhs.id.uuidString
+        }
+    }
+
+    /// Tree that references this catalog image, if any.
+    func tree(forImageID imageID: UUID) -> Tree? {
+        trees.first { $0.imageIDs.contains(imageID) }
     }
 
     /// Adds a JPEG original. New UUID. Becomes primary only when the tree has none.
@@ -505,6 +579,39 @@ final class DemoLibrary: @unchecked Sendable {
             }
     }
 
+    /// Mac Dashboard “In Progress” — Shaping areas marked In Progress.
+    struct ShapingInProgressItem: Identifiable, Hashable, Sendable {
+        let treeID: UUID
+        let treeTitle: String
+        let area: ShapingAreaID
+        let nextAction: String
+
+        var id: String { "\(treeID.uuidString)|\(area.rawValue)" }
+    }
+
+    var shapingInProgressItems: [ShapingInProgressItem] {
+        let areaOrder = Dictionary(
+            uniqueKeysWithValues: ShapingAreaID.allCases.enumerated().map { ($1, $0) }
+        )
+        return myTrees.flatMap { tree -> [ShapingInProgressItem] in
+            guard let areas = tree.shaping?.areas else { return [] }
+            return areas.compactMap { key, record in
+                guard record.status == .inProgress, let area = ShapingAreaID(rawValue: key) else { return nil }
+                return ShapingInProgressItem(
+                    treeID: tree.id,
+                    treeTitle: MobileTreePresentation.title(for: tree),
+                    area: area,
+                    nextAction: record.nextAction.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            }
+        }
+        .sorted { lhs, rhs in
+            let byName = lhs.treeTitle.localizedStandardCompare(rhs.treeTitle)
+            if byName != .orderedSame { return byName == .orderedAscending }
+            return (areaOrder[lhs.area] ?? 0) < (areaOrder[rhs.area] ?? 0)
+        }
+    }
+
     func workPerformedToday() -> [WorkRecord] {
         workRecords
             .filter { Calendar.current.isDateInToday($0.performedAt) }
@@ -549,9 +656,29 @@ final class DemoLibrary: @unchecked Sendable {
     }
 
     /// Field Tasks horizons — one-off CareTasks only (no Schedules in this slice).
-    enum MobileTasksHorizon: Hashable, Sendable {
+    enum MobileTasksHorizon: String, CaseIterable, Identifiable, Hashable, Sendable {
         case overdue
         case today
+        case thisWeek
+        case thisMonth
+        case thisYear
+        case nextYear
+
+        var id: Self { self }
+
+        var title: String {
+            switch self {
+            case .overdue: "Overdue"
+            case .today: "Today"
+            case .thisWeek: "This Week"
+            case .thisMonth: "This Month"
+            case .thisYear: "This Year"
+            case .nextYear: "Next Year"
+            }
+        }
+
+        /// Same primary cases as the Mac Tasks segmented control.
+        static let primaryPickerCases: [MobileTasksHorizon] = [.overdue, .today, .thisWeek, .thisMonth]
     }
 
     /// One actionable row: a pending CareTask for one Tree.
@@ -683,6 +810,34 @@ final class DemoLibrary: @unchecked Sendable {
         refreshTodayTasksNotification()
     }
 
+    /// Moves this CareTask due date only (Mac Postpone — this time only).
+    func postponeTask(id: UUID, to date: Date) {
+        guard let index = careTasks.firstIndex(where: { $0.id == id }) else { return }
+        guard careTasks[index].status == .pending else { return }
+        careTasks[index].dueDate = Calendar.current.startOfDay(for: date)
+        careTasks[index].modifiedDate = .now
+        persistAll()
+        refreshTodayTasksNotification()
+    }
+
+    /// Active CareSchedules that cover this Tree (list-only; full TaskService materialization is Mac).
+    func activeSchedules(forTree treeID: UUID) -> [CareSchedule] {
+        guard let tree = tree(id: treeID) else { return [] }
+        return careSchedules
+            .filter { schedule in
+                guard schedule.isActive else { return false }
+                switch schedule.target {
+                case .trees(let ids):
+                    return ids.contains(treeID)
+                case .location(let locationID):
+                    return tree.locationID == locationID
+                case .genus(let genusID):
+                    return tree.genusID == genusID
+                }
+            }
+            .sorted { $0.title.localizedStandardCompare($1.title) == .orderedAscending }
+    }
+
     // MARK: - Yamadori
 
     var orderedYamadoriTrips: [Yamadori] {
@@ -711,35 +866,36 @@ final class DemoLibrary: @unchecked Sendable {
             }
     }
 
-    /// Creates a trip and its first Find (status Scout). Returns both IDs.
+    /// Creates a Yamadori trip only (Mac New Yamadori). Finds via Add Find.
     @discardableResult
-    func addYamadori(displayName: String, notes: String = "") -> (trip: Yamadori, find: YamadoriFind)? {
+    func addYamadoriTrip(
+        displayName: String,
+        discoveryDate: Date? = .now,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        locationDescription: String = "",
+        countryRegion: String = "",
+        permissionNotes: String = "",
+        notes: String = ""
+    ) -> Yamadori? {
         let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { return nil }
         let now = Date.now
         let trip = Yamadori(
             displayName: name,
-            tripDate: now,
+            tripDate: discoveryDate,
             createdDate: now,
             modifiedDate: now,
-            notes: ""
-        )
-        let code = YamadoriIDService.nextCode(existing: yamadoriFinds)
-        let find = YamadoriFind(
-            yamadoriID: trip.id,
-            yamadoriCode: code,
-            displayName: name,
-            status: .scout,
-            createdDate: now,
-            modifiedDate: now,
-            discoveryDate: now,
-            history: [YamadoriHistoryEntry(kind: .created, date: now)],
+            latitude: latitude,
+            longitude: longitude,
+            locationDescription: locationDescription.trimmingCharacters(in: .whitespacesAndNewlines),
+            countryRegion: countryRegion.trimmingCharacters(in: .whitespacesAndNewlines),
+            permissionNotes: permissionNotes.trimmingCharacters(in: .whitespacesAndNewlines),
             notes: notes.trimmingCharacters(in: .whitespacesAndNewlines)
         )
         yamadoriTrips.append(trip)
-        yamadoriFinds.append(find)
         persistAll()
-        return (trip, find)
+        return yamadoriTrips.first { $0.id == trip.id }
     }
 
     func updateYamadoriFind(
@@ -749,7 +905,29 @@ final class DemoLibrary: @unchecked Sendable {
         notes: String,
         latitude: Double?,
         longitude: Double?,
-        speciesEstimate: String? = nil
+        speciesEstimate: String? = nil,
+        genusID: UUID? = nil,
+        speciesID: UUID? = nil,
+        cultivarID: UUID? = nil,
+        evaluationTrunk: String? = nil,
+        evaluationNebari: String? = nil,
+        evaluationMovement: String? = nil,
+        evaluationTaper: String? = nil,
+        evaluationBranches: String? = nil,
+        evaluationHealth: String? = nil,
+        evaluationAccessibility: String? = nil,
+        evaluationDifficulty: String? = nil,
+        evaluationOverall: String? = nil,
+        collectionDate: Date? = nil,
+        clearCollectionDate: Bool = false,
+        collectionObservations: String? = nil,
+        rootNotes: String? = nil,
+        transportNotes: String? = nil,
+        initialPlacement: String? = nil,
+        initialRecoveryNotes: String? = nil,
+        recoveryLocationNotes: String? = nil,
+        recoveryCareNotes: String? = nil,
+        establishmentAssessment: String? = nil
     ) {
         guard let index = yamadoriFinds.firstIndex(where: { $0.id == id }) else { return }
         guard yamadoriFinds[index].status.isUncollected else { return }
@@ -764,9 +942,68 @@ final class DemoLibrary: @unchecked Sendable {
         find.notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         find.latitude = latitude
         find.longitude = longitude
+        find.genusID = genusID
+        find.speciesID = speciesID
+        find.cultivarID = cultivarID
         if let speciesEstimate {
             let estimate = speciesEstimate.trimmingCharacters(in: .whitespacesAndNewlines)
             find.speciesEstimate = estimate.isEmpty ? nil : estimate
+        }
+        if let evaluationTrunk {
+            find.evaluationTrunk = evaluationTrunk.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let evaluationNebari {
+            find.evaluationNebari = evaluationNebari.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let evaluationMovement {
+            find.evaluationMovement = evaluationMovement.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let evaluationTaper {
+            find.evaluationTaper = evaluationTaper.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let evaluationBranches {
+            find.evaluationBranches = evaluationBranches.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let evaluationHealth {
+            find.evaluationHealth = evaluationHealth.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let evaluationAccessibility {
+            find.evaluationAccessibility = evaluationAccessibility.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let evaluationDifficulty {
+            find.evaluationDifficulty = evaluationDifficulty.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let evaluationOverall {
+            find.evaluationOverall = evaluationOverall.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if clearCollectionDate {
+            find.collectionDate = nil
+        } else if let collectionDate {
+            find.collectionDate = collectionDate
+        }
+        if let collectionObservations {
+            find.collectionObservations = collectionObservations.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let rootNotes {
+            find.rootNotes = rootNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let transportNotes {
+            find.transportNotes = transportNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let initialPlacement {
+            find.initialPlacement = initialPlacement.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let initialRecoveryNotes {
+            find.initialRecoveryNotes = initialRecoveryNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let recoveryLocationNotes {
+            find.recoveryLocationNotes = recoveryLocationNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let recoveryCareNotes {
+            find.recoveryCareNotes = recoveryCareNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let establishmentAssessment {
+            find.establishmentAssessment = establishmentAssessment.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         find.modifiedDate = .now
         if previousStatus != status {
@@ -813,7 +1050,18 @@ final class DemoLibrary: @unchecked Sendable {
         tripDate: Date?,
         latitude: Double? = nil,
         longitude: Double? = nil,
-        updateCoordinates: Bool = false
+        updateCoordinates: Bool = false,
+        locationDescription: String? = nil,
+        countryRegion: String? = nil,
+        permissionNotes: String? = nil,
+        landOwnershipNotes: String? = nil,
+        collectionWindowNotes: String? = nil,
+        preparationNotes: String? = nil,
+        equipmentNotes: String? = nil,
+        collectionPlanNotes: String? = nil,
+        preCollectionChecklist: [YamadoriChecklistItem]? = nil,
+        collectionKitChecklist: [YamadoriChecklistItem]? = nil,
+        notes: String? = nil
     ) {
         guard let index = yamadoriTrips.firstIndex(where: { $0.id == id }) else { return }
         let trimmed = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -824,7 +1072,68 @@ final class DemoLibrary: @unchecked Sendable {
             yamadoriTrips[index].latitude = latitude
             yamadoriTrips[index].longitude = longitude
         }
+        if let locationDescription {
+            yamadoriTrips[index].locationDescription = locationDescription
+        }
+        if let countryRegion {
+            yamadoriTrips[index].countryRegion = countryRegion
+        }
+        if let permissionNotes {
+            yamadoriTrips[index].permissionNotes = permissionNotes
+        }
+        if let landOwnershipNotes {
+            yamadoriTrips[index].landOwnershipNotes = landOwnershipNotes
+        }
+        if let collectionWindowNotes {
+            yamadoriTrips[index].collectionWindowNotes = collectionWindowNotes
+        }
+        if let preparationNotes {
+            yamadoriTrips[index].preparationNotes = preparationNotes
+        }
+        if let equipmentNotes {
+            yamadoriTrips[index].equipmentNotes = equipmentNotes
+        }
+        if let collectionPlanNotes {
+            yamadoriTrips[index].collectionPlanNotes = collectionPlanNotes
+        }
+        if let preCollectionChecklist {
+            yamadoriTrips[index].preCollectionChecklist = preCollectionChecklist
+        }
+        if let collectionKitChecklist {
+            yamadoriTrips[index].collectionKitChecklist = collectionKitChecklist
+        }
+        if let notes {
+            yamadoriTrips[index].notes = notes
+        }
         yamadoriTrips[index].modifiedDate = .now
+        persistAll()
+    }
+
+    /// Deletes the trip and all Finds on it (same as Mac). Linked Trees stay.
+    func deleteYamadoriTrip(id: UUID) {
+        guard yamadoriTrips.contains(where: { $0.id == id }) else { return }
+        let findImageIDs = yamadoriFinds
+            .filter { $0.yamadoriID == id }
+            .flatMap(\.imageIDs)
+        yamadoriFinds.removeAll { $0.yamadoriID == id }
+        yamadoriTrips.removeAll { $0.id == id }
+        for imageID in findImageIDs {
+            discardImageAsset(id: imageID)
+        }
+        persistAll()
+    }
+
+    /// Deletes one Find. The trip stays (same as Mac). Linked Trees stay.
+    func deleteYamadoriFind(id: UUID) {
+        guard let find = yamadoriFinds.first(where: { $0.id == id }) else { return }
+        let imageIDs = find.imageIDs
+        yamadoriFinds.removeAll { $0.id == id }
+        if let tripIndex = yamadoriTrips.firstIndex(where: { $0.id == find.yamadoriID }) {
+            yamadoriTrips[tripIndex].modifiedDate = .now
+        }
+        for imageID in imageIDs {
+            discardImageAsset(id: imageID)
+        }
         persistAll()
     }
 
@@ -1097,22 +1406,35 @@ final class DemoLibrary: @unchecked Sendable {
 
     /// Creates a Planned seed batch. Name maps to botanicalName; species text only (A1).
     @discardableResult
-    func addSeedBatch(name: String, species: String) -> SeedBatch? {
+    func addSeedBatch(
+        name: String,
+        species: String,
+        initialSeedCount: Int = 0,
+        source: String = "",
+        seedYear: Int? = nil,
+        locationID: UUID? = nil,
+        notes: String = ""
+    ) -> SeedBatch? {
         let botanical = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let speciesText = species.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !botanical.isEmpty else { return nil }
-        let year = Calendar.current.component(.year, from: .now)
+        let year = seedYear ?? Calendar.current.component(.year, from: .now)
         let code = nextSeedBatchCode(botanicalName: botanical, year: year)
         let now = Date.now
+        let count = max(0, initialSeedCount)
         let batch = SeedBatch(
             batchCode: code,
             speciesID: UUID(),
             botanicalName: botanical,
             commonName: speciesText,
+            source: source.trimmingCharacters(in: .whitespacesAndNewlines),
+            acquisitionDate: now,
             seedYear: year,
-            initialSeedCount: 0,
+            initialSeedCount: count,
             stage: .planned,
+            locationID: locationID,
             events: [SeedBatchEvent(date: now, kind: .created)],
+            notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
             createdAt: now,
             updatedAt: now
         )
@@ -1127,7 +1449,17 @@ final class DemoLibrary: @unchecked Sendable {
         species: String,
         stage: SeedBatchStage,
         notes: String,
-        soilMixID: UUID?
+        soilMixID: UUID?,
+        source: String? = nil,
+        seedYear: Int? = nil,
+        locationID: UUID? = nil,
+        containerDescription: String? = nil,
+        initialSeedCount: Int? = nil,
+        viableSeedCount: Int? = nil,
+        sownSeedCount: Int? = nil,
+        germinatedSeedCount: Int? = nil,
+        survivingSeedlingCount: Int? = nil,
+        selectedTreeCount: Int? = nil
     ) {
         guard let index = seedBatches.firstIndex(where: { $0.id == id }) else { return }
         let botanical = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1137,6 +1469,45 @@ final class DemoLibrary: @unchecked Sendable {
         seedBatches[index].stage = stage
         seedBatches[index].notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
         seedBatches[index].soilMixID = soilMixID
+        if let source {
+            seedBatches[index].source = source.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let seedYear {
+            seedBatches[index].seedYear = seedYear
+        }
+        if let locationID {
+            seedBatches[index].locationID = locationID
+        }
+        // Explicit nil clears location when caller passes Optional.none via overload below.
+        if let containerDescription {
+            seedBatches[index].containerDescription = containerDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let initialSeedCount {
+            seedBatches[index].initialSeedCount = max(0, initialSeedCount)
+        }
+        if let viableSeedCount {
+            seedBatches[index].viableSeedCount = max(0, viableSeedCount)
+        }
+        if let sownSeedCount {
+            seedBatches[index].sownSeedCount = max(0, sownSeedCount)
+        }
+        if let germinatedSeedCount {
+            seedBatches[index].germinatedSeedCount = max(0, germinatedSeedCount)
+        }
+        if let survivingSeedlingCount {
+            seedBatches[index].survivingSeedlingCount = max(0, survivingSeedlingCount)
+        }
+        if let selectedTreeCount {
+            seedBatches[index].selectedTreeCount = max(0, selectedTreeCount)
+        }
+        seedBatches[index].updatedAt = .now
+        persistAll()
+    }
+
+    /// Sets or clears location independently of other optional fields.
+    func setSeedBatchLocation(id: UUID, locationID: UUID?) {
+        guard let index = seedBatches.firstIndex(where: { $0.id == id }) else { return }
+        seedBatches[index].locationID = locationID
         seedBatches[index].updatedAt = .now
         persistAll()
     }
@@ -1150,6 +1521,293 @@ final class DemoLibrary: @unchecked Sendable {
         seedBatches[index].updatedAt = .now
         persistAll()
         return next
+    }
+
+    /// Marks a batch Failed (Mac Seed Work action).
+    @discardableResult
+    func markSeedBatchFailed(id: UUID, notes: String = "") -> Bool {
+        guard let index = seedBatches.firstIndex(where: { $0.id == id }) else { return false }
+        let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        seedBatches[index].stage = .failed
+        seedBatches[index].events.append(
+            SeedBatchEvent(date: .now, kind: .failed, notes: trimmed.isEmpty ? "Marked failed by grower" : trimmed)
+        )
+        seedBatches[index].updatedAt = .now
+        persistAll()
+        return true
+    }
+
+    /// Records sowing counts and moves to Sown when still Planned / Stratifying / Ready to Sow.
+    @discardableResult
+    func recordSeedBatchSowing(
+        id: UUID,
+        sownCount: Int,
+        soilMixID: UUID?,
+        locationID: UUID?,
+        containerDescription: String
+    ) -> Bool {
+        guard let index = seedBatches.firstIndex(where: { $0.id == id }) else { return false }
+        guard sownCount > 0 else { return false }
+        seedBatches[index].sownSeedCount = sownCount
+        if let soilMixID {
+            seedBatches[index].soilMixID = soilMixID
+        }
+        if let locationID {
+            seedBatches[index].locationID = locationID
+        }
+        let container = containerDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !container.isEmpty {
+            seedBatches[index].containerDescription = container
+        }
+        switch seedBatches[index].stage {
+        case .planned, .stratifying, .readyToSow:
+            seedBatches[index].stage = .sown
+        default:
+            break
+        }
+        seedBatches[index].events.append(
+            SeedBatchEvent(
+                date: .now,
+                kind: .seedsSown,
+                quantity: sownCount,
+                locationID: locationID ?? seedBatches[index].locationID,
+                soilMixID: soilMixID ?? seedBatches[index].soilMixID
+            )
+        )
+        seedBatches[index].updatedAt = .now
+        persistAll()
+        return true
+    }
+
+    /// Updates germination count and moves toward Germinating when appropriate.
+    @discardableResult
+    func recordSeedBatchGermination(id: UUID, germinatedCount: Int) -> Bool {
+        guard let index = seedBatches.firstIndex(where: { $0.id == id }) else { return false }
+        guard germinatedCount >= 0 else { return false }
+        seedBatches[index].germinatedSeedCount = germinatedCount
+        if seedBatches[index].stage == .sown, germinatedCount > 0 {
+            seedBatches[index].stage = .germinating
+        }
+        seedBatches[index].events.append(
+            SeedBatchEvent(date: .now, kind: .germinationCountUpdated, quantity: germinatedCount)
+        )
+        seedBatches[index].updatedAt = .now
+        persistAll()
+        return true
+    }
+
+    /// Updates surviving seedling count (Mac Update Survival).
+    @discardableResult
+    func updateSeedBatchSurvival(id: UUID, survivingCount: Int) -> Bool {
+        guard let index = seedBatches.firstIndex(where: { $0.id == id }) else { return false }
+        guard survivingCount >= 0 else { return false }
+        let previous = seedBatches[index].survivingSeedlingCount
+        let lost = previous - survivingCount
+        seedBatches[index].survivingSeedlingCount = survivingCount
+        if [.germinating, .sown].contains(seedBatches[index].stage), survivingCount > 0 {
+            seedBatches[index].stage = .seedling
+        }
+        if lost > 0 {
+            seedBatches[index].events.append(
+                SeedBatchEvent(date: .now, kind: .seedlingLoss, quantity: lost)
+            )
+        } else {
+            seedBatches[index].events.append(
+                SeedBatchEvent(date: .now, kind: .noteAdded, quantity: survivingCount, notes: "Survival updated")
+            )
+        }
+        seedBatches[index].updatedAt = .now
+        persistAll()
+        return true
+    }
+
+    /// Selects seedlings for development (Mac Separate Seedlings).
+    @discardableResult
+    func separateSeedBatchSeedlings(id: UUID, selectCount: Int) -> Bool {
+        guard let index = seedBatches.firstIndex(where: { $0.id == id }) else { return false }
+        guard selectCount > 0 else { return false }
+        guard selectCount <= seedBatches[index].survivingSeedlingCount else { return false }
+        seedBatches[index].selectedTreeCount += selectCount
+        seedBatches[index].survivingSeedlingCount -= selectCount
+        seedBatches[index].stage = .developing
+        seedBatches[index].events.append(
+            SeedBatchEvent(
+                date: .now,
+                kind: .seedlingSeparated,
+                quantity: selectCount,
+                notes: "\(selectCount) selected for bonsai development; \(seedBatches[index].survivingSeedlingCount) remain in batch."
+            )
+        )
+        seedBatches[index].updatedAt = .now
+        persistAll()
+        return true
+    }
+
+    // MARK: - Pots
+
+    var orderedPots: [Pot] {
+        pots.sorted {
+            displayName(for: $0).localizedStandardCompare(displayName(for: $1)) == .orderedAscending
+        }
+    }
+
+    var availablePots: [Pot] {
+        orderedPots.filter { $0.status.isNormallyAvailable }
+    }
+
+    func pot(id: UUID) -> Pot? {
+        pots.first { $0.id == id }
+    }
+
+    func pot(linkedToTreeID treeID: UUID) -> Pot? {
+        if let pot = pots.first(where: { $0.linkedTreeID == treeID }) {
+            return pot
+        }
+        if let potID = tree(id: treeID)?.currentPotID {
+            return pot(id: potID)
+        }
+        return nil
+    }
+
+    func displayName(for pot: Pot) -> String {
+        let trimmed = pot.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmed.isEmpty { return trimmed }
+        let shape = pot.shape.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !shape.isEmpty { return shape }
+        return "Untitled Pot"
+    }
+
+    @discardableResult
+    func addPot(
+        name: String = "",
+        material: String = "",
+        shape: String = "",
+        notes: String = ""
+    ) -> Pot? {
+        let now = Date.now
+        let pot = Pot(
+            name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+            material: material.trimmingCharacters(in: .whitespacesAndNewlines),
+            shape: shape.trimmingCharacters(in: .whitespacesAndNewlines),
+            status: .available,
+            notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
+            history: [PotHistoryEntry(kind: .created, date: now)],
+            createdDate: now,
+            modifiedDate: now
+        )
+        pots.append(pot)
+        persistAll()
+        return pots.first { $0.id == pot.id }
+    }
+
+    func updatePot(
+        id: UUID,
+        name: String,
+        material: String,
+        shape: String,
+        condition: String,
+        notes: String,
+        status: PotStatus
+    ) {
+        guard let index = pots.firstIndex(where: { $0.id == id }) else { return }
+        pots[index].name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        pots[index].material = material.trimmingCharacters(in: .whitespacesAndNewlines)
+        pots[index].shape = shape.trimmingCharacters(in: .whitespacesAndNewlines)
+        pots[index].condition = condition.trimmingCharacters(in: .whitespacesAndNewlines)
+        pots[index].notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        // Lifecycle transitions that unassign are handled by assign/unassign helpers.
+        if status != .inUse || pots[index].linkedTreeID != nil {
+            pots[index].status = status
+        }
+        pots[index].modifiedDate = .now
+        persistAll()
+    }
+
+    /// Assigns an Available inventory pot to a tree (Mac Assign Inventory Pot).
+    @discardableResult
+    func assignPot(_ potID: UUID, toTreeID treeID: UUID) -> Bool {
+        guard let potIndex = pots.firstIndex(where: { $0.id == potID }) else { return false }
+        guard let treeIndex = trees.firstIndex(where: { $0.id == treeID }) else { return false }
+        var pot = pots[potIndex]
+        guard pot.status == .available || (pot.status == .inUse && pot.linkedTreeID == treeID) else {
+            return false
+        }
+
+        if let previousTreeID = pot.linkedTreeID, previousTreeID != treeID,
+           let previousIndex = trees.firstIndex(where: { $0.id == previousTreeID }) {
+            trees[previousIndex].currentPotID = nil
+            trees[previousIndex].modifiedDate = .now
+            pot.history.append(
+                PotHistoryEntry(
+                    kind: .unlinkedFromTree,
+                    note: MobileTreePresentation.title(for: trees[previousIndex]),
+                    relatedTreeID: previousTreeID
+                )
+            )
+            pot.linkedTreeID = nil
+            pot.status = .available
+        }
+
+        if let currentPotID = trees[treeIndex].currentPotID, currentPotID != potID {
+            _ = unassignCurrentPot(fromTreeID: treeID)
+            guard let refreshed = pots.firstIndex(where: { $0.id == potID }) else { return false }
+            pot = pots[refreshed]
+        }
+
+        guard let index = pots.firstIndex(where: { $0.id == potID }) else { return false }
+        pots[index].status = .inUse
+        pots[index].linkedTreeID = treeID
+        pots[index].history.append(
+            PotHistoryEntry(
+                kind: .linkedToTree,
+                note: MobileTreePresentation.title(for: trees[treeIndex]),
+                relatedTreeID: treeID
+            )
+        )
+        pots[index].modifiedDate = .now
+        trees[treeIndex].currentPotID = potID
+        trees[treeIndex].modifiedDate = .now
+        persistAll()
+        return true
+    }
+
+    @discardableResult
+    func unassignCurrentPot(fromTreeID treeID: UUID) -> Bool {
+        guard let treeIndex = trees.firstIndex(where: { $0.id == treeID }) else { return false }
+        var potIndex = pots.firstIndex(where: { $0.linkedTreeID == treeID })
+        if potIndex == nil, let potID = trees[treeIndex].currentPotID {
+            potIndex = pots.firstIndex(where: { $0.id == potID })
+        }
+        guard let potIndex else {
+            trees[treeIndex].currentPotID = nil
+            trees[treeIndex].modifiedDate = .now
+            persistAll()
+            return true
+        }
+        pots[potIndex].linkedTreeID = nil
+        if pots[potIndex].status == .inUse {
+            pots[potIndex].status = .available
+        }
+        pots[potIndex].history.append(
+            PotHistoryEntry(kind: .unlinkedFromTree, relatedTreeID: treeID)
+        )
+        pots[potIndex].modifiedDate = .now
+        trees[treeIndex].currentPotID = nil
+        trees[treeIndex].modifiedDate = .now
+        persistAll()
+        return true
+    }
+
+    func deletePot(id: UUID) {
+        guard let index = pots.firstIndex(where: { $0.id == id }) else { return }
+        if let treeID = pots[index].linkedTreeID,
+           let treeIndex = trees.firstIndex(where: { $0.id == treeID }),
+           trees[treeIndex].currentPotID == id {
+            trees[treeIndex].currentPotID = nil
+            trees[treeIndex].modifiedDate = .now
+        }
+        pots.remove(at: index)
+        persistAll()
     }
 
     /// Adds a JPEG original to a Seed Batch. New UUID.
@@ -1227,10 +1885,28 @@ final class DemoLibrary: @unchecked Sendable {
         persistAll()
     }
 
+    private func rememberJPEG(_ id: UUID, data: Data) {
+        imageJPEGData[id] = data
+        jpegOrder.removeAll { $0 == id }
+        jpegOrder.append(id)
+        while jpegOrder.count > jpegCacheLimit {
+            imageJPEGData.removeValue(forKey: jpegOrder.removeFirst())
+        }
+    }
+
+    private func promoteDownloadedImages() {
+        guard let store, !pendingImagePaths.isEmpty else { return }
+        let ready = pendingImagePaths.filter { store.isImageResident(relativePath: $0) }
+        guard !ready.isEmpty else { return }
+        pendingImagePaths.subtract(ready)
+        imageRevision += 1
+    }
+
     private func discardImageAsset(id: UUID) {
         let relativePath = imageAssets[id]?.relativePath
         imageAssets.removeValue(forKey: id)
         imageJPEGData.removeValue(forKey: id)
+        jpegOrder.removeAll { $0 == id }
         if let relativePath, let store {
             try? store.deleteImageData(relativePath: relativePath)
         }
@@ -1429,40 +2105,145 @@ final class DemoLibrary: @unchecked Sendable {
         now: Date,
         calendar: Calendar
     ) -> Bool {
-        let dueDay = calendar.startOfDay(for: dueDate)
-        let today = calendar.startOfDay(for: now)
+        let overdue = isOverdue(dueDate, now: now, calendar: calendar)
+        if horizon == .overdue {
+            return overdue && !expiresIfMissed
+        }
+        if overdue {
+            return false
+        }
+        if horizon == .nextYear {
+            return calendar.component(.year, from: dueDate) > calendar.component(.year, from: now)
+        }
         switch horizon {
-        case .overdue:
-            return dueDay < today && !expiresIfMissed
         case .today:
-            return dueDay == today
+            return calendar.isDateInToday(dueDate)
+        case .thisWeek:
+            return calendar.isDate(dueDate, equalTo: now, toGranularity: .weekOfYear)
+        case .thisMonth:
+            return calendar.isDate(dueDate, equalTo: now, toGranularity: .month)
+        case .thisYear:
+            return calendar.isDate(dueDate, equalTo: now, toGranularity: .year)
+        case .overdue, .nextYear:
+            return false
         }
     }
 
-    /// Field New Tree — botanical + optional nickname + location. Auto bonsai name.
+    /// True when any remaining tree already has this Bonsai Name.
+    func isBonsaiNameInUse(_ name: String) -> Bool {
+        let needle = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return false }
+        return trees.contains {
+            $0.bonsaiName.trimmingCharacters(in: .whitespacesAndNewlines)
+                .caseInsensitiveCompare(needle) == .orderedSame
+        }
+    }
+
+    /// Next official sequence for a species. Same rule as Mac: lowest unused number on remaining trees.
+    func nextBonsaiNameSequence(for speciesID: UUID) -> Int {
+        TreeNamingService.nextSequence(forSpecies: speciesID, existingTrees: trees)
+    }
+
+    /// Field New Tree. Bonsai Name is the Mac format, or a confirmed override.
     @discardableResult
-    func createTree(botanicalName: String, nickname: String, locationID: UUID) -> Tree? {
+    func createTree(
+        botanicalName: String,
+        nickname: String,
+        bonsaiName: String,
+        locationID: UUID,
+        genusID: UUID? = nil,
+        speciesID: UUID? = nil,
+        cultivarID: UUID? = nil,
+        styleID: UUID? = nil,
+        sizeClassID: UUID? = nil,
+        treeStageID: UUID? = nil,
+        soilMixID: UUID? = nil,
+        potTypeID: UUID? = nil,
+        lightConditionID: UUID? = nil,
+        propagation: TreePropagation? = nil,
+        acquisitionDate: Date? = nil,
+        acquisitionMethodID: UUID? = nil,
+        acquisitionSourceName: String = "",
+        purchasePrice: Decimal? = nil,
+        acquisitionNotes: String = "",
+        lastRepottedDate: Date? = nil,
+        repottingIntervalYears: Int? = nil,
+        heightMillimetres: Int? = nil,
+        crownWidthMillimetres: Int? = nil,
+        nebariWidthMillimetres: Int? = nil,
+        trunkDiameterMillimetres: Int? = nil
+    ) -> Tree? {
         let botanical = botanicalName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !botanical.isEmpty else { return nil }
+        let name = bonsaiName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !botanical.isEmpty, !name.isEmpty else { return nil }
+        guard genusID != nil, speciesID != nil else { return nil }
+        guard !isBonsaiNameInUse(name) else { return nil }
         guard location(id: locationID) != nil else { return nil }
-        let nick = nickname.trimmingCharacters(in: .whitespacesAndNewlines)
         let tree = Tree(
             botanicalName: botanical,
-            nickname: nick,
-            bonsaiName: nextBonsaiName(botanicalName: botanical),
+            nickname: nickname.trimmingCharacters(in: .whitespacesAndNewlines),
+            bonsaiName: name,
+            genusID: genusID,
+            speciesID: speciesID,
+            cultivarID: cultivarID,
+            styleID: styleID,
+            sizeClassID: sizeClassID,
+            treeStageID: treeStageID,
             healthStatus: .stable,
-            locationID: locationID
+            locationID: locationID,
+            soilMixID: soilMixID,
+            potTypeID: potTypeID,
+            lightConditionID: lightConditionID,
+            heightMillimetres: heightMillimetres,
+            crownWidthMillimetres: crownWidthMillimetres,
+            nebariWidthMillimetres: nebariWidthMillimetres,
+            trunkDiameterMillimetres: trunkDiameterMillimetres,
+            propagation: propagation,
+            acquisitionDate: acquisitionDate,
+            acquisitionMethodID: acquisitionMethodID,
+            acquisitionSourceName: acquisitionSourceName.trimmingCharacters(in: .whitespacesAndNewlines),
+            purchasePrice: purchasePrice,
+            acquisitionNotes: acquisitionNotes.trimmingCharacters(in: .whitespacesAndNewlines),
+            lastRepottedDate: lastRepottedDate,
+            repottingIntervalYears: repottingIntervalYears
         )
         trees.append(tree)
+        syncAutoRepottingSchedule(for: tree.id)
         persistAll()
         return trees.first { $0.id == tree.id }
     }
 
-    /// Preview of the auto bonsai name that `createTree` would assign (does not mutate).
-    func previewNextBonsaiName(botanicalName: String) -> String? {
-        let botanical = botanicalName.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !botanical.isEmpty else { return nil }
-        return nextBonsaiName(botanicalName: botanical)
+    /// Writes the first measurement session beside the tree, in Mac's history file.
+    func appendInitialMeasurement(_ record: TreeMeasurementRecord) {
+        try? store?.appendTreeMeasurement(record)
+    }
+
+    /// Appends a measurement session and updates denormalized Tree fields (Mac Enter measurements).
+    func appendTreeMeasurement(
+        treeID: UUID,
+        measuredAt: Date,
+        heightMillimetres: Int?,
+        crownWidthMillimetres: Int?,
+        nebariWidthMillimetres: Int?,
+        trunkDiameterMillimetres: Int?
+    ) {
+        guard let index = trees.firstIndex(where: { $0.id == treeID }) else { return }
+        let record = TreeMeasurementRecord(
+            treeID: treeID,
+            measuredAt: measuredAt,
+            heightMillimetres: heightMillimetres,
+            crownWidthMillimetres: crownWidthMillimetres,
+            nebariWidthMillimetres: nebariWidthMillimetres,
+            trunkDiameterMillimetres: trunkDiameterMillimetres
+        )
+        guard record.hasAnyValue else { return }
+        if let heightMillimetres { trees[index].heightMillimetres = heightMillimetres }
+        if let crownWidthMillimetres { trees[index].crownWidthMillimetres = crownWidthMillimetres }
+        if let nebariWidthMillimetres { trees[index].nebariWidthMillimetres = nebariWidthMillimetres }
+        if let trunkDiameterMillimetres { trees[index].trunkDiameterMillimetres = trunkDiameterMillimetres }
+        trees[index].modifiedDate = .now
+        try? store?.appendTreeMeasurement(record)
+        persistAll()
     }
 
     /// Permanently removes a Tree, its photos, work, and tasks. Clears Collection membership and Find links.
@@ -1486,6 +2267,17 @@ final class DemoLibrary: @unchecked Sendable {
                 || next.libraryInventoryKind != nil
             return hasOtherTargets ? next : nil
         }
+        // Drop tree from schedule targets; remove schedule if no trees remain.
+        careSchedules = careSchedules.compactMap { schedule in
+            guard case .trees(let ids) = schedule.target, ids.contains(id) else { return schedule }
+            var nextIDs = ids
+            nextIDs.remove(id)
+            guard !nextIDs.isEmpty else { return nil }
+            var next = schedule
+            next.target = .trees(nextIDs)
+            next.modifiedDate = .now
+            return next
+        }
         for collectionIndex in collections.indices {
             collections[collectionIndex].treeIDs.removeAll { $0 == id }
         }
@@ -1499,40 +2291,251 @@ final class DemoLibrary: @unchecked Sendable {
         refreshTodayTasksNotification()
     }
 
-    private func nextBonsaiName(botanicalName: String) -> String {
-        let year = Calendar.current.component(.year, from: .now)
-        let parts = botanicalName.split(separator: " ")
-        let prefix: String = {
-            if parts.count >= 2 {
-                let genus = String(parts[0].prefix(3)).uppercased()
-                let species = String(parts[1].prefix(3)).uppercased()
-                return "\(genus)-\(species)"
-            }
-            return String(botanicalName.prefix(3)).uppercased()
-        }()
-        let marker = "\(prefix)-\(year)-"
-        let existing = trees.filter { $0.bonsaiName.uppercased().hasPrefix(marker) }
-        let next = existing.count + 1
-        return "\(marker)\(String(format: "%03d", next))"
-    }
-
-    /// Commits editable Tree Profile fields. Identity, photos, and work are unchanged.
+    /// Commits core editable fields; other overview fields stay as stored on the Tree.
     func updateTree(
         id: UUID,
         nickname: String,
         locationID: UUID,
         soilMixID: UUID?,
         notes: String,
-        healthStatus: TreeHealthStatus
+        healthStatus: TreeHealthStatus,
+        healthCause: String
+    ) {
+        guard let tree = tree(id: id) else { return }
+        let membership = Set(
+            collections
+                .filter { $0.isManual && $0.treeIDs.contains(id) }
+                .map(\.id)
+        )
+        updateTree(
+            id: id,
+            nickname: nickname,
+            locationID: locationID,
+            soilMixID: soilMixID,
+            potTypeID: tree.potTypeID,
+            lightConditionID: tree.lightConditionID,
+            styleID: tree.styleID,
+            sizeClassID: tree.sizeClassID,
+            treeStageID: tree.treeStageID,
+            propagation: tree.propagation,
+            acquisitionDate: tree.acquisitionDate,
+            acquisitionMethodID: tree.acquisitionMethodID,
+            acquisitionSourceName: tree.acquisitionSourceName,
+            purchasePrice: tree.purchasePrice,
+            acquisitionNotes: tree.acquisitionNotes,
+            lastRepottedDate: tree.lastRepottedDate,
+            repottingIntervalYears: tree.repottingIntervalYears,
+            notes: notes,
+            healthStatus: healthStatus,
+            healthCause: healthCause,
+            manualCollectionIDs: membership
+        )
+    }
+
+    /// Commits Overview editable fields (Mac Tree Detail Overview). Identity and photos unchanged.
+    func updateTree(
+        id: UUID,
+        nickname: String,
+        locationID: UUID,
+        soilMixID: UUID?,
+        potTypeID: UUID?,
+        lightConditionID: UUID?,
+        styleID: UUID?,
+        sizeClassID: UUID?,
+        treeStageID: UUID?,
+        propagation: TreePropagation?,
+        acquisitionDate: Date?,
+        acquisitionMethodID: UUID?,
+        acquisitionSourceName: String,
+        purchasePrice: Decimal?,
+        acquisitionNotes: String,
+        lastRepottedDate: Date?,
+        repottingIntervalYears: Int?,
+        notes: String,
+        healthStatus: TreeHealthStatus,
+        healthCause: String,
+        manualCollectionIDs: Set<UUID>
     ) {
         guard let index = trees.firstIndex(where: { $0.id == id }) else { return }
         trees[index].nickname = nickname
         trees[index].locationID = locationID
         trees[index].soilMixID = soilMixID
+        trees[index].potTypeID = potTypeID
+        trees[index].lightConditionID = lightConditionID
+        trees[index].styleID = styleID
+        trees[index].sizeClassID = sizeClassID
+        trees[index].treeStageID = treeStageID
+        trees[index].propagation = propagation
+        trees[index].acquisitionDate = acquisitionDate
+        trees[index].acquisitionMethodID = acquisitionMethodID
+        trees[index].acquisitionSourceName = acquisitionSourceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        trees[index].purchasePrice = purchasePrice
+        trees[index].acquisitionNotes = acquisitionNotes.trimmingCharacters(in: .whitespacesAndNewlines)
+        trees[index].lastRepottedDate = lastRepottedDate
+        trees[index].repottingIntervalYears = repottingIntervalYears.map { max(1, min(20, $0)) }
         trees[index].notes = notes
         trees[index].healthStatus = healthStatus
+        trees[index].healthCause = healthCause.trimmingCharacters(in: .whitespacesAndNewlines)
+        trees[index].modifiedDate = .now
+
+        for collectionIndex in collections.indices where collections[collectionIndex].isManual {
+            let collectionID = collections[collectionIndex].id
+            let shouldBelong = manualCollectionIDs.contains(collectionID)
+            let currentlyBelongs = collections[collectionIndex].treeIDs.contains(id)
+            if shouldBelong, !currentlyBelongs {
+                collections[collectionIndex].treeIDs.append(id)
+            } else if !shouldBelong, currentlyBelongs {
+                collections[collectionIndex].treeIDs.removeAll { $0 == id }
+            }
+        }
+
+        syncAutoRepottingSchedule(for: id)
+        persistAll()
+    }
+
+    /// Updates the full Shaping workbook for a tree (Mac Tree Detail → Shaping).
+    func updateShaping(treeID: UUID, shaping: TreeShaping) {
+        guard let index = trees.firstIndex(where: { $0.id == treeID }) else { return }
+        trees[index].shaping = shaping
         trees[index].modifiedDate = .now
         persistAll()
+    }
+
+    /// Updates one Shaping area record.
+    func updateShapingArea(treeID: UUID, area: ShapingAreaID, record: ShapingAreaRecord) {
+        guard let index = trees.firstIndex(where: { $0.id == treeID }) else { return }
+        var shaping = trees[index].shaping ?? .empty
+        if !shaping.didMigrateVision {
+            if let vision = trees[index].vision {
+                shaping.migrateFromVision(vision)
+            }
+            shaping.didMigrateVision = true
+        }
+        shaping.setRecord(record, for: area)
+        trees[index].shaping = shaping
+        trees[index].modifiedDate = .now
+        persistAll()
+    }
+
+    /// Ensures Vision→Shaping migration once, then returns current shaping.
+    func shaping(for treeID: UUID) -> TreeShaping {
+        guard let index = trees.firstIndex(where: { $0.id == treeID }) else { return .empty }
+        var shaping = trees[index].shaping ?? .empty
+        guard !shaping.didMigrateVision else { return shaping }
+        if let vision = trees[index].vision {
+            shaping.migrateFromVision(vision)
+        }
+        shaping.didMigrateVision = true
+        trees[index].shaping = shaping
+        trees[index].modifiedDate = .now
+        persistAll()
+        return shaping
+    }
+
+    // MARK: - Auto Repotting Schedule (Mac RepottingCareService)
+
+    private static let autoRepottingTitle = "Repotting"
+    private static let autoRepottingSeasonNote =
+        "Repotting season is March–May. Next due is placed in that window."
+
+    /// Create / update / remove the auto Schedule for one tree (Mac `syncSchedule(for:)`).
+    func syncAutoRepottingSchedule(for treeID: UUID) {
+        guard let tree = tree(id: treeID), tree.isInCare else {
+            removeAutoRepottingSchedule(for: treeID)
+            return
+        }
+        guard let interval = tree.repottingIntervalYears, interval >= 1,
+              let lastRepotted = tree.lastRepottedDate
+        else {
+            removeAutoRepottingSchedule(for: treeID)
+            return
+        }
+
+        let workTypeID = CanonicalWorkTypeID.repotting
+        ensureBaselineRepottingWork(treeID: treeID, lastRepotted: lastRepotted, workTypeID: workTypeID)
+
+        let recurrence = CareRecurrenceRule(unit: .year, interval: interval)
+        if var existing = autoRepottingSchedule(for: treeID) {
+            var changed = false
+            if existing.recurrence.interval != interval || existing.recurrence.unit != .year {
+                existing.recurrence = recurrence
+                changed = true
+            }
+            if existing.workTypeID != workTypeID {
+                existing.workTypeID = workTypeID
+                changed = true
+            }
+            if existing.title != Self.autoRepottingTitle {
+                existing.title = Self.autoRepottingTitle
+                changed = true
+            }
+            if existing.notes != Self.autoRepottingSeasonNote {
+                existing.notes = Self.autoRepottingSeasonNote
+                changed = true
+            }
+            if !existing.isActive {
+                existing.isActive = true
+                changed = true
+            }
+            if existing.systemKind != .autoRepotting {
+                existing.systemKind = .autoRepotting
+                changed = true
+            }
+            if changed {
+                existing.modifiedDate = .now
+                if let index = careSchedules.firstIndex(where: { $0.id == existing.id }) {
+                    careSchedules[index] = existing
+                }
+            }
+            return
+        }
+
+        careSchedules.append(
+            CareSchedule(
+                title: Self.autoRepottingTitle,
+                workTypeID: workTypeID,
+                target: .trees(Set([treeID])),
+                recurrence: recurrence,
+                systemKind: .autoRepotting,
+                notes: Self.autoRepottingSeasonNote
+            )
+        )
+    }
+
+    private func autoRepottingSchedule(for treeID: UUID) -> CareSchedule? {
+        careSchedules.first { schedule in
+            guard schedule.systemKind == .autoRepotting else { return false }
+            if case .trees(let ids) = schedule.target {
+                return ids.contains(treeID)
+            }
+            return false
+        }
+    }
+
+    private func removeAutoRepottingSchedule(for treeID: UUID) {
+        careSchedules.removeAll { schedule in
+            guard schedule.systemKind == .autoRepotting else { return false }
+            if case .trees(let ids) = schedule.target {
+                return ids.contains(treeID)
+            }
+            return false
+        }
+    }
+
+    private func ensureBaselineRepottingWork(treeID: UUID, lastRepotted: Date, workTypeID: UUID) {
+        let calendar = Calendar.current
+        if let existing = lastRepotDate(for: treeID) {
+            if calendar.isDate(existing, inSameDayAs: lastRepotted) || existing > lastRepotted {
+                return
+            }
+        }
+        let record = WorkRecord(
+            workTypeID: workTypeID,
+            treeIDs: [treeID],
+            performedAt: lastRepotted,
+            notes: "Last repotted (recorded on tree)"
+        )
+        workRecords.insert(record, at: 0)
     }
 
     /// Seed batches that currently reference this Soil Mix.
@@ -1638,6 +2641,7 @@ final class DemoLibrary: @unchecked Sendable {
         locations = []
         gardens = []
         careTasks = []
+        careSchedules = []
         yamadoriTrips = []
         yamadoriFinds = []
         seedBatches = []
@@ -1678,6 +2682,7 @@ final class DemoLibrary: @unchecked Sendable {
             locations = CanonicalLocationID.seedLocations
             gardens = Garden.seedCatalog
             careTasks = Self.sampleTasks(for: trees)
+            careSchedules = []
             yamadoriTrips = []
             yamadoriFinds = []
             seedBatches = []
@@ -1707,18 +2712,23 @@ final class DemoLibrary: @unchecked Sendable {
         guard let store else { return }
         do {
             try store.ensureFolderStructure()
+            switch store.treesFileState() {
+            case .notReady:
+                waitingForICloudLibrary = true
+                return
+            case .missing where store.isICloudDrive:
+                waitingForICloudLibrary = false
+                return
+            case .missing, .ready:
+                waitingForICloudLibrary = false
+            }
             if let loadedTrees = try store.loadTrees() {
                 trees = loadedTrees
                 workRecords = try store.loadWork() ?? []
                 let catalog = try store.loadImageCatalog() ?? []
                 imageAssets = Dictionary(uniqueKeysWithValues: catalog.map { ($0.id, $0) })
-                var pixels: [UUID: Data] = [:]
-                for asset in catalog {
-                    if let data = try store.loadImageData(relativePath: asset.relativePath), !data.isEmpty {
-                        pixels[asset.id] = data
-                    }
-                }
-                imageJPEGData = pixels
+                imageJPEGData = [:]
+                jpegOrder = []
                 do {
                     collections = try store.loadCollections() ?? []
                     ensureSystemSmartCollections()
@@ -1778,6 +2788,13 @@ final class DemoLibrary: @unchecked Sendable {
                 } catch {
                     careTasks = []
                     lastLoadError = "Bonsai World could not load Tasks: \(error.localizedDescription)"
+                    print(lastLoadError ?? "")
+                }
+                do {
+                    careSchedules = try store.loadSchedules() ?? []
+                } catch {
+                    careSchedules = []
+                    lastLoadError = "Bonsai World could not load Schedules: \(error.localizedDescription)"
                     print(lastLoadError ?? "")
                 }
                 do {
@@ -1852,6 +2869,23 @@ final class DemoLibrary: @unchecked Sendable {
                     print(lastLoadError ?? "")
                 }
                 do {
+                    if let loaded = try store.loadPots() {
+                        pots = loaded
+                    } else {
+                        pots = []
+                        do {
+                            try store.savePots(pots)
+                        } catch {
+                            lastLoadError = "Bonsai World could not save Pots: \(error.localizedDescription)"
+                            print(lastLoadError ?? "")
+                        }
+                    }
+                } catch {
+                    pots = []
+                    lastLoadError = "Bonsai World could not load Pots: \(error.localizedDescription)"
+                    print(lastLoadError ?? "")
+                }
+                do {
                     if let profile = try store.loadUserProfile() {
                         growerName = profile.name
                     } else {
@@ -1868,6 +2902,7 @@ final class DemoLibrary: @unchecked Sendable {
                 locations = CanonicalLocationID.seedLocations
                 gardens = Garden.seedCatalog
                 careTasks = Self.sampleTasks(for: trees)
+                careSchedules = []
                 yamadoriTrips = []
                 yamadoriFinds = []
                 seedBatches = []
@@ -1879,6 +2914,9 @@ final class DemoLibrary: @unchecked Sendable {
                 persistAll()
                 refreshTodayTasksNotification()
             }
+        } catch MobileLibraryStoreError.notLocal {
+            waitingForICloudLibrary = true
+            return
         } catch {
             let message = "Bonsai World could not load the local library: \(error.localizedDescription)"
             lastLoadError = message
@@ -1889,6 +2927,7 @@ final class DemoLibrary: @unchecked Sendable {
             locations = []
             gardens = []
             careTasks = []
+            careSchedules = []
             yamadoriTrips = []
             yamadoriFinds = []
             seedBatches = []
@@ -1897,6 +2936,79 @@ final class DemoLibrary: @unchecked Sendable {
             imageAssets = [:]
             imageJPEGData = [:]
         }
+        loadedContentStamp = libraryContentStamp()
+    }
+
+    /// Re-reads the library when Mac (or iCloud) has written newer files.
+    func refreshFromDiskIfChanged() {
+        if waitingForICloudLibrary {
+            loadOrSeed()
+            if waitingForICloudLibrary { return }
+        }
+        promoteDownloadedImages()
+        if let until = suppressRefreshUntil, Date() < until {
+            loadedContentStamp = libraryContentStamp()
+            return
+        }
+        requestICloudDownload()
+        let stamp = libraryContentStamp()
+        guard let stamp else { return }
+        guard stamp != loadedContentStamp else { return }
+        reloadFromDisk()
+    }
+
+    private func startLibraryRefresh() {
+        guard store != nil else { return }
+        let timer = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
+            self?.refreshFromDiskIfChanged()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        refreshTimer = timer
+    }
+
+    var isUsingICloudDrive: Bool {
+        store?.isICloudDrive == true
+    }
+
+    private func requestICloudDownload() {
+        guard let store, store.isICloudDrive else { return }
+        // Must not call startDownloadingUbiquitousItem on the main timer — Simulator XPC hangs the UI.
+        CloudDownload.requestFolders(
+            under: store.rootURL,
+            relativeFolders: ["Database", "Images", "Images/Originals"]
+        )
+    }
+
+    private func libraryContentStamp() -> Date? {
+        guard let store else { return nil }
+        let names = [
+            MobileLibraryPackageLayout.treesFileName,
+            MobileLibraryPackageLayout.workFileName,
+            MobileLibraryPackageLayout.collectionsFileName,
+            MobileLibraryPackageLayout.locationsFileName,
+            MobileLibraryPackageLayout.gardensFileName,
+            MobileLibraryPackageLayout.tasksFileName,
+            MobileLibraryPackageLayout.schedulesFileName,
+            MobileLibraryPackageLayout.yamadoriFileName,
+            MobileLibraryPackageLayout.seedBatchesFileName,
+            MobileLibraryPackageLayout.soilMixesFileName,
+            MobileLibraryPackageLayout.inventoryStockFileName,
+            MobileLibraryPackageLayout.potsFileName,
+            MobileLibraryPackageLayout.imagesCatalogFileName,
+            MobileLibraryPackageLayout.userProfileFileName,
+            MobileLibraryPackageLayout.treeMeasurementHistoryFileName
+        ]
+        let dates: [Date] = names.compactMap { name in
+            let url = store.url(for: name)
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
+            return values?.contentModificationDate
+        }
+        return dates.max()
+    }
+
+    private func noteLocalWrite() {
+        suppressRefreshUntil = Date().addingTimeInterval(2)
+        loadedContentStamp = libraryContentStamp()
     }
 
     /// Ensures system Smart Collection placeholders exist (same catalog as Mac).
@@ -1965,13 +3077,16 @@ final class DemoLibrary: @unchecked Sendable {
             try store.saveLocations(locations)
             try store.saveGardens(gardens)
             try store.saveTasks(careTasks)
+            try store.saveSchedules(careSchedules)
             try store.saveYamadori(trips: yamadoriTrips, finds: yamadoriFinds)
             try store.saveSeedBatches(seedBatches)
             try store.saveSoilMixes(soilMixes)
             try store.saveInventoryStock(inventoryStock)
+            try store.savePots(pots)
             try store.saveImageCatalog(Array(imageAssets.values))
             try store.saveUserProfile(MobileUserProfileFile(name: growerName, email: ""))
             lastSaveError = nil
+            noteLocalWrite()
         } catch {
             reportSaveFailure(error)
         }

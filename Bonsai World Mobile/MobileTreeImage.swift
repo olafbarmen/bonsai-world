@@ -29,8 +29,9 @@ struct MobileTreeImage: View {
     }
 
     var body: some View {
+        let image = resolvedImage
         Group {
-            if let image = resolvedImage {
+            if let image {
                 image
                     .resizable()
                     .scaledToFill()
@@ -46,16 +47,16 @@ struct MobileTreeImage: View {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .strokeBorder(BonsaiWorldColors.border, lineWidth: 1)
         }
-        .accessibilityLabel(hasPixels ? "Tree photo" : "No photo")
+        .accessibilityLabel(image == nil ? "No photo" : "Tree photo")
     }
 
     private var resolvedID: UUID? { imageID ?? tree.listImageID }
 
-    private var hasPixels: Bool { library.jpegData(for: resolvedID) != nil }
-
     private var resolvedImage: Image? {
-        guard let data = library.jpegData(for: resolvedID),
-              let uiImage = UIImage(data: data)
+        _ = library.imageRevision
+        let maxPixel: CGFloat = style == .hero ? 800 : 160
+        guard let url = library.residentImageURL(for: resolvedID),
+              let uiImage = MobileImageThumbnail.image(at: url, maxPixel: maxPixel)
         else { return nil }
         return Image(uiImage: uiImage)
     }

@@ -39,6 +39,8 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
     var treeStageID: UUID?
     /// Grower-facing health assessment (not botanical identity).
     var healthStatus: TreeHealthStatus
+    /// What is wrong, written by the grower. Empty when unset. Separate from ``healthStatus``.
+    var healthCause: String
 
     // MARK: - Fertilization plan inputs
     // Tree Stage drives fertilization mode. Condition is explicit — never assumed healthy.
@@ -50,15 +52,22 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
 
     // MARK: - Growing
 
-    /// Reference Data — Growing → Locations. Required.
+    /// Where the tree stands **now** (map, lists, watering by place). Required.
+    /// For seasonal trees this follows Home / Winter when Season changes.
     /// Map position is derived from this Location — Trees never store coordinates.
     var locationID: UUID
+    /// Usual / summer Location. Always outdoors trees stay here year-round.
+    var homeLocationID: UUID
+    /// Winter Location for seasonal trees (greenhouse, wall, balcony, …). Nil until set.
+    var winterLocationID: UUID?
     /// Reference Data — Soil Mix (composition lives on the mix, not the tree).
     var soilMixID: UUID?
     /// Tree Pot Description — generic container type (Reference Data Pot Type).
     /// Always available as fallback when no Inventory Pot is assigned.
     /// Not cleared when an Inventory Pot is linked; Inventory Pot wins for display only.
     var potTypeID: UUID?
+    /// Tree Pot Description — grower-written color. Empty when unset.
+    var potColor: String
     var lightConditionID: UUID?
 
     // MARK: - Measurements
@@ -90,6 +99,18 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
     var sourceSeedBatchID: UUID?
     /// When true, this Tree appears in Nursery → Yamadori Trees until moved to My Trees.
     var yamadoriNursery: Bool
+
+    // MARK: - Age (estimated origin)
+
+    /// Calendar year the tree is estimated to have begun (seed / collected / etc.).
+    /// Age is derived as whole years: current calendar year − ``originYear`` (ticks at New Year).
+    var originYear: Int?
+
+    /// Country the tree came from, distinct from acquisition Origin (method or source).
+    var countryOfOrigin: String
+
+    /// How the tree began. Nil until set. Distinct from Acquisition Method.
+    var propagation: TreePropagation?
 
     // MARK: - Acquisition (start of ownership)
 
@@ -195,11 +216,15 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
         sizeClassID: UUID? = nil,
         treeStageID: UUID? = nil,
         healthStatus: TreeHealthStatus = .stable,
+        healthCause: String = "",
         fertilizerHealth: FertilizerHealth? = nil,
         fertilizerKindOverride: FertilizerKind? = nil,
         locationID: UUID,
+        homeLocationID: UUID? = nil,
+        winterLocationID: UUID? = nil,
         soilMixID: UUID? = nil,
         potTypeID: UUID? = nil,
+        potColor: String = "",
         lightConditionID: UUID? = nil,
         heightMillimetres: Int? = nil,
         crownWidthMillimetres: Int? = nil,
@@ -213,6 +238,9 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
         sourceYamadoriID: UUID? = nil,
         sourceSeedBatchID: UUID? = nil,
         yamadoriNursery: Bool = false,
+        originYear: Int? = nil,
+        countryOfOrigin: String = "",
+        propagation: TreePropagation? = nil,
         acquisitionDate: Date? = nil,
         acquisitionMethodID: UUID? = nil,
         acquisitionSourceName: String = "",
@@ -257,11 +285,15 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
         self.sizeClassID = sizeClassID
         self.treeStageID = treeStageID
         self.healthStatus = healthStatus
+        self.healthCause = healthCause
         self.fertilizerHealth = fertilizerHealth
         self.fertilizerKindOverride = fertilizerKindOverride
         self.locationID = locationID
+        self.homeLocationID = homeLocationID ?? locationID
+        self.winterLocationID = winterLocationID
         self.soilMixID = soilMixID
         self.potTypeID = potTypeID
+        self.potColor = potColor
         self.lightConditionID = lightConditionID
         self.heightMillimetres = heightMillimetres
         self.crownWidthMillimetres = crownWidthMillimetres
@@ -275,6 +307,9 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
         self.sourceYamadoriID = sourceYamadoriID
         self.sourceSeedBatchID = sourceSeedBatchID
         self.yamadoriNursery = yamadoriNursery
+        self.originYear = Self.sanitizedOriginYear(originYear)
+        self.countryOfOrigin = countryOfOrigin
+        self.propagation = propagation
         self.acquisitionDate = acquisitionDate
         self.acquisitionMethodID = acquisitionMethodID
         self.acquisitionSourceName = acquisitionSourceName
@@ -330,6 +365,64 @@ struct Tree: Identifiable, Codable, Hashable, Sendable {
             || disposalPrice != nil
             || !disposalNotes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
+
+    /// Whole-year age from ``originYear``. Changes only when the calendar year changes.
+    func ageInWholeYears(calendar: Calendar = .current, now: Date = .now) -> Int? {
+        Self.ageInWholeYears(originYear: originYear, calendar: calendar, now: now)
+    }
+
+    /// Updates ``locationID`` (standing now) from Home / Winter and Season.
+    /// Winter Season without a Winter Location leaves standing now unchanged.
+    mutating func syncStandingLocationFromPlacement() {
+        switch placementStrategy {
+        case .alwaysOutdoors:
+            locationID = homeLocationID
+        case .seasonal:
+            switch seasonPlacement {
+            case .summer:
+                locationID = homeLocationID
+            case .winter:
+                if let winterLocationID {
+                    locationID = winterLocationID
+                }
+            }
+        }
+    }
+
+    /// Clamps / rejects impossible origin years. Nil clears the value.
+    static func sanitizedOriginYear(
+        _ year: Int?,
+        calendar: Calendar = .current,
+        now: Date = .now
+    ) -> Int? {
+        guard let year else { return nil }
+        let currentYear = calendar.component(.year, from: now)
+        guard year >= 1, year <= currentYear else { return nil }
+        return year
+    }
+
+    /// Origin year implied by a whole-year age as of `now`.
+    static func originYear(
+        fromAge age: Int?,
+        calendar: Calendar = .current,
+        now: Date = .now
+    ) -> Int? {
+        guard let age, age >= 0 else { return nil }
+        let currentYear = calendar.component(.year, from: now)
+        return sanitizedOriginYear(currentYear - age, calendar: calendar, now: now)
+    }
+
+    static func ageInWholeYears(
+        originYear: Int?,
+        calendar: Calendar = .current,
+        now: Date = .now
+    ) -> Int? {
+        guard let originYear = sanitizedOriginYear(originYear, calendar: calendar, now: now) else {
+            return nil
+        }
+        let currentYear = calendar.component(.year, from: now)
+        return currentYear - originYear
+    }
 }
 
 // MARK: - Codable (Tree Stage migration)
@@ -340,13 +433,14 @@ extension Tree {
         case genusID, speciesID, cultivarID, styleID, sizeClassID
         case treeStageID
         case treeStatusID
-        case healthStatus
+        case healthStatus, healthCause
         case fertilizerHealth, fertilizerKindOverride
         case fertilizerStage, fertilizerGrowth
-        case locationID, soilMixID, potTypeID, lightConditionID
+        case locationID, homeLocationID, winterLocationID, soilMixID, potTypeID, potColor, lightConditionID
         case heightMillimetres, crownWidthMillimetres, nebariWidthMillimetres, trunkDiameterMillimetres
         case potLengthMillimetres, potWidthMillimetres, potHeightMillimetres, potDiameterMillimetres
         case currentPotID, sourceYamadoriID, sourceSeedBatchID, yamadoriNursery
+        case originYear, countryOfOrigin, propagation
         case acquisitionDate, acquisitionMethodID, acquisitionSourceName, purchasePrice, acquisitionNotes
         case disposalDate, disposalMethodID, disposalPartyName, disposalPrice, disposalNotes
         case notes, knownHistory, socialShareLevel
@@ -373,11 +467,15 @@ extension Tree {
         treeStageID = try c.decodeIfPresent(UUID.self, forKey: .treeStageID)
             ?? c.decodeIfPresent(UUID.self, forKey: .treeStatusID)
         healthStatus = try c.decodeIfPresent(TreeHealthStatus.self, forKey: .healthStatus) ?? .stable
+        healthCause = try c.decodeIfPresent(String.self, forKey: .healthCause) ?? ""
         fertilizerHealth = try c.decodeIfPresent(FertilizerHealth.self, forKey: .fertilizerHealth)
         fertilizerKindOverride = try c.decodeIfPresent(FertilizerKind.self, forKey: .fertilizerKindOverride)
         locationID = try c.decode(UUID.self, forKey: .locationID)
+        homeLocationID = try c.decodeIfPresent(UUID.self, forKey: .homeLocationID) ?? locationID
+        winterLocationID = try c.decodeIfPresent(UUID.self, forKey: .winterLocationID)
         soilMixID = try c.decodeIfPresent(UUID.self, forKey: .soilMixID)
         potTypeID = try c.decodeIfPresent(UUID.self, forKey: .potTypeID)
+        potColor = try c.decodeIfPresent(String.self, forKey: .potColor) ?? ""
         lightConditionID = try c.decodeIfPresent(UUID.self, forKey: .lightConditionID)
         heightMillimetres = try c.decodeIfPresent(Int.self, forKey: .heightMillimetres)
         crownWidthMillimetres = try c.decodeIfPresent(Int.self, forKey: .crownWidthMillimetres)
@@ -391,6 +489,9 @@ extension Tree {
         sourceYamadoriID = try c.decodeIfPresent(UUID.self, forKey: .sourceYamadoriID)
         sourceSeedBatchID = try c.decodeIfPresent(UUID.self, forKey: .sourceSeedBatchID)
         yamadoriNursery = try c.decodeIfPresent(Bool.self, forKey: .yamadoriNursery) ?? false
+        originYear = Self.sanitizedOriginYear(try c.decodeIfPresent(Int.self, forKey: .originYear))
+        countryOfOrigin = try c.decodeIfPresent(String.self, forKey: .countryOfOrigin) ?? ""
+        propagation = try c.decodeIfPresent(TreePropagation.self, forKey: .propagation)
         acquisitionDate = try c.decodeIfPresent(Date.self, forKey: .acquisitionDate)
         acquisitionMethodID = try c.decodeIfPresent(UUID.self, forKey: .acquisitionMethodID)
         acquisitionSourceName = try c.decodeIfPresent(String.self, forKey: .acquisitionSourceName) ?? ""
@@ -461,11 +562,15 @@ extension Tree {
         try c.encodeIfPresent(sizeClassID, forKey: .sizeClassID)
         try c.encodeIfPresent(treeStageID, forKey: .treeStageID)
         try c.encode(healthStatus, forKey: .healthStatus)
+        try c.encode(healthCause, forKey: .healthCause)
         try c.encodeIfPresent(fertilizerHealth, forKey: .fertilizerHealth)
         try c.encodeIfPresent(fertilizerKindOverride, forKey: .fertilizerKindOverride)
         try c.encode(locationID, forKey: .locationID)
+        try c.encode(homeLocationID, forKey: .homeLocationID)
+        try c.encodeIfPresent(winterLocationID, forKey: .winterLocationID)
         try c.encodeIfPresent(soilMixID, forKey: .soilMixID)
         try c.encodeIfPresent(potTypeID, forKey: .potTypeID)
+        try c.encode(potColor, forKey: .potColor)
         try c.encodeIfPresent(lightConditionID, forKey: .lightConditionID)
         try c.encodeIfPresent(heightMillimetres, forKey: .heightMillimetres)
         try c.encodeIfPresent(crownWidthMillimetres, forKey: .crownWidthMillimetres)
@@ -479,6 +584,9 @@ extension Tree {
         try c.encodeIfPresent(sourceYamadoriID, forKey: .sourceYamadoriID)
         try c.encodeIfPresent(sourceSeedBatchID, forKey: .sourceSeedBatchID)
         try c.encode(yamadoriNursery, forKey: .yamadoriNursery)
+        try c.encodeIfPresent(originYear, forKey: .originYear)
+        try c.encode(countryOfOrigin, forKey: .countryOfOrigin)
+        try c.encodeIfPresent(propagation, forKey: .propagation)
         try c.encodeIfPresent(acquisitionDate, forKey: .acquisitionDate)
         try c.encodeIfPresent(acquisitionMethodID, forKey: .acquisitionMethodID)
         try c.encode(acquisitionSourceName, forKey: .acquisitionSourceName)

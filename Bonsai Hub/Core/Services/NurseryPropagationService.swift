@@ -640,6 +640,7 @@ final class NurseryPropagationService {
                 speciesID: project.speciesID,
                 cultivarID: project.cultivarID,
                 locationID: locationID,
+                propagation: project.kind.treePropagation,
                 acquisitionDate: .now,
                 acquisitionMethodID: methodID,
                 acquisitionSourceName: project.projectCode,

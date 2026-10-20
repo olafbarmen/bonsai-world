@@ -51,18 +51,20 @@ struct DashboardLayout: Hashable, Codable, Sendable {
     /// Active layout — live cards first, then headings kept for unwired modules.
     static let refined = DashboardLayout(
         cards: [
-            DashboardCardPlacement(id: .tasks, prominence: .primary, isFavorite: true),
+            DashboardCardPlacement(id: .careCalendar, prominence: .primary, isFavorite: true),
+            DashboardCardPlacement(id: .treesRequiringAttention, prominence: .primary),
             DashboardCardPlacement(id: .weather, prominence: .primary),
+            DashboardCardPlacement(id: .tasks, prominence: .primary, isFavorite: true),
             DashboardCardPlacement(id: .alerts, prominence: .primary),
-            DashboardCardPlacement(id: .upcoming, prominence: .primary),
-            DashboardCardPlacement(id: .treesRequiringAttention, prominence: .secondary),
             DashboardCardPlacement(id: .library, prominence: .secondary),
-            DashboardCardPlacement(id: .recentWork, prominence: .secondary),
-            DashboardCardPlacement(id: .collectionOverview, prominence: .secondary),
+            DashboardCardPlacement(id: .upcoming, prominence: .secondary),
             DashboardCardPlacement(id: .inventoryStatus, prominence: .secondary),
-            DashboardCardPlacement(id: .repotting, prominence: .secondary),
-            DashboardCardPlacement(id: .quickStatistics, prominence: .secondary),
+            DashboardCardPlacement(id: .shapingInProgress, prominence: .secondary),
+            DashboardCardPlacement(id: .recentWork, prominence: .secondary, isHidden: true),
+            DashboardCardPlacement(id: .collectionOverview, prominence: .secondary),
             DashboardCardPlacement(id: .knowledge, prominence: .secondary),
+            DashboardCardPlacement(id: .repotting, prominence: .secondary, isHidden: true),
+            DashboardCardPlacement(id: .quickStatistics, prominence: .secondary, isHidden: true),
             DashboardCardPlacement(id: .todaysCare, prominence: .primary, isHidden: true)
         ]
     )

@@ -10,7 +10,7 @@
 //    - Address (frames the map near the right area)
 //    - Garden Position (manually placed — never auto-geocoded)
 //    - Map Center (identical to Garden Position — Single Source of Truth)
-//    - Climate context for Growing Intelligence (region, hardiness, elevation)
+//    - Climate context (hemisphere, season, region, hardiness, elevation)
 //
 //  Trees never store coordinates — they reference Locations, which belong to a Garden.
 //
@@ -31,9 +31,13 @@ struct Garden: Identifiable, Codable, Hashable, Sendable {
 
     // MARK: Climate context (Growing Intelligence — owned by Garden)
 
+    /// Which way the year runs. `nil` until chosen, or suggested from Garden Position.
+    var hemisphere: GardenHemisphere?
+    /// Shape of the growing year. `nil` until chosen. Temperate is the Care Calendar baseline.
+    var season: GardenSeason?
     /// Free-text region / locality within the country (e.g. county, state).
     var region: String
-    /// USDA / local hardiness zone label when known (e.g. "7b").
+    /// USDA / local hardiness zone label when known (e.g. "7b"). Winter survival, not calendar timing.
     var hardinessZone: String
     /// Elevation in metres above sea level. `nil` until recorded.
     var elevationMeters: Double?
@@ -56,6 +60,8 @@ struct Garden: Identifiable, Codable, Hashable, Sendable {
         postalCode: String = "",
         city: String = "",
         country: String = "",
+        hemisphere: GardenHemisphere? = nil,
+        season: GardenSeason? = nil,
         region: String = "",
         hardinessZone: String = "",
         elevationMeters: Double? = nil,
@@ -70,6 +76,8 @@ struct Garden: Identifiable, Codable, Hashable, Sendable {
         self.postalCode = postalCode
         self.city = city
         self.country = country
+        self.hemisphere = hemisphere
+        self.season = season
         self.region = region
         self.hardinessZone = hardinessZone
         self.elevationMeters = elevationMeters
@@ -94,6 +102,10 @@ struct Garden: Identifiable, Codable, Hashable, Sendable {
 
     var hasGardenPosition: Bool { gardenPosition != nil }
 
+    var climateSummary: String? {
+        GardenClimate.summary(hemisphere: hemisphere, season: season)
+    }
+
     /// Single-line address for display and one-shot map framing (never written as Position).
     var composedAddress: String {
         [address, postalCode, city, country]
@@ -116,6 +128,7 @@ struct Garden: Identifiable, Codable, Hashable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case id, name, address, postalCode, city, country
+        case hemisphere, season
         case region, hardinessZone, elevationMeters
         case latitude, longitude, isActive, isDefault
     }
@@ -128,6 +141,8 @@ struct Garden: Identifiable, Codable, Hashable, Sendable {
         postalCode = try container.decodeIfPresent(String.self, forKey: .postalCode) ?? ""
         city = try container.decodeIfPresent(String.self, forKey: .city) ?? ""
         country = try container.decodeIfPresent(String.self, forKey: .country) ?? ""
+        hemisphere = try container.decodeIfPresent(GardenHemisphere.self, forKey: .hemisphere)
+        season = try container.decodeIfPresent(GardenSeason.self, forKey: .season)
         region = try container.decodeIfPresent(String.self, forKey: .region) ?? ""
         hardinessZone = try container.decodeIfPresent(String.self, forKey: .hardinessZone) ?? ""
         elevationMeters = try container.decodeIfPresent(Double.self, forKey: .elevationMeters)
@@ -145,6 +160,8 @@ struct Garden: Identifiable, Codable, Hashable, Sendable {
         try container.encode(postalCode, forKey: .postalCode)
         try container.encode(city, forKey: .city)
         try container.encode(country, forKey: .country)
+        try container.encodeIfPresent(hemisphere, forKey: .hemisphere)
+        try container.encodeIfPresent(season, forKey: .season)
         try container.encode(region, forKey: .region)
         try container.encode(hardinessZone, forKey: .hardinessZone)
         try container.encodeIfPresent(elevationMeters, forKey: .elevationMeters)

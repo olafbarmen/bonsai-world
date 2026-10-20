@@ -66,7 +66,6 @@ struct DashboardKnowledgeCard: View {
             fillsRowHeight: fillsRowHeight,
             compact: true
         ) {
-            // One row across the card width — tighter gaps so entries fill the span.
             HStack(alignment: .top, spacing: FaloSpacing.small) {
                 ForEach(destinations) { item in
                     knowledgeItem(item)

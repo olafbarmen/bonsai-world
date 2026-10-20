@@ -2,7 +2,8 @@
 //  YamadoriListView.swift
 //  Bonsai World
 //
-//  Trip list — Table layout matching Garden → Trees (inset, alternating rows).
+//  Trip list — same Table config as Garden → Trees:
+//  inset, alternating rows, Table fills the pane and scrolls itself.
 //
 
 import SwiftUI
@@ -13,7 +14,6 @@ struct YamadoriListView: View {
     @Environment(AppState.self) private var appState
     @Environment(YamadoriService.self) private var yamadoriService
     @Environment(ImageService.self) private var imageService
-    @Environment(\.openWindow) private var openWindow
 
     @State private var tableSelection: Set<Yamadori.ID> = []
     @State private var sortOrder: [KeyPathComparator<YamadoriTripListRow>] = [
@@ -36,12 +36,14 @@ struct YamadoriListView: View {
         return rows.sorted(using: sortOrder)
     }
 
+    private var tripTableMinimumWidth: CGFloat { 220 + 140 + 110 + 60 + 24 }
+
     var body: some View {
         Group {
             if rows.isEmpty {
                 emptyState
             } else {
-                listScroll
+                listContent
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -70,60 +72,52 @@ struct YamadoriListView: View {
         }
     }
 
-    private var listScroll: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
-                HStack(spacing: FaloSpacing.medium) {
-                    Text("Yamadories")
-                        .font(FaloTypography.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
-                        .accessibilityAddTraits(.isHeader)
+    /// Same structure as Trees ``listBlock`` — Table fills remaining height.
+    private var listContent: some View {
+        VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+            HStack(spacing: FaloSpacing.medium) {
+                Text("Yamadories")
+                    .font(FaloTypography.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .accessibilityAddTraits(.isHeader)
 
-                    Spacer(minLength: 0)
+                Spacer(minLength: 0)
 
-                    Button("Add Yamadori") {
-                        appState.presentNewYamadori()
-                    }
+                Button("Add Yamadori") {
+                    appState.presentNewYamadori()
                 }
-                .padding(.horizontal, FaloSpacing.medium)
-
-                tripsTable
             }
+            .padding(.horizontal, FaloSpacing.medium)
             .padding(.top, FaloSpacing.small)
-            .padding(.bottom, FaloSpacing.xLarge)
-            .frame(maxWidth: .infinity, alignment: .leading)
+
+            tripsTable
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .environment(\.defaultMinListRowHeight, 56)
         }
+        .frame(minWidth: tripTableMinimumWidth, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .faloScrollSurface()
     }
 
-    private var tripTableMinimumWidth: CGFloat { 220 + 140 + 110 + 60 + 24 }
-
     private var tripsTable: some View {
-        let height = tableHeight(for: sortedRows.count)
-        return GeometryReader { geo in
-            ScrollView(.horizontal, showsIndicators: true) {
-                tripTableContent
-                    .frame(width: max(geo.size.width, tripTableMinimumWidth), height: height)
-            }
-        }
-        .frame(height: height)
-    }
-
-    private var tripTableContent: some View {
         Table(sortedRows, selection: $tableSelection, sortOrder: $sortOrder) {
             TableColumn("Trip", value: \.displayName, comparator: .localizedStandard) { row in
-                HStack(spacing: FaloSpacing.medium) {
+                HStack(alignment: .center, spacing: FaloSpacing.small) {
                     TreeListThumbnail(imageID: row.trip.listImageID, imageService: imageService)
-                    VStack(alignment: .leading, spacing: 2) {
+                    VStack(alignment: .leading, spacing: 1) {
                         Text(row.displayName)
-                            .font(FaloTypography.body)
+                            .font(FaloTypography.body.weight(.semibold))
+                            .foregroundStyle(.primary)
                             .lineLimit(1)
                         Text(row.findCount == 1 ? "1 Find" : "\(row.findCount) Finds")
                             .font(FaloTypography.caption)
                             .foregroundStyle(.secondary)
+                            .lineLimit(1)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(.vertical, FaloSpacing.xSmall)
+                .padding(.vertical, 2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .accessibilityElement(children: .combine)
             }
             .width(min: 220, max: .infinity)
 
@@ -152,7 +146,6 @@ struct YamadoriListView: View {
         }
         .tableStyle(.inset(alternatesRowBackgrounds: true))
         .environment(imageService)
-        .scrollDisabled(true)
         .contextMenu(forSelectionType: Yamadori.ID.self) { selection in
             if selection.count == 1, let id = selection.first {
                 Button("Open Trip Workspace") {
@@ -170,12 +163,6 @@ struct YamadoriListView: View {
         }
     }
 
-    private func tableHeight(for rowCount: Int) -> CGFloat {
-        let header: CGFloat = 28
-        let row: CGFloat = 44
-        return header + CGFloat(max(rowCount, 1)) * row
-    }
-
     private func syncSelectionFromAppState() {
         let next = Set(appState.selectedYamadoriID.map { [$0] } ?? [])
         if tableSelection != next {
@@ -184,11 +171,7 @@ struct YamadoriListView: View {
     }
 
     private func openTripWorkspace(tripID: UUID) {
-        appState.selectedYamadoriID = tripID
-        openWindow(
-            id: YamadoriTripWorkspaceWindowContext.windowID,
-            value: YamadoriTripWorkspaceWindowContext(tripID: tripID)
-        )
+        appState.openYamadoriTripInPlace(tripID: tripID)
     }
 }
 

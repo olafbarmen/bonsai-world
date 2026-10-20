@@ -91,7 +91,8 @@ struct TreeDetailView: View {
     }
 
     var body: some View {
-        Group {
+        VStack(spacing: 0) {
+            Group {
             if let tree {
                 treeDetail(
                     tree,
@@ -121,7 +122,9 @@ struct TreeDetailView: View {
                         migrateMeasurementsIfNeeded(for: tree)
                     }
                     .onChange(of: tree.isInCare) { _, inCare in
-                        if !inCare {
+                        // Stay in Edit while finishing disposal fields (date, notes, …).
+                        // Autosave may mark the tree Former before the grower leaves Edit.
+                        if !inCare, !isEditing {
                             discardDraftAndReturnToViewing()
                         }
                     }
@@ -163,12 +166,17 @@ struct TreeDetailView: View {
                     publishInteractionMode(.viewing)
                 }
             }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .faloWorkspaceCanvas()
         .modifier(TreeDetailNavigationTitleModifier(
             showsNavigationTitle: showsNavigationTitle,
-            title: navigationTitleText
+            title: navigationTitleText,
+            onBack: appState.treeWorkspaceTreeID == treeID
+                ? { appState.showCurrentList() }
+                : nil
         ))
         .sheet(isPresented: $isMembershipSheetPresented) {
             if let draftBinding = draftCollectionBinding {
@@ -715,6 +723,9 @@ struct TreeDetailView: View {
                     allowsEditing: allowsEditing,
                     onSelectImage: { selectedImageID = $0 },
                     onAddPhoto: { handleQuickAction(.addImage) },
+                    onDropImageFiles: allowsEditing
+                        ? { sources in Task { await importDroppedGalleryImages(sources) } }
+                        : nil,
                     onViewAll: imageIDs.isEmpty
                         ? nil
                         : { handleQuickAction(.viewImages) },
@@ -745,6 +756,7 @@ struct TreeDetailView: View {
                     healthSystemImage: tree.healthStatus.systemImage,
                     healthNeedsAttention: tree.healthStatus == .needsAttention
                         || tree.healthStatus == .recovering,
+                    healthCause: tree.healthCause,
                     placementStrategy: tree.placementStrategy,
                     onPlacementStrategyChange: allowsEditing
                         ? { newValue in setPlacementStrategy(newValue, for: tree.id) }
@@ -879,7 +891,9 @@ struct TreeDetailView: View {
             genusName: genusDisplayName(for: tree),
             speciesName: speciesDisplayName(for: tree),
             cultivarName: cultivarDisplayName(for: tree),
+            propagation: propagationDisplay(for: tree),
             origin: originDisplayName(for: tree),
+            countryOfOrigin: countryOfOriginDisplay(for: tree),
             healthTitle: tree.healthStatus.title,
             healthSystemImage: tree.healthStatus.systemImage,
             healthNeedsAttention: tree.healthStatus == .needsAttention
@@ -1056,6 +1070,9 @@ struct TreeDetailView: View {
                             onAddImage: {
                                 Task { await importGalleryImage() }
                             },
+                            onDropImageFiles: { sources in
+                                Task { await importDroppedGalleryImages(sources) }
+                            },
                             onSelectImage: { imageID in
                                 selectedImageID = imageID
                             },
@@ -1077,12 +1094,19 @@ struct TreeDetailView: View {
                             speciesName: speciesDisplayName(for: tree),
                             cultivarName: cultivarDisplayName(for: tree),
                             origin: originDisplayName(for: tree),
+                            propagation: propagationBinding(for: tree),
+                            propagationTitle: propagationDisplay(for: tree),
+                            countryOfOrigin: countryOfOriginBinding(for: tree),
+                            originYear: originYearBinding(for: tree),
                             isEditing: isEditing
                         )
                         GrowingSection(
                             styleID: styleIDBinding,
-                            locationID: locationIDBinding(for: tree),
+                            locationID: standingLocationIDBinding(for: tree),
+                            homeLocationID: homeLocationIDBinding(for: tree),
+                            winterLocationID: winterLocationIDBinding(for: tree),
                             healthStatus: healthStatusBinding(for: tree),
+                            healthCause: healthCauseBinding(for: tree),
                             lastRepottedDate: lastRepottedDateBinding(for: tree),
                             repottingIntervalYears: repottingIntervalYearsBinding(for: tree),
                             placementStrategy: placementStrategyBinding(for: tree),
@@ -1143,6 +1167,7 @@ struct TreeDetailView: View {
                             ),
                             inventoryPotDisplayName: inventoryPotDisplayName(for: tree),
                             potTypeID: potTypeIDBinding,
+                            potColor: potColorBinding,
                             potLengthMillimetres: potLengthMillimetresBinding,
                             potWidthMillimetres: potWidthMillimetresBinding,
                             potHeightMillimetres: potHeightMillimetresBinding,
@@ -1264,6 +1289,39 @@ struct TreeDetailView: View {
         )
     }
 
+    private func countryOfOriginBinding(for tree: Tree) -> Binding<String> {
+        Binding(
+            get: { isEditing ? (draft?.countryOfOrigin ?? tree.countryOfOrigin) : tree.countryOfOrigin },
+            set: { draft?.countryOfOrigin = $0 }
+        )
+    }
+
+    private func countryOfOriginDisplay(for tree: Tree) -> String {
+        let value = isEditing
+            ? (draft?.countryOfOrigin ?? tree.countryOfOrigin)
+            : tree.countryOfOrigin
+        return value.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func propagationBinding(for tree: Tree) -> Binding<TreePropagation?> {
+        Binding(
+            get: { isEditing ? (draft?.propagation ?? tree.propagation) : tree.propagation },
+            set: { draft?.propagation = $0 }
+        )
+    }
+
+    private func propagationDisplay(for tree: Tree) -> String {
+        let value = isEditing ? (draft?.propagation ?? tree.propagation) : tree.propagation
+        return value?.title ?? ""
+    }
+
+    private func originYearBinding(for tree: Tree) -> Binding<Int?> {
+        Binding(
+            get: { isEditing ? (draft?.originYear ?? tree.originYear) : tree.originYear },
+            set: { draft?.originYear = Tree.sanitizedOriginYear($0) }
+        )
+    }
+
     private func notesBinding(for tree: Tree) -> Binding<String> {
         Binding(
             get: { isEditing ? (draft?.notes ?? tree.notes) : tree.notes },
@@ -1327,6 +1385,13 @@ struct TreeDetailView: View {
         )
     }
 
+    private func healthCauseBinding(for tree: Tree) -> Binding<String> {
+        Binding(
+            get: { isEditing ? (draft?.healthCause ?? tree.healthCause) : tree.healthCause },
+            set: { draft?.healthCause = $0 }
+        )
+    }
+
     private func lastRepottedDateBinding(for tree: Tree) -> Binding<Date?> {
         Binding(
             get: { isEditing ? (draft?.lastRepottedDate ?? tree.lastRepottedDate) : tree.lastRepottedDate },
@@ -1354,6 +1419,7 @@ struct TreeDetailView: View {
                     draft?.winterCareCompletedSteps = WinterCareStep.allCases
                     draft?.springCareCompletedSteps = SpringCareStep.allCases
                 }
+                syncDraftStandingLocation()
             }
         )
     }
@@ -1369,6 +1435,7 @@ struct TreeDetailView: View {
                     draft?.winterCareCompletedSteps = WinterCareStep.allCases
                     draft?.springCareCompletedSteps = []
                 }
+                syncDraftStandingLocation()
             }
         )
     }
@@ -1434,6 +1501,7 @@ struct TreeDetailView: View {
         live.fertilizerHealth = draft.fertilizerHealth
         live.fertilizerKindOverride = draft.fertilizerKindOverride
         live.healthStatus = draft.healthStatus
+        live.healthCause = draft.healthCause
         live.treeStageID = draft.treeStageID
         return live
     }
@@ -1445,7 +1513,7 @@ struct TreeDetailView: View {
             .max()
     }
 
-    private func locationIDBinding(for tree: Tree) -> Binding<UUID?> {
+    private func standingLocationIDBinding(for tree: Tree) -> Binding<UUID?> {
         Binding(
             get: {
                 if isEditing {
@@ -1453,8 +1521,57 @@ struct TreeDetailView: View {
                 }
                 return tree.locationID
             },
-            set: { draft?.locationID = $0 }
+            set: { _ in
+                // Standing now is derived from Home / Winter / Season.
+            }
         )
+    }
+
+    private func homeLocationIDBinding(for tree: Tree) -> Binding<UUID?> {
+        Binding(
+            get: {
+                if isEditing {
+                    return draft?.homeLocationID ?? tree.homeLocationID
+                }
+                return tree.homeLocationID
+            },
+            set: { newValue in
+                draft?.homeLocationID = newValue
+                syncDraftStandingLocation()
+            }
+        )
+    }
+
+    private func winterLocationIDBinding(for tree: Tree) -> Binding<UUID?> {
+        Binding(
+            get: {
+                if isEditing {
+                    return draft?.winterLocationID ?? tree.winterLocationID
+                }
+                return tree.winterLocationID
+            },
+            set: { newValue in
+                draft?.winterLocationID = newValue
+                syncDraftStandingLocation()
+            }
+        )
+    }
+
+    /// Keeps draft ``locationID`` (standing now) aligned with Home / Winter / Season.
+    private func syncDraftStandingLocation() {
+        guard var draft else { return }
+        let home = draft.homeLocationID ?? tree?.homeLocationID
+        guard let home else { return }
+        var probe = Tree(
+            locationID: draft.locationID ?? home,
+            homeLocationID: home,
+            winterLocationID: draft.winterLocationID,
+            placementStrategy: draft.placementStrategy,
+            seasonPlacement: draft.seasonPlacement
+        )
+        probe.syncStandingLocationFromPlacement()
+        draft.locationID = probe.locationID
+        self.draft = draft
     }
 
     private var lightConditionIDBinding: Binding<UUID?> {
@@ -1475,6 +1592,13 @@ struct TreeDetailView: View {
         Binding(
             get: { draft?.potTypeID ?? tree?.potTypeID },
             set: { draft?.potTypeID = $0 }
+        )
+    }
+
+    private var potColorBinding: Binding<String> {
+        Binding(
+            get: { draft?.potColor ?? tree?.potColor ?? "" },
+            set: { draft?.potColor = $0 }
         )
     }
 
@@ -2051,21 +2175,8 @@ struct TreeDetailView: View {
         defer { isImportingPrimaryImage = false }
 
         do {
-            let asset = try await imageImportService.importGalleryImageFromFinder()
-            if draft?.imageIDs.contains(asset.id) != true {
-                draft?.imageIDs.append(asset.id)
-            }
-            if draft?.pendingAddedImageIDs.contains(asset.id) != true {
-                draft?.pendingAddedImageIDs.append(asset.id)
-            }
-            // Only become Primary when the gallery was empty.
-            if draft?.primaryImageID == nil {
-                draft?.primaryImageID = asset.id
-            }
-            if let ids = draft?.imageIDs {
-                draft?.imageIDs = sortedImageIDs(ids)
-            }
-            selectedImageID = asset.id
+            let assets = try await imageImportService.importGalleryImagesFromFinder()
+            attachImportedGalleryAssets(assets)
         } catch is CancellationError {
             return
         } catch ImageImportError.cancelled {
@@ -2073,6 +2184,51 @@ struct TreeDetailView: View {
         } catch {
             return
         }
+    }
+
+    private func importDroppedGalleryImages(_ sources: [ImageDropSource]) async {
+        guard allowsEditing else { return }
+        guard !sources.isEmpty else { return }
+        // Overview drop can happen before Edit — same path as Add photo quick action.
+        if !isEditing {
+            beginEditing()
+        }
+        guard draft != nil else { return }
+        guard !isImportingPrimaryImage else { return }
+        isImportingPrimaryImage = true
+        defer { isImportingPrimaryImage = false }
+
+        do {
+            var assets: [ImageAsset] = []
+            assets.reserveCapacity(sources.count)
+            for source in sources {
+                assets.append(try await imageImportService.importImage(from: source, asPrimary: false))
+            }
+            attachImportedGalleryAssets(assets)
+        } catch {
+            return
+        }
+    }
+
+    private func attachImportedGalleryAssets(_ assets: [ImageAsset]) {
+        guard !assets.isEmpty else { return }
+        let galleryWasEmpty = draft?.primaryImageID == nil
+        for asset in assets {
+            if draft?.imageIDs.contains(asset.id) != true {
+                draft?.imageIDs.append(asset.id)
+            }
+            if draft?.pendingAddedImageIDs.contains(asset.id) != true {
+                draft?.pendingAddedImageIDs.append(asset.id)
+            }
+        }
+        // Only become Primary when the gallery was empty — first of the batch.
+        if galleryWasEmpty, let first = assets.first {
+            draft?.primaryImageID = first.id
+        }
+        if let ids = draft?.imageIDs {
+            draft?.imageIDs = sortedImageIDs(ids)
+        }
+        selectedImageID = assets.last?.id
     }
 }
 
@@ -2122,10 +2278,11 @@ struct TreeDetailView: View {
 private struct TreeDetailNavigationTitleModifier: ViewModifier {
     var showsNavigationTitle: Bool
     var title: String
+    var onBack: (() -> Void)? = nil
 
     func body(content: Content) -> some View {
         if showsNavigationTitle {
-            content.bonsaiWorkspaceNavigationTitle(title)
+            content.bonsaiWorkspaceNavigationTitle(title, onBack: onBack)
         } else {
             // Embedded under library chrome — no system/navigation title (avoids toolbar rule).
             content

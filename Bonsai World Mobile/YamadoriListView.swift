@@ -10,10 +10,10 @@ import SwiftUI
 struct YamadoriListView: View {
     @Environment(DemoLibrary.self) private var library
 
-    var onCreatedFind: ((UUID) -> Void)? = nil
+    var onCreatedTrip: ((UUID) -> Void)? = nil
 
     @State private var isShowingNew = false
-    @State private var pendingCreatedFindID: UUID?
+    @State private var pendingCreatedTripID: UUID?
 
     private var trips: [Yamadori] { library.orderedYamadoriTrips }
     private var nurseryTrees: [Tree] { library.yamadoriNurseryTrees }
@@ -52,13 +52,13 @@ struct YamadoriListView: View {
             }
         }
         .sheet(isPresented: $isShowingNew, onDismiss: {
-            if let id = pendingCreatedFindID {
-                pendingCreatedFindID = nil
-                onCreatedFind?(id)
+            if let id = pendingCreatedTripID {
+                pendingCreatedTripID = nil
+                onCreatedTrip?(id)
             }
         }) {
-            NewYamadoriView { findID in
-                pendingCreatedFindID = findID
+            NewYamadoriView { tripID in
+                pendingCreatedTripID = tripID
             }
         }
     }

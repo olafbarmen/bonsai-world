@@ -58,6 +58,7 @@ struct NewSoilMixView: View {
             }
             .toolbarBackground(BonsaiWorldColors.canvas, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.light, for: .navigationBar)
         }
     }
 

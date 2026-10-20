@@ -99,18 +99,10 @@ struct CollectionListView: View {
         List {
             if !manualCollections.isEmpty {
                 Section {
+                    sectionTitle("My Collections")
                     ForEach(manualCollections) { collection in
-                        NavigationLink(value: MobileRoute.collection(collection.id)) {
-                            collectionRow(collection)
-                        }
-                        .listRowBackground(BonsaiWorldColors.surface)
+                        collectionLink(collection)
                     }
-                } header: {
-                    Text("My Collections")
-                        .font(FaloTypography.body)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(BonsaiWorldColors.textPrimary)
-                        .textCase(.none)
                 }
             }
 
@@ -118,16 +110,10 @@ struct CollectionListView: View {
                 Section {
                     DisclosureGroup(isExpanded: $isSmartExpanded) {
                         ForEach(smartCollections) { collection in
-                            NavigationLink(value: MobileRoute.collection(collection.id)) {
-                                collectionRow(collection)
-                            }
-                            .listRowBackground(BonsaiWorldColors.surface)
+                            collectionLink(collection)
                         }
                     } label: {
-                        Text("Smart Collections")
-                            .font(FaloTypography.body)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(BonsaiWorldColors.textPrimary)
+                        sectionTitle("Smart Collections")
                     }
                 }
             }
@@ -136,16 +122,10 @@ struct CollectionListView: View {
                 Section {
                     DisclosureGroup(isExpanded: $isFormerExpanded) {
                         ForEach(formerTreeCollections) { collection in
-                            NavigationLink(value: MobileRoute.collection(collection.id)) {
-                                collectionRow(collection)
-                            }
-                            .listRowBackground(BonsaiWorldColors.surface)
+                            collectionLink(collection)
                         }
                     } label: {
-                        Text("Former Trees")
-                            .font(FaloTypography.body)
-                            .fontWeight(.semibold)
-                            .foregroundStyle(BonsaiWorldColors.textPrimary)
+                        sectionTitle("Former Trees")
                     }
                 }
             }
@@ -155,43 +135,51 @@ struct CollectionListView: View {
         .background(BonsaiWorldColors.canvas)
     }
 
+    private func sectionTitle(_ title: String) -> some View {
+        Text(title)
+            .font(FaloTypography.body)
+            .fontWeight(.semibold)
+            .foregroundStyle(BonsaiWorldColors.textPrimary)
+            .textCase(.none)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .listRowBackground(BonsaiWorldColors.surface)
+    }
+
+    private func collectionLink(_ collection: Collection) -> some View {
+        NavigationLink(value: MobileRoute.collection(collection.id)) {
+            collectionRow(collection)
+        }
+        .listRowBackground(BonsaiWorldColors.surface)
+    }
+
     private func collectionRow(_ collection: Collection) -> some View {
-        let members = library.trees(in: collection)
-        let count = members.count
+        let count = library.trees(in: collection).count
         let description = collection.description.trimmingCharacters(in: .whitespacesAndNewlines)
-        let health = healthSummary(for: members)
-        return VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
-            Text(collection.name)
-                .font(FaloTypography.body)
-                .fontWeight(.semibold)
-                .foregroundStyle(BonsaiWorldColors.textPrimary)
-            if !description.isEmpty {
-                Text(description)
-                    .font(FaloTypography.caption)
-                    .foregroundStyle(BonsaiWorldColors.textSecondary)
-                    .lineLimit(2)
-            }
-            Text(count == 0 ? "Empty" : (count == 1 ? "1 Tree" : "\(count) Trees"))
-                .font(FaloTypography.caption)
-                .foregroundStyle(BonsaiWorldColors.textTertiary)
-            if let health {
-                Text(health)
+        return HStack(alignment: .top, spacing: FaloSpacing.medium) {
+            Image(systemName: collection.icon ?? "square.stack.3d.up")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(BonsaiWorldColors.textSecondary)
+                .symbolRenderingMode(.hierarchical)
+                .frame(width: 22, height: 22, alignment: .center)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+                Text(collection.name)
+                    .font(FaloTypography.body)
+                    .foregroundStyle(BonsaiWorldColors.textPrimary)
+                if !description.isEmpty {
+                    Text(description)
+                        .font(FaloTypography.caption)
+                        .foregroundStyle(BonsaiWorldColors.textSecondary)
+                        .lineLimit(2)
+                }
+                Text(count == 1 ? "1 Tree" : "\(count) Trees")
                     .font(FaloTypography.caption)
                     .foregroundStyle(BonsaiWorldColors.textTertiary)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, FaloSpacing.xSmall)
         .accessibilityElement(children: .combine)
-    }
-
-    private func healthSummary(for trees: [Tree]) -> String? {
-        guard !trees.isEmpty else { return nil }
-        let parts = TreeHealthStatus.allCases.compactMap { status -> String? in
-            let count = trees.filter { $0.healthStatus == status }.count
-            guard count > 0 else { return nil }
-            return "\(count) \(status.title)"
-        }
-        return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }
 }
 

@@ -107,6 +107,7 @@ final class WinterCareService {
             if steps.isSuperset(of: Set(WinterCareStep.allCases)) {
                 tree.seasonPlacement = .winter
                 tree.springCareCompletedSteps = []
+                tree.syncStandingLocationFromPlacement()
             }
             tree.modifiedDate = .now
             _ = try treeService.updateTree(tree)
@@ -152,6 +153,7 @@ final class WinterCareService {
             tree.winterCareCompletedSteps = WinterCareStep.allCases
             tree.springCareCompletedSteps = SpringCareStep.allCases
         }
+        tree.syncStandingLocationFromPlacement()
         tree.modifiedDate = .now
         _ = try treeService.updateTree(tree)
         try syncWinterCareTask(snapshot: snapshot)
@@ -166,6 +168,7 @@ final class WinterCareService {
             tree.winterCareCompletedSteps = WinterCareStep.allCases
             tree.springCareCompletedSteps = []
         }
+        tree.syncStandingLocationFromPlacement()
         tree.modifiedDate = .now
         _ = try treeService.updateTree(tree)
         try syncWinterCareTask(snapshot: snapshot)

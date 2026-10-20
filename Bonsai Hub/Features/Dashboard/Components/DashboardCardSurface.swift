@@ -19,6 +19,6 @@ enum DashboardCardSurface {
 extension View {
     /// Identical elevation chrome for every Dashboard card.
     func dashboardCardChrome() -> some View {
-        faloRaisedSurface()
+        faloRaisedSurface(fillOpacity: 0.55)
     }
 }

@@ -14,15 +14,24 @@ struct MobileHomeView: View {
     @Environment(\.openMobileTree) private var openMobileTree
 
     var body: some View {
-        List {
-            greetingSection
-            attentionSection
-            tasksSection
-            worldsSection
+        ZStack {
+            BonsaiWorldColors.canvas
+            GeometryReader { geo in
+                let top = geo.frame(in: .global).minY
+                FaloBonsaiWash(width: 250)
+                    .position(x: geo.size.width - 133, y: 210 - top)
+            }
+            .allowsHitTesting(false)
+            List {
+                greetingSection
+                attentionSection
+                inProgressSection
+                tasksSection
+                worldsSection
+            }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
         }
-        .listStyle(.insetGrouped)
-        .scrollContentBackground(.hidden)
-        .background(BonsaiWorldColors.canvas)
         .navigationTitle("Bonsai World")
         .navigationBarTitleDisplayMode(.large)
     }
@@ -39,7 +48,7 @@ struct MobileHomeView: View {
                     .foregroundStyle(BonsaiWorldColors.textSecondary)
             }
             .padding(.vertical, FaloSpacing.small)
-            .listRowBackground(BonsaiWorldColors.surface)
+            .listRowBackground(BonsaiWorldColors.surface.opacity(0.55))
             .accessibilityElement(children: .combine)
         }
     }
@@ -51,9 +60,9 @@ struct MobileHomeView: View {
                 Text("Nothing needs attention.")
                     .font(FaloTypography.body)
                     .foregroundStyle(BonsaiWorldColors.textSecondary)
-                    .listRowBackground(BonsaiWorldColors.surface)
+                    .listRowBackground(BonsaiWorldColors.surface.opacity(0.55))
             } else {
-                ForEach(attention.prefix(5)) { tree in
+                ForEach(attention) { tree in
                     Button {
                         openMobileTree(tree.id)
                     } label: {
@@ -77,22 +86,49 @@ struct MobileHomeView: View {
                         .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .listRowBackground(BonsaiWorldColors.surface)
+                    .listRowBackground(BonsaiWorldColors.surface.opacity(0.55))
                     .accessibilityLabel("\(MobileTreePresentation.title(for: tree)), \(tree.healthStatus.title)")
                     .accessibilityHint("Opens tree profile")
                 }
-                if !attention.isEmpty {
-                    NavigationLink(value: MobileRoute.myTreesAttention) {
-                        Text(attention.count > 5 ? "See all \(attention.count)" : "Open in My Trees")
-                            .font(FaloTypography.body)
-                            .foregroundStyle(BonsaiWorldColors.accent)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var inProgressSection: some View {
+        let items = Array(library.shapingInProgressItems.prefix(6))
+        if !items.isEmpty {
+            Section("In Progress") {
+                ForEach(items) { item in
+                    Button {
+                        openMobileTree(item.treeID)
+                    } label: {
+                        VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+                            Text(item.area.title)
+                                .font(FaloTypography.body)
+                                .fontWeight(.semibold)
+                                .foregroundStyle(BonsaiWorldColors.textPrimary)
+                            Text(inProgressDetail(item))
+                                .font(FaloTypography.caption)
+                                .foregroundStyle(BonsaiWorldColors.textSecondary)
+                        }
+                        .padding(.vertical, FaloSpacing.xSmall)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
-                    .listRowBackground(BonsaiWorldColors.surface)
-                    .accessibilityLabel(attention.count > 5 ? "See all \(attention.count)" : "Open in My Trees")
-                    .accessibilityHint("Opens My Trees filtered to trees that need attention")
+                    .buttonStyle(.plain)
+                    .listRowBackground(BonsaiWorldColors.surface.opacity(0.55))
+                    .accessibilityLabel("\(item.area.title), \(inProgressDetail(item))")
+                    .accessibilityHint("Opens tree profile")
                 }
             }
         }
+    }
+
+    private func inProgressDetail(_ item: DemoLibrary.ShapingInProgressItem) -> String {
+        if item.nextAction.isEmpty { return item.treeTitle }
+        if item.treeTitle.isEmpty { return item.nextAction }
+        return "\(item.treeTitle) · \(item.nextAction)"
     }
 
     private var tasksSection: some View {
@@ -125,7 +161,7 @@ struct MobileHomeView: View {
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .listRowBackground(BonsaiWorldColors.surface)
+            .listRowBackground(BonsaiWorldColors.surface.opacity(0.55))
             .accessibilityLabel(tasksAccessibilityLabel(overdue: overdue, today: today))
             .accessibilityHint("Open the Tasks tab")
         }
@@ -137,19 +173,61 @@ struct MobileHomeView: View {
             worldLink(.myTrees, title: "My Trees", caption: treeCountCaption)
             worldLink(.yamadori, title: "Yamadori", caption: countCaption(library.orderedYamadoriTrips.count, "Trip", "Trips"))
             worldLink(.seeds, title: "Seeds", caption: seedsCaption)
+            worldLink(.propagation, title: "Propagation", caption: "Cuttings · Air Layers")
             worldLink(.soil, title: "Soil", caption: countCaption(library.orderedSoilMixes.count, "Mix", "Mixes"))
             worldLink(
                 .inventory(lowOnly: !library.lowInventoryStock.isEmpty),
                 title: "Inventory",
                 caption: inventoryCaption
             )
+            worldLink(.pots, title: "Pots", caption: countCaption(library.orderedPots.count, "Pot", "Pots"))
+            worldLink(.images, title: "Images", caption: imagesCaption)
+            worldLink(.work, title: "Work", caption: workCaption)
+        }
+
+        Section("Knowledge") {
+            knowledgeLink(.knowledgeShelf(.quickGuides), title: "Quick Guides")
+            knowledgeLink(.handbook, title: "Bonsai Handbook")
+            knowledgeLink(.careCalendar, title: "Care Calendar")
+            knowledgeLink(.handbookChapter(.potGuidelines), title: "Pots & Containers")
+            knowledgeLink(.speciesLibrary, title: "Species Library")
+            knowledgeLink(.handbookChapter(.soilGuides), title: "Soil & Substrate")
+            knowledgeLink(.fertilizerGuides, title: "Fertilizer Guides")
+            knowledgeLink(.seedStratification, title: "Seed Stratification")
+            knowledgeLink(.knowledgeShelf(.videos), title: "Video Tutorials")
+            knowledgeLink(.knowledgeShelf(.courses), title: "Courses")
+            knowledgeLink(.knowledgeShelf(.faq), title: "FAQ")
+            knowledgeLink(.knowledgeShelf(.externalLinks), title: "External Links")
         }
 
         Section("Places") {
             worldLink(.gardens, title: "Gardens", caption: countCaption(library.orderedGardens.count, "Garden", "Gardens"))
             worldLink(.locations, title: "Locations", caption: countCaption(library.orderedLocations.count, "Location", "Locations"))
-            worldLink(.collections, title: "Collections", caption: countCaption(library.collections.count, "Collection", "Collections"))
+            worldLink(
+                .collections,
+                title: "Collections",
+                caption: countCaption(library.collections.filter(\.isManual).count, "Collection", "Collections")
+            )
         }
+    }
+
+    private func knowledgeLink(_ route: MobileRoute, title: String) -> some View {
+        NavigationLink(value: route) {
+            HStack {
+                Text(title)
+                    .font(FaloTypography.body)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(BonsaiWorldColors.textPrimary)
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(BonsaiWorldColors.textTertiary)
+                    .accessibilityHidden(true)
+            }
+            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+        }
+        .listRowBackground(BonsaiWorldColors.surface.opacity(0.55))
+        .accessibilityLabel(title)
     }
 
     private func worldLink(_ route: MobileRoute, title: String, caption: String) -> some View {
@@ -166,7 +244,7 @@ struct MobileHomeView: View {
                     .monospacedDigit()
             }
         }
-        .listRowBackground(BonsaiWorldColors.surface)
+        .listRowBackground(BonsaiWorldColors.surface.opacity(0.55))
         .accessibilityLabel(inventoryAccessibilityLabel(title: title, caption: caption))
     }
 
@@ -241,10 +319,44 @@ struct MobileHomeView: View {
         return countCaption(total, "Item", "Items")
     }
 
+    private var imagesCaption: String {
+        countCaption(library.orderedImageAssets.count, "Photo", "Photos")
+    }
+
+    private var workCaption: String {
+        let count = library.workRecords.count
+        if count == 0 { return "Empty" }
+        return count == 1 ? "1 Record" : "\(count) Records"
+    }
+
     private func countCaption(_ count: Int, _ singular: String, _ plural: String) -> String {
         if count == 0 { return "Empty" }
         if count == 1 { return "1 \(singular)" }
         return "\(count) \(plural)"
+    }
+}
+
+/// Falo mark, faded into the canvas at the top trailing corner.
+private struct FaloBonsaiWash: View {
+    var width: CGFloat
+
+    var body: some View {
+        Image("FaloBonsaiWash")
+            .resizable()
+            .scaledToFit()
+            .frame(width: width)
+            .blendMode(.multiply)
+            .opacity(0.88)
+            .mask(
+                RadialGradient(
+                    colors: [.black, .black.opacity(0.45), .clear],
+                    center: .center,
+                    startRadius: width * 0.18,
+                    endRadius: width * 0.52
+                )
+            )
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
     }
 }
 

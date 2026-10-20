@@ -133,6 +133,7 @@ struct InventoryItemProfileView: View {
         }
         .toolbarBackground(BonsaiWorldColors.canvas, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(.light, for: .navigationBar)
         .confirmationDialog(
             "Delete this item?",
             isPresented: $confirmDelete,

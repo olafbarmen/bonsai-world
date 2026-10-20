@@ -995,7 +995,7 @@ enum ContextQuickActionsCatalog {
                     title: "Finish",
                     systemImage: "checkmark.circle",
                     availability: .available,
-                    help: "Leave Edit Mode"
+                    help: "Leave Edit Mode (changes auto-save)"
                 )
             ]
         case .viewing:
@@ -1054,21 +1054,7 @@ enum ContextQuickActionsCatalog {
         ]
 
         if let status {
-            switch status {
-            case .scout:
-                actions.append(
-                    ActionDefinition(
-                        id: advanceYamadoriStatusID,
-                        title: "Advance Status",
-                        systemImage: "arrow.right.circle",
-                        availability: .available,
-                        help: "Move Uncollected to Planned"
-                    )
-                )
-            default:
-                break
-            }
-            if status == .planned {
+            if status.isUncollected {
                 actions.append(
                     ActionDefinition(
                         id: markYamadoriCollectedID,

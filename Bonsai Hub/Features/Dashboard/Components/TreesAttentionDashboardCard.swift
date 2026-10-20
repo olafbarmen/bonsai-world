@@ -20,9 +20,6 @@ struct TreesAttentionDashboardCard: View {
     /// Preferred Dashboard tree-photo frame — 5:6 (list-oriented, not hero).
     private let thumbWidth: CGFloat = 50
     private let thumbHeight: CGFloat = 60
-    /// Floor for primary working presence when few trees are listed; content may grow past this.
-    private static let minimumWorkingHeight: CGFloat = 280
-
     private var watchedTrees: [Tree] {
         treeService.treesInCare
             .filter { $0.healthStatus == .needsAttention || $0.healthStatus == .recovering }
@@ -59,7 +56,6 @@ struct TreesAttentionDashboardCard: View {
                 }
             }
         }
-        .frame(minHeight: Self.minimumWorkingHeight, alignment: .topLeading)
     }
 
     private func attentionRow(for tree: Tree) -> some View {

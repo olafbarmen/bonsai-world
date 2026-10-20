@@ -6,13 +6,16 @@
 //
 
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 /// Image Card used by the Media → Images grid.
 struct GalleryImageTile: View {
     let entry: GalleryEntry
     var isSelected: Bool = false
     let showsFeaturedBadge: Bool
-    let onSelect: () -> Void
+    let onSelect: (GallerySelectionModifiers) -> Void
     let onOpenWorkspace: () -> Void
     var onCrop: () -> Void = {}
     var onDelete: () -> Void = {}
@@ -22,7 +25,9 @@ struct GalleryImageTile: View {
     }
 
     var body: some View {
-        Button(action: onSelect) {
+        Button {
+            onSelect(GallerySelectionModifiers.current)
+        } label: {
             ZStack(alignment: .topTrailing) {
                 VStack(alignment: .leading, spacing: 0) {
                     presentationWell
@@ -50,22 +55,21 @@ struct GalleryImageTile: View {
         )
         .contextMenu {
             Button("Crop") {
-                onSelect()
+                onSelect([])
                 onCrop()
             }
             Button("Open Image Workspace") {
-                onSelect()
+                onSelect([])
                 onOpenWorkspace()
             }
             Divider()
             Button("Delete Image", role: .destructive) {
-                onSelect()
                 onDelete()
             }
         }
         .accessibilityLabel(accessibilityLabel)
         .accessibilityAddTraits(isSelected ? .isSelected : [])
-        .accessibilityHint("Single-click to select. Double-click to open Image Workspace.")
+        .accessibilityHint("Single-click to select. Shift-click to select a range. Command-click to add or remove. Double-click to open Image Workspace.")
     }
 
     /// Image well — Presentation crop fills a fixed 5:6 frame (Original never modified).
@@ -160,6 +164,58 @@ private struct ImageCardBadge: View {
 }
 
 // MARK: - Chrome
+
+/// Last card in the Images grid. Same shape as a photo card; drops attach to the selected tree.
+struct GalleryImageDropTile: View {
+    let onDrop: ([ImageDropSource]) -> Void
+
+    @State private var isDropTargeted = false
+
+    private var cardShape: RoundedRectangle {
+        RoundedRectangle(cornerRadius: GalleryLayout.cardCornerRadius, style: .continuous)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack {
+                Color.primary.opacity(0.03)
+                Text("drag here")
+                    .font(FaloTypography.body.weight(.semibold))
+                    .foregroundStyle(FaloColors.textSecondary)
+            }
+            .aspectRatio(GalleryLayout.imageAspectRatio, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+            .padding(GalleryLayout.presentationWellInset)
+            .clipped()
+
+            Color.clear
+                .frame(maxWidth: .infinity)
+                .frame(height: metadataRowHeight)
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
+        .background {
+            cardShape.fill(isDropTargeted ? BonsaiWorldColors.accentSubtle.opacity(0.35) : Color.clear)
+        }
+        .background(.background, in: cardShape)
+        .overlay {
+            cardShape
+                .strokeBorder(
+                    isDropTargeted ? BonsaiWorldColors.accent : FaloColors.borderSubtle,
+                    style: isDropTargeted
+                        ? StrokeStyle(lineWidth: 2, dash: [7, 4])
+                        : StrokeStyle(lineWidth: 1)
+                )
+        }
+        .bonsaiImageFileDrop(isEnabled: true, isTargeted: $isDropTargeted, perform: onDrop)
+        .accessibilityLabel("drag here")
+        .accessibilityHint("Drop images to attach them to this tree.")
+    }
+
+    /// Matches the caption strip on a photo card so the drop card lines up in the grid.
+    private var metadataRowHeight: CGFloat {
+        GalleryLayout.metadataTopPadding + 20 + GalleryLayout.metadataTopPadding
+    }
+}
 
 private struct GalleryCardButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {

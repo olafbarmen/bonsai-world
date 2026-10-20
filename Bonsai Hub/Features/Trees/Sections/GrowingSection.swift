@@ -3,7 +3,7 @@
 //  Bonsai World
 //
 //  Tree Detail — Growing card (situation + health in grower order).
-//  Preferred Location workflow: Garden → Location → Select on Map.
+//  Home / Winter Locations; Standing now follows Season for seasonal trees.
 //  Trees never store coordinates — Location owns the map position.
 //
 
@@ -11,8 +11,12 @@ import SwiftUI
 
 struct GrowingSection: View {
     @Binding var styleID: UUID?
+    /// Standing now — read-only in the editor; updated when Home / Winter / Season change.
     @Binding var locationID: UUID?
+    @Binding var homeLocationID: UUID?
+    @Binding var winterLocationID: UUID?
     @Binding var healthStatus: TreeHealthStatus
+    @Binding var healthCause: String
     @Binding var lastRepottedDate: Date?
     @Binding var repottingIntervalYears: Int?
     @Binding var placementStrategy: TreePlacementStrategy
@@ -41,7 +45,13 @@ struct GrowingSection: View {
 
     @State private var placementGardenID: UUID?
     @State private var isMapPickerPresented = false
+    @State private var mapPickerTarget: PlacementMapTarget = .home
     @State private var isSoilMixExpanded = false
+
+    private enum PlacementMapTarget {
+        case home
+        case winter
+    }
 
     private var gardens: [Garden] {
         _ = profile.revision
@@ -50,6 +60,9 @@ struct GrowingSection: View {
 
     private var resolvedGardenID: UUID? {
         if let placementGardenID { return placementGardenID }
+        if let homeLocationID, let gardenID = referenceData.location(id: homeLocationID)?.gardenID {
+            return gardenID
+        }
         if let locationID, let gardenID = referenceData.location(id: locationID)?.gardenID {
             return gardenID
         }
@@ -67,12 +80,16 @@ struct GrowingSection: View {
         return filtered.isEmpty ? locations : filtered
     }
 
-    private var locationDisplayName: String {
-        guard let locationID else { return "" }
-        if let name = referenceData.location(id: locationID)?.name {
-            return name
-        }
-        return DetailOptionPickerRow.displayName(for: locationID, in: locations)
+    private var standingNowDisplayName: String {
+        displayName(for: locationID)
+    }
+
+    private var homeDisplayName: String {
+        displayName(for: homeLocationID)
+    }
+
+    private var winterDisplayName: String {
+        displayName(for: winterLocationID)
     }
 
     private var gardenDisplayName: String {
@@ -89,13 +106,18 @@ struct GrowingSection: View {
                     placeholder: "Select Style",
                     options: styles
                 )
-                locationPlacementBlock
-                healthPicker
-                repottingPlanBlock
                 placementStrategyPicker
                 if placementStrategy == .seasonal {
                     seasonPlacementPicker
                 }
+                homePlacementBlock
+                if placementStrategy == .seasonal {
+                    winterPlacementBlock
+                }
+                standingNowRow
+                healthPicker
+                DetailEditableTextRow(label: "Cause", text: $healthCause)
+                repottingPlanBlock
                 DetailOptionPickerRow(
                     label: "Tree Stage",
                     selection: $treeStageID,
@@ -121,8 +143,18 @@ struct GrowingSection: View {
                     value: DetailOptionPickerRow.displayName(for: styleID, in: styles)
                 )
                 DetailLabeledRow(label: "Garden", value: gardenDisplayName)
-                DetailLabeledRow(label: "Location", value: locationDisplayName)
+                DetailLabeledRow(label: "Standing now", value: standingNowDisplayName)
+                DetailLabeledRow(label: "Home", value: homeDisplayName)
+                if placementStrategy == .seasonal {
+                    DetailLabeledRow(label: "Winter", value: winterDisplayName)
+                }
                 DetailLabeledRow(label: "Health", value: healthStatus.title)
+                DetailLabeledRow(
+                    label: "Cause",
+                    value: healthCause.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                        ? FaloDisplayValue.empty
+                        : healthCause
+                )
                 DetailLabeledRow(label: "Last repotted", value: lastRepottedDisplay)
                 DetailLabeledRow(label: "Repot every", value: repottingIntervalDisplay)
                 DetailLabeledRow(label: "Placement strategy", value: placementStrategy.title)
@@ -149,7 +181,7 @@ struct GrowingSection: View {
                 syncPlacementGarden()
             }
         }
-        .onChange(of: locationID) { _, _ in
+        .onChange(of: homeLocationID) { _, _ in
             Task { @MainActor in
                 syncPlacementGarden()
             }
@@ -161,7 +193,7 @@ struct GrowingSection: View {
             if let gardenID = resolvedGardenID {
                 TreeLocationMapPickerSheet(
                     gardenID: gardenID,
-                    locationID: $locationID
+                    locationID: mapBinding(for: mapPickerTarget)
                 )
             }
         }
@@ -259,7 +291,7 @@ struct GrowingSection: View {
             Text("Placement strategy")
                 .font(FaloTypography.caption)
                 .foregroundStyle(.secondary)
-            Text("Always outdoors, or move in/out by season. Where it stands now is Location under Placement.")
+            Text("Always outdoors stays at Home. Seasonal moves Standing now between Home and Winter.")
                 .font(FaloTypography.caption)
                 .foregroundStyle(.tertiary)
 
@@ -279,7 +311,7 @@ struct GrowingSection: View {
             Text("Season")
                 .font(FaloTypography.caption)
                 .foregroundStyle(.secondary)
-            Text("Summer or winter mode for this seasonal tree.")
+            Text("Sets Standing now to Home (summer) or Winter. Winter Location must be chosen first.")
                 .font(FaloTypography.caption)
                 .foregroundStyle(.tertiary)
 
@@ -294,11 +326,60 @@ struct GrowingSection: View {
     }
 
     @ViewBuilder
-    private var locationPlacementBlock: some View {
-        VStack(alignment: .leading, spacing: FaloSpacing.small) {
-            Text("Placement")
+    private var standingNowRow: some View {
+        VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+            Text("Standing now")
                 .font(FaloTypography.caption)
                 .foregroundStyle(.secondary)
+            Text(
+                standingNowDisplayName.isEmpty
+                    ? FaloDisplayValue.empty
+                    : standingNowDisplayName
+            )
+            .font(FaloTypography.body)
+            .foregroundStyle(standingNowDisplayName.isEmpty ? .secondary : .primary)
+            .help("Where the tree stands right now — updates when Season changes.")
+        }
+        .padding(.vertical, FaloSpacing.xSmall)
+    }
+
+    @ViewBuilder
+    private var homePlacementBlock: some View {
+        placementLocationBlock(
+            title: "Home",
+            help: "Usual / summer place. Always outdoors trees stay here year-round.",
+            displayName: homeDisplayName,
+            selection: $homeLocationID,
+            mapTarget: .home
+        )
+    }
+
+    @ViewBuilder
+    private var winterPlacementBlock: some View {
+        placementLocationBlock(
+            title: "Winter",
+            help: "Where this tree overwinters — greenhouse, balcony, wall, etc.",
+            displayName: winterDisplayName,
+            selection: $winterLocationID,
+            mapTarget: .winter
+        )
+    }
+
+    @ViewBuilder
+    private func placementLocationBlock(
+        title: String,
+        help: String,
+        displayName: String,
+        selection: Binding<UUID?>,
+        mapTarget: PlacementMapTarget
+    ) -> some View {
+        VStack(alignment: .leading, spacing: FaloSpacing.small) {
+            Text(title)
+                .font(FaloTypography.caption)
+                .foregroundStyle(.secondary)
+            Text(help)
+                .font(FaloTypography.caption)
+                .foregroundStyle(.tertiary)
 
             Picker("Garden", selection: Binding(
                 get: { resolvedGardenID },
@@ -317,31 +398,32 @@ struct GrowingSection: View {
 
             HStack(alignment: .firstTextBaseline, spacing: FaloSpacing.medium) {
                 VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
-                    Text("Location")
+                    Text(title)
                         .font(FaloTypography.caption)
                         .foregroundStyle(.secondary)
                     Text(
-                        locationDisplayName.isEmpty
+                        displayName.isEmpty
                             ? "Not set — Select on Map"
-                            : locationDisplayName
+                            : displayName
                     )
                     .font(FaloTypography.body)
-                    .foregroundStyle(locationDisplayName.isEmpty ? .secondary : .primary)
+                    .foregroundStyle(displayName.isEmpty ? .secondary : .primary)
                 }
 
                 Spacer(minLength: 0)
 
                 Button("Select on Map") {
                     syncPlacementGarden()
+                    mapPickerTarget = mapTarget
                     isMapPickerPresented = true
                 }
                 .disabled(resolvedGardenID == nil)
-                .help("Preferred: assign this Tree by choosing a Location on the Garden map.")
+                .help("Assign \(title) by choosing a Location on the Garden map.")
             }
 
             DetailOptionPickerRow(
-                label: "Location (list)",
-                selection: $locationID,
+                label: "\(title) (list)",
+                selection: selection,
                 placeholder: "Select Location",
                 options: locationsForSelectedGarden
             )
@@ -401,9 +483,26 @@ struct GrowingSection: View {
         }
     }
 
+    private func displayName(for id: UUID?) -> String {
+        guard let id else { return "" }
+        if let name = referenceData.location(id: id)?.name {
+            return name
+        }
+        return DetailOptionPickerRow.displayName(for: id, in: locations)
+    }
+
+    private func mapBinding(for target: PlacementMapTarget) -> Binding<UUID?> {
+        switch target {
+        case .home: $homeLocationID
+        case .winter: $winterLocationID
+        }
+    }
+
     private func syncPlacementGarden() {
         if placementGardenID == nil {
-            if let locationID, let gardenID = referenceData.location(id: locationID)?.gardenID {
+            if let homeLocationID, let gardenID = referenceData.location(id: homeLocationID)?.gardenID {
+                placementGardenID = gardenID
+            } else if let locationID, let gardenID = referenceData.location(id: locationID)?.gardenID {
                 placementGardenID = gardenID
             } else {
                 placementGardenID = profile.defaultGarden?.id

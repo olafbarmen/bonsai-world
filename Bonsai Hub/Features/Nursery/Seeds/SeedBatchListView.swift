@@ -19,7 +19,6 @@ struct SeedBatchListView: View {
     @Environment(AppState.self) private var appState
     @Environment(SeedBatchService.self) private var seedBatchService
     @Environment(ReferenceDataService.self) private var referenceData
-    @Environment(\.openWindow) private var openWindow
 
     @State private var tableSelection: Set<UUID> = []
     @State private var sortOrder: [KeyPathComparator<SeedBatchListRow>] = [
@@ -178,7 +177,7 @@ struct SeedBatchListView: View {
         .scrollDisabled(true)
         .contextMenu(forSelectionType: UUID.self) { selection in
             if selection.count == 1, let id = selection.first {
-                Button("Open in New Window") {
+                Button("Open") {
                     openBatchWindow(batchID: id)
                 }
             }
@@ -229,11 +228,7 @@ struct SeedBatchListView: View {
     }
 
     private func openBatchWindow(batchID: UUID) {
-        appState.selectedSeedBatchID = batchID
-        openWindow(
-            id: SeedBatchWorkspaceWindowContext.windowID,
-            value: SeedBatchWorkspaceWindowContext(batchID: batchID)
-        )
+        appState.openSeedBatchInPlace(batchID: batchID)
     }
 }
 

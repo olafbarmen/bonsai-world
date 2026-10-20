@@ -88,6 +88,9 @@ struct SoilStockDetailView: View {
                 primaryImageID: liveItem.primaryImageID,
                 selectedImageID: $selectedPhotoID,
                 onAddImage: { addImage(to: liveItem) },
+                onDropImageFiles: { sources in
+                    Task { await importDroppedImages(sources, to: liveItem) }
+                },
                 onSetPrimary: { id in try? soilStock.setPrimaryImage(itemID: liveItem.id, imageID: id) },
                 onRemove: { id in
                     try? soilStock.removeImage(itemID: liveItem.id, imageID: id)
@@ -251,17 +254,30 @@ struct SoilStockDetailView: View {
     private func addImage(to item: SoilStockItem) {
         Task {
             guard let asset = try? await imageImportService.importGalleryImageFromFinder() else { return }
-            if item.primaryImageID == nil {
-                try? soilStock.setPrimaryImage(itemID: item.id, imageID: asset.id)
-            } else {
-                var updated = item
-                if !updated.imageIDs.contains(asset.id) {
-                    updated.imageIDs.append(asset.id)
-                }
-                _ = try? soilStock.updateItem(updated)
-            }
-            selectedPhotoID = asset.id
+            attach(asset, to: item)
         }
+    }
+
+    private func importDroppedImages(_ sources: [ImageDropSource], to item: SoilStockItem) async {
+        var current = item
+        for source in sources {
+            guard let asset = try? await imageImportService.importImage(from: source, asPrimary: false) else { continue }
+            attach(asset, to: current)
+            current = soilStock.item(id: item.id) ?? current
+        }
+    }
+
+    private func attach(_ asset: ImageAsset, to item: SoilStockItem) {
+        if item.primaryImageID == nil {
+            try? soilStock.setPrimaryImage(itemID: item.id, imageID: asset.id)
+        } else {
+            var updated = item
+            if !updated.imageIDs.contains(asset.id) {
+                updated.imageIDs.append(asset.id)
+            }
+            _ = try? soilStock.updateItem(updated)
+        }
+        selectedPhotoID = asset.id
     }
 
     private func save() {

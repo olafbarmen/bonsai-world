@@ -44,9 +44,10 @@ enum GalleryBrowseFilter: String, CaseIterable, Identifiable, Hashable, Sendable
     var isImplemented: Bool {
         switch self {
         case .all, .primary, .latest, .referenceImages, .uncollectedFindings, .yamadoriTrees,
-             .pots, .profilePhoto, .wire, .tools, .chemicals, .consumables, .fertilizers, .soil:
+             .pots, .profilePhoto, .wire, .tools, .chemicals, .consumables, .fertilizers, .soil,
+             .byTree:
             true
-        case .featured, .byTree, .byCollection, .bySpecies, .byLocation,
+        case .featured, .byCollection, .bySpecies, .byLocation,
              .byYamadori, .unattached, .beforeAfter:
             false
         }
@@ -191,11 +192,12 @@ enum GalleryBrowseFilter: String, CaseIterable, Identifiable, Hashable, Sendable
     func isAvailable(at level: GalleryExperienceLevel) -> Bool {
         switch self {
         case .all, .primary, .latest, .referenceImages, .uncollectedFindings, .yamadoriTrees,
-             .pots, .profilePhoto, .wire, .tools, .chemicals, .consumables, .fertilizers, .soil:
+             .pots, .profilePhoto, .wire, .tools, .chemicals, .consumables, .fertilizers, .soil,
+             .byTree:
             true
         case .featured:
             level != .novice
-        case .byTree, .byCollection, .bySpecies, .byLocation,
+        case .byCollection, .bySpecies, .byLocation,
              .byYamadori, .unattached, .beforeAfter:
             false
         }

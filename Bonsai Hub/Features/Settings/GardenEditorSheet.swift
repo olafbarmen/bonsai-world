@@ -17,6 +17,8 @@ struct GardenEditorSheet: View {
     @State private var isPositionEditorPresented = false
     @State private var preferAddressFraming = false
     @State private var positionDraft: GeographicCoordinate?
+    /// True only while Hemisphere was filled from Garden Position in this edit.
+    @State private var hemisphereFollowsPosition = false
 
     init(garden: Garden) {
         _draft = State(initialValue: garden)
@@ -46,6 +48,8 @@ struct GardenEditorSheet: View {
 
                 gardenPositionSection
 
+                climateSection
+
                 if let validationMessage {
                     Section {
                         Text(validationMessage)
@@ -68,6 +72,14 @@ struct GardenEditorSheet: View {
             .onAppear {
                 isExisting = profile.garden(id: draft.id) != nil
                 positionDraft = draft.gardenPosition
+                applySuggestedHemisphere()
+            }
+            .onChange(of: draft.hemisphere) { _, newValue in
+                guard hemisphereFollowsPosition else { return }
+                let suggested = positionDraft.map { GardenHemisphere.suggested(latitude: $0.latitude) }
+                if newValue != suggested {
+                    hemisphereFollowsPosition = false
+                }
             }
             .sheet(isPresented: $isPositionEditorPresented) {
                 GardenPositionEditorSheet(
@@ -118,6 +130,10 @@ struct GardenEditorSheet: View {
                 Button("Clear Position", role: .destructive) {
                     positionDraft = nil
                     draft.clearGardenPosition()
+                    if hemisphereFollowsPosition {
+                        draft.hemisphere = nil
+                        hemisphereFollowsPosition = false
+                    }
                 }
             } else {
                 Button("Set Position") {
@@ -137,6 +153,31 @@ struct GardenEditorSheet: View {
         }
     }
 
+    private var climateSection: some View {
+        Section {
+            Picker("Hemisphere", selection: $draft.hemisphere) {
+                Text("Not Set").tag(GardenHemisphere?.none)
+                ForEach(GardenHemisphere.allCases) { hemisphere in
+                    Text(hemisphere.title).tag(Optional(hemisphere))
+                }
+            }
+            Picker("Season", selection: $draft.season) {
+                Text("Not Set").tag(GardenSeason?.none)
+                ForEach(GardenSeason.allCases) { season in
+                    Text(season.title).tag(Optional(season))
+                }
+            }
+        } header: {
+            Text("Climate")
+        } footer: {
+            Text(GardenClimate.settingsFooter(
+                hemisphereFollowsPosition: hemisphereFollowsPosition,
+                season: draft.season
+            ))
+            .font(FaloTypography.caption)
+        }
+    }
+
     private func openPositionEditor(preferAddressFraming: Bool) {
         self.preferAddressFraming = preferAddressFraming
         isPositionEditorPresented = true
@@ -147,7 +188,20 @@ struct GardenEditorSheet: View {
             draft.setGardenPosition(positionDraft)
         } else {
             draft.clearGardenPosition()
+            if hemisphereFollowsPosition {
+                draft.hemisphere = nil
+                hemisphereFollowsPosition = false
+            }
         }
+        applySuggestedHemisphere()
+    }
+
+    /// Fills Hemisphere from latitude only while the grower has not chosen one.
+    private func applySuggestedHemisphere() {
+        guard draft.hemisphere == nil || hemisphereFollowsPosition else { return }
+        guard let latitude = positionDraft?.latitude else { return }
+        hemisphereFollowsPosition = true
+        draft.hemisphere = GardenHemisphere.suggested(latitude: latitude)
     }
 
     private func save() {

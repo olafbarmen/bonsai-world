@@ -9,14 +9,22 @@ import MapKit
 import SwiftUI
 
 struct YamadoriFindDetailView: View {
+    private static let autoSaveDebounceMilliseconds: UInt64 = 600
+    private static let savedIndicatorMilliseconds: UInt64 = 1200
+
     @Environment(AppState.self) private var appState
     @Environment(YamadoriService.self) private var yamadoriService
     @Environment(ReferenceDataService.self) private var referenceData
     @Environment(TreeService.self) private var treeService
     @Environment(ImageService.self) private var imageService
     @Environment(ImageImportService.self) private var imageImportService
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var draft: YamadoriFindDetailDraft?
+    @State private var lastPersistedDraft: YamadoriFindDetailDraft?
+    @State private var autoSaveStatus: TreeAutoSaveStatus = .idle
+    @State private var autoSaveTask: Task<Void, Never>?
+    @State private var savedIndicatorTask: Task<Void, Never>?
     @State private var isTransferPresented = false
     @State private var isCollectPresented = false
     @State private var isObservationPresented = false
@@ -44,9 +52,20 @@ struct YamadoriFindDetailView: View {
                 )
             }
         }
-        .onChange(of: appState.selectedYamadoriFindID) { _, _ in
-            draft = nil
-            appState.yamadoriDetailInteractionMode = .viewing
+        .onChange(of: appState.selectedYamadoriFindID) { oldID, newID in
+            // Only flush when leaving this Find — not when the view first appears.
+            guard oldID != nil, oldID != newID else { return }
+            persistBeforeLeaving(findID: oldID)
+        }
+        .onChange(of: draft) { _, newDraft in
+            guard isEditing, newDraft != nil else { return }
+            scheduleAutoSave()
+        }
+        .onDisappear { flushAutoSaveIfNeeded() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .inactive || phase == .background {
+                flushAutoSaveIfNeeded()
+            }
         }
         .onAppear { consumePendingQuickAction() }
         .onChange(of: appState.pendingYamadoriQuickAction) { _, _ in
@@ -104,41 +123,44 @@ struct YamadoriFindDetailView: View {
 
     @ViewBuilder
     private func content(for find: YamadoriFind) -> some View {
-        FaloAdaptiveDesktopWorkspace(profile: .treeDetail) {
-            VStack(alignment: .leading, spacing: TreeDetailSpacing.cardGap) {
-                if !appState.isYamadoriFindWorkspaceWindow {
-                    Button("Back to Trip") {
-                        appState.selectedYamadoriWorkspaceTab = .yamadories
-                        appState.selectedYamadoriFindID = nil
-                        appState.yamadoriDetailInteractionMode = .viewing
-                        draft = nil
+        VStack(spacing: 0) {
+            if isEditing {
+                TreeAutoSaveBanner(status: autoSaveStatus)
+            }
+            FaloAdaptiveDesktopWorkspace(profile: .treeDetail) {
+                VStack(alignment: .leading, spacing: TreeDetailSpacing.cardGap) {
+                    if !appState.isYamadoriFindWorkspaceWindow {
+                        Button("Back to Trip") {
+                            finishEditing()
+                            appState.showYamadoriTrip(tripID: find.yamadoriID)
+                        }
+                        .buttonStyle(.borderless)
                     }
-                    .buttonStyle(.borderless)
-                }
-                TreeDetailCardColumns {
-                    mediaSection(find)
-                    identitySection(find)
-                    evaluationSection(find)
-                } column1: {
-                    recoverySection(find)
-                    transferSection(find)
-                } column2: {
-                    YamadoriSiteMapCard(
-                        title: "Find Map",
-                        latitude: findMapLatitudeBinding(for: find),
-                        longitude: findMapLongitudeBinding(for: find),
-                        primaryTitle: displayName(for: find),
-                        isEditing: isEditing,
-                        secondaryPins: [],
-                        focusedLatitudeDelta: 0.015,
-                        mapHeight: 200
-                    )
-                    findLocationCard(find)
-                }
+                    TreeDetailCardColumns {
+                        mediaSection(find)
+                        identitySection(find)
+                        evaluationSection(find)
+                    } column1: {
+                        recoverySection(find)
+                        transferSection(find)
+                    } column2: {
+                        YamadoriSiteMapCard(
+                            title: "Find Map",
+                            latitude: findMapLatitudeBinding(for: find),
+                            longitude: findMapLongitudeBinding(for: find),
+                            primaryTitle: displayName(for: find),
+                            isEditing: isEditing,
+                            secondaryPins: [],
+                            focusedLatitudeDelta: 0.015,
+                            mapHeight: 200
+                        )
+                        findLocationCard(find)
+                    }
 
-                observationsSection(find)
-                historySection(find)
-                notesSection(find)
+                    observationsSection(find)
+                    historySection(find)
+                    notesSection(find)
+                }
             }
         }
         .navigationTitle(displayName(for: find))
@@ -193,8 +215,9 @@ struct YamadoriFindDetailView: View {
             get: { isEditing ? (draft?.latitude ?? find.latitude) : find.latitude },
             set: { newValue in
                 guard isEditing else { return }
-                if draft == nil { draft = YamadoriFindDetailDraft(from: find) }
-                draft?.latitude = newValue
+                var next = draft ?? YamadoriFindDetailDraft(from: find)
+                next.latitude = newValue
+                draft = next
             }
         )
     }
@@ -204,8 +227,9 @@ struct YamadoriFindDetailView: View {
             get: { isEditing ? (draft?.longitude ?? find.longitude) : find.longitude },
             set: { newValue in
                 guard isEditing else { return }
-                if draft == nil { draft = YamadoriFindDetailDraft(from: find) }
-                draft?.longitude = newValue
+                var next = draft ?? YamadoriFindDetailDraft(from: find)
+                next.longitude = newValue
+                draft = next
             }
         )
     }
@@ -319,6 +343,9 @@ struct YamadoriFindDetailView: View {
                 imageIDs: find.imageIDs,
                 primaryImageID: find.primaryImageID,
                 onAdd: { addImage(to: find) },
+                onDropImageFiles: { sources in
+                    Task { await importDroppedImages(sources, to: find) }
+                },
                 onSetPrimary: { id in try? yamadoriService.setPrimaryImage(findID: find.id, imageID: id) },
                 onRemove: { id in try? yamadoriService.removeImage(findID: find.id, imageID: id) }
             )
@@ -328,8 +355,8 @@ struct YamadoriFindDetailView: View {
     private func addImage(to find: YamadoriFind) {
         Task { @MainActor in
             do {
-                let asset = try await imageImportService.importGalleryImageFromFinder()
-                try yamadoriService.addImage(findID: find.id, imageID: asset.id)
+                let assets = try await imageImportService.importGalleryImagesFromFinder()
+                try attachImportedAssets(assets, to: find)
             } catch is CancellationError {
                 return
             } catch ImageImportError.cancelled {
@@ -337,6 +364,26 @@ struct YamadoriFindDetailView: View {
             } catch {
                 errorMessage = error.localizedDescription
             }
+        }
+    }
+
+    private func importDroppedImages(_ sources: [ImageDropSource], to find: YamadoriFind) async {
+        guard !sources.isEmpty else { return }
+        do {
+            var assets: [ImageAsset] = []
+            assets.reserveCapacity(sources.count)
+            for source in sources {
+                assets.append(try await imageImportService.importImage(from: source, asPrimary: false))
+            }
+            try attachImportedAssets(assets, to: find)
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func attachImportedAssets(_ assets: [ImageAsset], to find: YamadoriFind) throws {
+        for asset in assets {
+            try yamadoriService.addImage(findID: find.id, imageID: asset.id)
         }
     }
 
@@ -419,18 +466,106 @@ struct YamadoriFindDetailView: View {
     }
 
     private func beginEditing(_ find: YamadoriFind) {
-        draft = YamadoriFindDetailDraft(from: find)
+        let captured = YamadoriFindDetailDraft(from: find)
+        draft = captured
+        lastPersistedDraft = captured
+        autoSaveStatus = .idle
         appState.yamadoriDetailInteractionMode = .editing
     }
 
-    private func commitDraft(for find: YamadoriFind) {
-        guard let draft else { return }
+    /// Finish — flush pending Auto Save, then leave Edit Mode (does not discard).
+    private func finishEditing() {
+        autoSaveTask?.cancel()
+        autoSaveTask = nil
+        persistDraftNow(exitEditing: true)
+    }
+
+    private func scheduleAutoSave() {
+        guard isEditing, let draft else { return }
+        guard draft != lastPersistedDraft else { return }
+        autoSaveTask?.cancel()
+        autoSaveTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: Self.autoSaveDebounceMilliseconds * 1_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            persistDraftNow(exitEditing: false)
+        }
+    }
+
+    private func flushAutoSaveIfNeeded() {
+        guard isEditing else { return }
+        guard let draft, draft != lastPersistedDraft else { return }
+        autoSaveTask?.cancel()
+        autoSaveTask = nil
+        persistDraftNow(exitEditing: false)
+    }
+
+    private func persistBeforeLeaving(findID: UUID?) {
+        if isEditing, let findID, let draft, draft != lastPersistedDraft {
+            try? yamadoriService.applyFindDraft(id: findID, draft: draft)
+        }
+        leaveEditing()
+    }
+
+    private func persistDraftNow(exitEditing: Bool) {
+        guard isEditing, let find else {
+            if exitEditing { leaveEditing() }
+            return
+        }
+        guard let currentDraft = draft else {
+            if exitEditing { leaveEditing() }
+            return
+        }
+        if currentDraft == lastPersistedDraft {
+            if exitEditing { leaveEditing() }
+            return
+        }
+
+        autoSaveStatus = .saving
         do {
-            try yamadoriService.applyFindDraft(id: find.id, draft: draft)
-            self.draft = nil
-            appState.yamadoriDetailInteractionMode = .viewing
+            try yamadoriService.applyFindDraft(id: find.id, draft: currentDraft)
+            if let updated = yamadoriService.getFind(id: find.id) {
+                let refreshed = YamadoriFindDetailDraft(from: updated)
+                draft = refreshed
+                lastPersistedDraft = refreshed
+            } else {
+                lastPersistedDraft = currentDraft
+            }
+            autoSaveStatus = .saved
+            showSavedThenIdle()
+            if exitEditing { leaveEditing() }
         } catch {
+            autoSaveStatus = .failed
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func leaveEditing() {
+        autoSaveTask?.cancel()
+        autoSaveTask = nil
+        savedIndicatorTask?.cancel()
+        savedIndicatorTask = nil
+        draft = nil
+        lastPersistedDraft = nil
+        autoSaveStatus = .idle
+        appState.yamadoriDetailInteractionMode = .viewing
+    }
+
+    private func showSavedThenIdle() {
+        savedIndicatorTask?.cancel()
+        savedIndicatorTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: Self.savedIndicatorMilliseconds * 1_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            if autoSaveStatus == .saved {
+                autoSaveStatus = .idle
+            }
         }
     }
 
@@ -464,8 +599,7 @@ struct YamadoriFindDetailView: View {
         case .deleteYamadori:
             confirmDelete = true
         case .cancel:
-            draft = nil
-            appState.yamadoriDetailInteractionMode = .viewing
+            finishEditing()
         case .addFind:
             break
         }

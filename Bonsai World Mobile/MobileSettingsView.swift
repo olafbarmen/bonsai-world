@@ -29,6 +29,7 @@ struct MobileSettingsView: View {
     @State private var exportErrorMessage: String?
     @State private var importErrorMessage: String?
     @State private var libraryLocationHint: String?
+    @State private var iCloudAvailable = BonsaiWorldICloudLibrary.cachedLibraryRootURL() != nil
 
     private var appVersionLine: String {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
@@ -55,54 +56,13 @@ struct MobileSettingsView: View {
                         .font(FaloTypography.caption)
                 }
 
-                Section {
-                    LabeledContent("Location") {
-                        Text(libraryLocationCaption)
-                            .font(FaloTypography.body)
-                            .foregroundStyle(BonsaiWorldColors.textSecondary)
+                Section("Preferences") {
+                    NavigationLink("Regional Settings") {
+                        MobileRegionalSettingsView()
                     }
-
-                    if let warning = library.foreignWriterWarningText {
-                        Text(warning)
-                            .font(FaloTypography.caption)
-                            .foregroundStyle(BonsaiWorldColors.statusAttention)
-                    }
-
-                    if MobileLibraryStore.locationPreference != .iCloud {
-                        Button("Use iCloud with Mac") {
-                            switchToICloud()
-                        }
-                        .font(FaloTypography.body)
-                        .foregroundStyle(
-                            BonsaiWorldICloudLibrary.isAvailable
-                                ? BonsaiWorldColors.accent
-                                : BonsaiWorldColors.textTertiary
-                        )
-                        .disabled(!BonsaiWorldICloudLibrary.isAvailable)
-                        .accessibilityLabel("Use iCloud with Mac")
-                    }
-
-                    if MobileLibraryStore.locationPreference != .local {
-                        Button("Keep library on this iPhone") {
-                            switchToLocal()
-                        }
-                        .font(FaloTypography.body)
-                        .foregroundStyle(BonsaiWorldColors.textPrimary)
-                        .accessibilityLabel("Keep library on this iPhone")
-                    }
-                } header: {
-                    Text("Library")
-                } footer: {
-                    Text(libraryFooter)
-                        .font(FaloTypography.caption)
-                }
-
-                if let libraryLocationHint {
-                    Section {
-                        Text(libraryLocationHint)
-                            .font(FaloTypography.caption)
-                            .foregroundStyle(BonsaiWorldColors.statusAttention)
-                    }
+                    .font(FaloTypography.body)
+                    .foregroundStyle(BonsaiWorldColors.textPrimary)
+                    .accessibilityLabel("Regional Settings")
                 }
 
                 Section {
@@ -140,6 +100,41 @@ struct MobileSettingsView: View {
                 }
 
                 Section {
+                    LabeledContent("Location") {
+                        Text(libraryLocationCaption)
+                            .font(FaloTypography.body)
+                            .foregroundStyle(BonsaiWorldColors.textSecondary)
+                    }
+
+                    if let warning = library.foreignWriterWarningText {
+                        Text(warning)
+                            .font(FaloTypography.caption)
+                            .foregroundStyle(BonsaiWorldColors.statusAttention)
+                    }
+
+                    if MobileLibraryStore.locationPreference != .iCloud {
+                        Button("Use iCloud with Mac") {
+                            switchToICloud()
+                        }
+                        .font(FaloTypography.body)
+                        .foregroundStyle(
+                            iCloudAvailable
+                                ? BonsaiWorldColors.accent
+                                : BonsaiWorldColors.textTertiary
+                        )
+                        .disabled(!iCloudAvailable)
+                        .accessibilityLabel("Use iCloud with Mac")
+                    }
+
+                    if MobileLibraryStore.locationPreference != .local {
+                        Button("Keep library on this iPhone") {
+                            switchToLocal()
+                        }
+                        .font(FaloTypography.body)
+                        .foregroundStyle(BonsaiWorldColors.textPrimary)
+                        .accessibilityLabel("Keep library on this iPhone")
+                    }
+
                     Button("Export Library") {
                         exportLibrary()
                     }
@@ -170,10 +165,29 @@ struct MobileSettingsView: View {
                     .accessibilityLabel("Reset Library")
                     .accessibilityHint("Deletes all local data and restores demo trees")
                 } header: {
-                    Text("Data")
+                    Text("Library Management")
                 } footer: {
-                    Text("Export shares a ZIP of this device’s library. Import a ZIP or folder to replace everything here — export first if you want a backup. Clear Photos keeps trees, work, and inventory. Reset Library restores demo data.")
+                    Text(libraryManagementFooter)
                         .font(FaloTypography.caption)
+                }
+
+                if let libraryLocationHint {
+                    Section {
+                        Text(libraryLocationHint)
+                            .font(FaloTypography.caption)
+                            .foregroundStyle(BonsaiWorldColors.statusAttention)
+                    }
+                }
+
+                Section {
+                    NavigationLink("Getting Started") {
+                        MobileGettingStartedView()
+                    }
+                    .font(FaloTypography.body)
+                    .foregroundStyle(BonsaiWorldColors.textPrimary)
+                    .accessibilityLabel("Getting Started")
+                } header: {
+                    Text("Library")
                 }
 
                 Section("About") {
@@ -193,6 +207,13 @@ struct MobileSettingsView: View {
             .background(BonsaiWorldColors.canvas)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
+            .task {
+                switch await BonsaiWorldICloudLibrary.resolveLibraryRootURL() {
+                case .available: iCloudAvailable = true
+                case .unavailable: iCloudAvailable = false
+                case .timedOut: break
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
@@ -201,6 +222,7 @@ struct MobileSettingsView: View {
             }
             .toolbarBackground(BonsaiWorldColors.canvas, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.light, for: .navigationBar)
             .sheet(item: $exportShareItem) { item in
                 MobileShareSheet(items: [item.url]) {
                     exportShareItem = nil
@@ -282,7 +304,7 @@ struct MobileSettingsView: View {
     private var libraryLocationCaption: String {
         switch MobileLibraryStore.locationPreference {
         case .iCloud:
-            return BonsaiWorldICloudLibrary.isAvailable ? "iCloud Drive" : "iCloud (unavailable)"
+            return iCloudAvailable ? "iCloud Drive" : "iCloud (unavailable)"
         case .local:
             return "This iPhone"
         case .undecided:
@@ -290,15 +312,18 @@ struct MobileSettingsView: View {
         }
     }
 
-    private var libraryFooter: String {
+    private var libraryManagementFooter: String {
+        let locationLine: String
         if MobileLibraryStore.locationPreference == .iCloud {
-            return "Shared with Mac via iCloud when both use the same Apple ID. Avoid editing on both at once. Quit and reopen after changing location."
+            locationLine = "Shared with Mac via iCloud when both use the same Apple ID. Avoid editing on both at once. Quit and reopen after changing location."
+        } else {
+            locationLine = "Library stays on this iPhone until you choose iCloud. Quit and reopen after changing location."
         }
-        return "Library stays on this iPhone until you choose iCloud. Quit and reopen after changing location."
+        return "\(locationLine) Export shares a ZIP of this device’s library. Import a ZIP or folder to replace everything here — export first if you want a backup. Clear Photos keeps trees, work, and inventory. Reset Library restores demo data."
     }
 
     private func switchToICloud() {
-        guard BonsaiWorldICloudLibrary.isAvailable else { return }
+        guard iCloudAvailable else { return }
         MobileLibraryStore.locationPreference = .iCloud
         libraryLocationHint = "Quit and reopen Bonsai World to open the iCloud library."
     }

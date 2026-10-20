@@ -9,7 +9,8 @@
 
 import Foundation
 
-/// First-run migration of preview seed trees into the library package.
+/// First-run tree catalog. New libraries start empty.
+/// The development seed in OlafDevelopmentTrees.json is never copied in.
 @MainActor
 enum TreeMigrationService {
 
@@ -18,17 +19,17 @@ enum TreeMigrationService {
         case skippedLibraryNotReady
         /// `Database/Trees.json` already present.
         case notRequired
-        /// Preview catalog copied to disk and verified.
+        /// Empty catalog written and verified.
         case migrated(treeCount: Int)
         /// Write or verification failed; catalog file rolled back when needed.
         case failed
     }
 
-    /// Migrates preview trees when the persisted catalog is absent.
+    /// Writes an empty `Database/Trees.json` when the catalog is absent.
+    /// Existing libraries are left as they are.
     static func migrateIfNeeded(
         storage: StorageService,
         libraryReady: Bool,
-        previewRepository: PreviewTreeRepository,
         libraryRepository: LibraryTreeRepository,
         bonsaiNameSequences: BonsaiNameSequenceStore
     ) -> Result {
@@ -40,11 +41,8 @@ enum TreeMigrationService {
             return .notRequired
         }
 
-        let sourceTrees = previewRepository.getAllTrees()
-        let expectedIDs = Set(sourceTrees.map(\.id))
-
         do {
-            try libraryRepository.replaceCatalog(with: sourceTrees)
+            try libraryRepository.replaceCatalog(with: [])
         } catch {
             return .failed
         }
@@ -52,15 +50,15 @@ enum TreeMigrationService {
         guard verifyPersistedCatalog(
             in: storage,
             libraryRepository: libraryRepository,
-            expectedCount: sourceTrees.count,
-            expectedIDs: expectedIDs
+            expectedCount: 0,
+            expectedIDs: []
         ) else {
             try? libraryRepository.discardPersistedCatalog()
             return .failed
         }
 
-        bonsaiNameSequences.reconcile(with: sourceTrees)
-        return .migrated(treeCount: sourceTrees.count)
+        bonsaiNameSequences.reconcile(with: [])
+        return .migrated(treeCount: 0)
     }
 
     /// Whether `Database/Trees.json` exists in the active library.

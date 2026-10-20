@@ -22,6 +22,7 @@ enum ImageInspectorLayout {
 struct ImageInspectorPanel: View {
     let entry: GalleryEntry?
     let collections: [Collection]
+    var selectionCount: Int = 0
     var onCrop: (() -> Void)? = nil
     var onDelete: (() -> Void)? = nil
 
@@ -33,6 +34,8 @@ struct ImageInspectorPanel: View {
         Group {
             if let entry {
                 summaryContent(for: entry)
+            } else if selectionCount > 1 {
+                multipleSelectionState
             } else {
                 emptyState
             }
@@ -63,10 +66,10 @@ struct ImageInspectorPanel: View {
                         .help("Crop the display of this photo. The original file is not changed.")
                 }
                 if let onDelete {
-                    Button("Delete Image", systemImage: "trash", role: .destructive, action: onDelete)
+                    Button(deleteButtonTitle, systemImage: "trash", role: .destructive, action: onDelete)
                         .buttonStyle(.bordered)
                         .controlSize(.small)
-                        .help("Remove this image from the library")
+                        .help(deleteButtonHelp)
                 }
             }
 
@@ -171,6 +174,36 @@ struct ImageInspectorPanel: View {
                 .truncationMode(.tail)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private var deleteButtonTitle: String {
+        selectionCount > 1 ? "Delete \(selectionCount) images" : "Delete Image"
+    }
+
+    private var deleteButtonHelp: String {
+        selectionCount > 1
+            ? "Remove the selected images from the library"
+            : "Remove this image from the library"
+    }
+
+    private var multipleSelectionState: some View {
+        VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+            HStack(alignment: .center, spacing: FaloSpacing.small) {
+                DetailSectionHeader(title: "Image Details")
+                Spacer(minLength: 0)
+                if let onDelete {
+                    Button(deleteButtonTitle, systemImage: "trash", role: .destructive, action: onDelete)
+                        .buttonStyle(.bordered)
+                        .controlSize(.small)
+                        .help(deleteButtonHelp)
+                }
+            }
+
+            Text("\(selectionCount) images")
+                .font(FaloTypography.body)
+                .foregroundStyle(.primary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
     // MARK: - Empty State

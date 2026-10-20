@@ -12,6 +12,8 @@ struct MobileAssetImage: View {
     enum Style {
         case thumbnail
         case hero
+        /// Square tile that fills the proposed width (Images browse grid).
+        case grid
     }
 
     let imageID: UUID
@@ -20,8 +22,9 @@ struct MobileAssetImage: View {
     @Environment(DemoLibrary.self) private var library
 
     var body: some View {
+        let image = resolvedImage
         Group {
-            if let image = resolvedImage {
+            if let image {
                 image
                     .resizable()
                     .scaledToFill()
@@ -30,21 +33,27 @@ struct MobileAssetImage: View {
             }
         }
         .frame(width: side, height: height)
-        .frame(maxWidth: style == .hero ? .infinity : nil)
+        .frame(maxWidth: style == .hero || style == .grid ? .infinity : nil)
+        .frame(maxHeight: style == .grid ? .infinity : nil)
         .clipped()
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .strokeBorder(BonsaiWorldColors.border, lineWidth: 1)
         }
-        .accessibilityLabel(hasPixels ? "Photo" : "No photo")
+        .accessibilityLabel(image == nil ? "No photo" : "Photo")
     }
 
-    private var hasPixels: Bool { library.jpegData(for: imageID) != nil }
-
     private var resolvedImage: Image? {
-        guard let data = library.jpegData(for: imageID),
-              let uiImage = UIImage(data: data)
+        _ = library.imageRevision
+        let maxPixel: CGFloat
+        switch style {
+        case .hero: maxPixel = 800
+        case .grid: maxPixel = 320
+        case .thumbnail: maxPixel = 160
+        }
+        guard let url = library.residentImageURL(for: imageID),
+              let uiImage = MobileImageThumbnail.image(at: url, maxPixel: maxPixel)
         else { return nil }
         return Image(uiImage: uiImage)
     }
@@ -52,21 +61,22 @@ struct MobileAssetImage: View {
     private var side: CGFloat? {
         switch style {
         case .thumbnail: 72
-        case .hero: nil
+        case .hero, .grid: nil
         }
     }
 
-    private var height: CGFloat {
+    private var height: CGFloat? {
         switch style {
         case .thumbnail: 72
         case .hero: 220
+        case .grid: nil
         }
     }
 
     private var cornerRadius: CGFloat {
         switch style {
         case .thumbnail: FaloRadius.medium
-        case .hero: FaloRadius.hero
+        case .hero, .grid: FaloRadius.hero
         }
     }
 
@@ -74,7 +84,7 @@ struct MobileAssetImage: View {
         ZStack {
             BonsaiWorldColors.surface
             Image(systemName: "leaf.fill")
-                .font(.system(size: style == .hero ? FaloIconSize.emptyState : FaloIconSize.informational))
+                .font(.system(size: (style == .hero || style == .grid) ? FaloIconSize.emptyState : FaloIconSize.informational))
                 .foregroundStyle(BonsaiWorldColors.accent)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

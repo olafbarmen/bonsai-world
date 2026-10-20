@@ -626,6 +626,7 @@ final class SeedBatchService {
                 locationID: locationID,
                 soilMixID: batch.soilMixID,
                 sourceSeedBatchID: batch.id,
+                propagation: .seed,
                 acquisitionDate: .now,
                 acquisitionMethodID: methodID,
                 acquisitionSourceName: batch.batchCode,

@@ -13,10 +13,14 @@ struct PotImageStrip: View {
     let imageIDs: [UUID]
     var primaryImageID: UUID?
     var onAdd: (() -> Void)?
+    /// Finder / Photos drag-and-drop when the strip is editable (`onAdd` set).
+    var onDropImageFiles: (([ImageDropSource]) -> Void)? = nil
     var onSetPrimary: ((UUID) -> Void)?
     var onRemove: ((UUID) -> Void)?
 
     private static let thumbnailSize: CGFloat = 72
+
+    @State private var isDropTargeted = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
@@ -32,7 +36,7 @@ struct PotImageStrip: View {
             }
 
             if imageIDs.isEmpty {
-                Text(FaloDisplayValue.empty)
+                Text(onDropImageFiles != nil ? "Drop images here, or Add" : FaloDisplayValue.empty)
                     .font(FaloCardTypography.fieldValue)
                     .foregroundStyle(.secondary)
             } else {
@@ -44,6 +48,25 @@ struct PotImageStrip: View {
                     }
                 }
             }
+        }
+        .padding(FaloSpacing.xSmall)
+        .background {
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: FaloRadius.small, style: .continuous)
+                    .fill(BonsaiWorldColors.accentSubtle.opacity(0.45))
+            }
+        }
+        .overlay {
+            if isDropTargeted {
+                RoundedRectangle(cornerRadius: FaloRadius.small, style: .continuous)
+                    .strokeBorder(BonsaiWorldColors.accent, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+            }
+        }
+        .bonsaiImageFileDrop(
+            isEnabled: onAdd != nil && onDropImageFiles != nil,
+            isTargeted: $isDropTargeted
+        ) { urls in
+            onDropImageFiles?(urls)
         }
     }
 

@@ -18,21 +18,63 @@ struct MacImagePicker: ImageFilePicking, ImagePixelSizeReading {
 
     @MainActor
     func pickImageFile(title: String, message: String, prompt: String) async throws -> URL {
-        try await withCheckedThrowingContinuation { continuation in
-            let panel = NSOpenPanel()
-            panel.title = title
-            panel.message = message
-            panel.prompt = prompt
-            panel.allowsMultipleSelection = false
-            panel.canChooseDirectories = false
-            panel.canChooseFiles = true
-            panel.allowedContentTypes = Self.allowedContentTypes
+        let urls = try await presentOpenPanel(
+            title: title,
+            message: message,
+            prompt: prompt,
+            allowsMultipleSelection: false
+        )
+        guard let url = urls.first else { throw ImageFilePickingCancelled() }
+        return url
+    }
 
-            panel.begin { response in
-                if response == .OK, let url = panel.url {
-                    continuation.resume(returning: url)
+    @MainActor
+    func pickImageFiles(title: String, message: String, prompt: String) async throws -> [URL] {
+        try await presentOpenPanel(
+            title: title,
+            message: message,
+            prompt: prompt,
+            allowsMultipleSelection: true
+        )
+    }
+
+    @MainActor
+    private func presentOpenPanel(
+        title: String,
+        message: String,
+        prompt: String,
+        allowsMultipleSelection: Bool
+    ) async throws -> [URL] {
+        try await withCheckedThrowingContinuation { continuation in
+            // Present on the next main-actor turn. Calling begin inside the
+            // continuation locks the main thread before the panel can appear.
+            Task { @MainActor in
+                let panel = NSOpenPanel()
+                panel.title = title
+                panel.message = message
+                panel.prompt = prompt
+                panel.allowsMultipleSelection = allowsMultipleSelection
+                panel.canChooseDirectories = false
+                panel.canChooseFiles = true
+                panel.allowedContentTypes = Self.allowedContentTypes
+
+                let finish: (NSApplication.ModalResponse) -> Void = { response in
+                    if response == .OK {
+                        let urls = panel.urls
+                        if urls.isEmpty {
+                            continuation.resume(throwing: ImageFilePickingCancelled())
+                        } else {
+                            continuation.resume(returning: urls)
+                        }
+                    } else {
+                        continuation.resume(throwing: ImageFilePickingCancelled())
+                    }
+                }
+
+                if let window = NSApp.keyWindow ?? NSApp.mainWindow {
+                    panel.beginSheetModal(for: window, completionHandler: finish)
                 } else {
-                    continuation.resume(throwing: ImageFilePickingCancelled())
+                    panel.begin(completionHandler: finish)
                 }
             }
         }

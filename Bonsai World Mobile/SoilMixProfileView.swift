@@ -120,6 +120,7 @@ struct SoilMixProfileView: View {
         }
         .toolbarBackground(BonsaiWorldColors.canvas, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(.light, for: .navigationBar)
         .confirmationDialog(
             "Delete this soil mix?",
             isPresented: $confirmDelete,

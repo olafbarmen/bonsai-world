@@ -236,7 +236,7 @@ final class YamadoriService {
 
     // MARK: - Status (Find)
 
-    /// Happy-path advance: Uncollected → Planned only (collection uses Mark Collected).
+    /// Legacy: Uncollected → Planned. Happy path is Mark Collected from Uncollected.
     @discardableResult
     func advanceStatus(id: UUID) throws -> YamadoriFind {
         guard let find = getFind(id: id) else {
@@ -310,7 +310,7 @@ final class YamadoriService {
         if let treeID = find.linkedTreeID, let existing = treeService.getTree(id: treeID) {
             return (find, existing)
         }
-        guard find.status == .planned || Self.canTransition(from: find.status, to: .collected) else {
+        guard find.status.isUncollected else {
             throw YamadoriServiceError.invalidStatusTransition(from: find.status, to: .collected)
         }
         guard let genusID = find.genusID, let speciesID = find.speciesID else {
@@ -351,6 +351,7 @@ final class YamadoriService {
             locationID: locationID,
             sourceYamadoriID: find.id,
             yamadoriNursery: true,
+            propagation: .yamadori,
             acquisitionDate: date,
             acquisitionMethodID: acquisitionMethodID,
             acquisitionNotes: originNotes,
@@ -394,7 +395,7 @@ final class YamadoriService {
     static func canTransition(from: YamadoriStatus, to: YamadoriStatus) -> Bool {
         if from == to { return false }
         switch (from, to) {
-        case (.scout, .planned), (.scout, .abandoned):
+        case (.scout, .collected), (.scout, .planned), (.scout, .abandoned):
             return true
         case (.planned, .collected), (.planned, .scout), (.planned, .abandoned):
             return true
@@ -585,6 +586,7 @@ final class YamadoriService {
             treeStageID: treeStageID,
             locationID: locationID,
             sourceYamadoriID: find.id,
+            propagation: .yamadori,
             acquisitionDate: acquisitionDate,
             acquisitionMethodID: acquisitionMethodID,
             acquisitionNotes: originNotes,

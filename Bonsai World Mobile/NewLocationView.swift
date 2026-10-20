@@ -99,6 +99,7 @@ struct NewLocationView: View {
             }
             .toolbarBackground(BonsaiWorldColors.canvas, for: .navigationBar)
             .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarColorScheme(.light, for: .navigationBar)
             .onAppear {
                 guard !didLoadInitial else { return }
                 if let initialGardenID, library.garden(id: initialGardenID) != nil {

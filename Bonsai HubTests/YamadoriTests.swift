@@ -88,7 +88,6 @@ struct YamadoriLifecycleTests {
         find.genusID = UUID()
         find.speciesID = UUID()
         _ = try service.updateFind(find)
-        _ = try service.setStatus(id: find.id, to: .planned)
 
         var collectDraft = YamadoriCollectDraft()
         collectDraft.locationID = inputs.locationID
@@ -133,7 +132,6 @@ struct YamadoriLifecycleTests {
         find.genusID = genusID
         find.speciesID = speciesID
         _ = try service.updateFind(find)
-        _ = try service.setStatus(id: find.id, to: .planned)
 
         var collectDraft = YamadoriCollectDraft()
         collectDraft.locationID = inputs.locationID

@@ -14,15 +14,12 @@ struct PostponeOccurrenceSheet: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(TaskService.self) private var taskService
 
-    @State private var dueDate: Date
+    @State private var count = 1
+    @State private var unit: TaskPostpone.Unit = .days
     @State private var errorMessage: String?
 
-    init(occurrence: TaskOccurrence, onFinished: @escaping () -> Void = {}) {
-        self.occurrence = occurrence
-        self.onFinished = onFinished
-        let start = Calendar.current.startOfDay(for: .now)
-        let initial = max(occurrence.dueDate, start)
-        _dueDate = State(initialValue: initial)
+    private var dueDate: Date {
+        TaskPostpone.date(from: occurrence.dueDate, count: count, unit: unit)
     }
 
     var body: some View {
@@ -31,13 +28,26 @@ struct PostponeOccurrenceSheet: View {
                 Section {
                     Text(occurrence.title)
                         .font(FaloTypography.headline)
-                    Text("Choose a new due date for this time only. Repeating rules (for example every few years) stay the same.")
+                    Text("This time only. Repeating rules (for example every few years) stay the same.")
                         .font(FaloTypography.caption)
                         .foregroundStyle(.secondary)
                 }
 
-                Section("New due date") {
-                    DatePicker("Due", selection: $dueDate, displayedComponents: [.date])
+                Section("Postpone") {
+                    Picker("Amount", selection: $count) {
+                        ForEach(Array(TaskPostpone.amounts), id: \.self) { value in
+                            Text("\(value)").tag(value)
+                        }
+                    }
+                    Picker("By", selection: $unit) {
+                        ForEach(TaskPostpone.Unit.allCases) { item in
+                            Text(item.title).tag(item)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    LabeledContent("New due date") {
+                        Text(dueDate, style: .date)
+                    }
                 }
 
                 if let errorMessage {

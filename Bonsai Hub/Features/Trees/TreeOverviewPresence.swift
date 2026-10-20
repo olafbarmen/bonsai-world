@@ -99,7 +99,9 @@ struct TreeOverviewHeroBanner<Photo: View, CurrentState: View, Species: View>: V
     let genusName: String
     let speciesName: String
     let cultivarName: String
+    let propagation: String
     let origin: String
+    let countryOfOrigin: String
     let healthTitle: String
     let healthSystemImage: String
     /// When true, Health chip uses attention emphasis (Stable / Thriving stay quiet).
@@ -212,7 +214,9 @@ struct TreeOverviewHeroBanner<Photo: View, CurrentState: View, Species: View>: V
             DashboardMetricRow(title: "Genus", value: display(genusName), compact: true)
             DashboardMetricRow(title: "Species", value: display(speciesName), compact: true)
             DashboardMetricRow(title: "Cultivar", value: display(cultivarName), compact: true)
+            DashboardMetricRow(title: "Propagation", value: display(propagation), compact: true)
             DashboardMetricRow(title: "Origin", value: display(origin), compact: true)
+            DashboardMetricRow(title: "Country of Origin", value: display(countryOfOrigin), compact: true)
 
             Spacer(minLength: 0)
         }
@@ -369,6 +373,8 @@ struct TreeOverviewHealthCareCard: View {
     let healthSystemImage: String
     /// When true, Health & Care surfaces health (attention / problem). Hero always shows the chip.
     let healthNeedsAttention: Bool
+    /// What is wrong. Omitted when empty.
+    var healthCause: String = ""
     /// Always outdoors vs seasonal in/out — distinct from Location.
     var placementStrategy: TreePlacementStrategy? = nil
     var onPlacementStrategyChange: ((TreePlacementStrategy) -> Void)? = nil
@@ -388,6 +394,14 @@ struct TreeOverviewHealthCareCard: View {
                     value: healthTitle,
                     systemImage: healthSystemImage,
                     isEmphasized: true,
+                    compact: true
+                )
+            }
+            if !healthCause.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                DashboardMetricRow(
+                    title: "Cause",
+                    value: healthCause,
+                    systemImage: "text.alignleft",
                     compact: true
                 )
             }
@@ -483,7 +497,9 @@ struct TreeOverviewIdentityCard: View {
     let genusName: String
     let speciesName: String
     let cultivarName: String
+    let propagation: String
     let origin: String
+    let countryOfOrigin: String
     var fillsRowHeight: Bool = false
 
     var body: some View {
@@ -494,7 +510,9 @@ struct TreeOverviewIdentityCard: View {
             DashboardMetricRow(title: "Genus", value: display(genusName), compact: true)
             DashboardMetricRow(title: "Species", value: display(speciesName), compact: true)
             DashboardMetricRow(title: "Cultivar", value: display(cultivarName), compact: true)
+            DashboardMetricRow(title: "Propagation", value: display(propagation), compact: true)
             DashboardMetricRow(title: "Origin", value: display(origin), compact: true)
+            DashboardMetricRow(title: "Country of Origin", value: display(countryOfOrigin), compact: true)
         }
     }
 
@@ -665,9 +683,12 @@ struct TreeOverviewPhotosCard: View {
     var allowsEditing: Bool
     var onSelectImage: (UUID) -> Void
     var onAddPhoto: () -> Void
+    var onDropImageFiles: (([ImageDropSource]) -> Void)? = nil
     var onViewAll: (() -> Void)? = nil
     /// When true (equal-height Overview row), card grows with siblings; strip stays top-aligned.
     var fillsRowHeight: Bool = false
+
+    @State private var isDropTargeted = false
 
     /// Overview strip — same 5:6 portrait as list thumbnails; fixed size (does not stretch).
     private static let thumbWidth: CGFloat = 72
@@ -718,6 +739,25 @@ struct TreeOverviewPhotosCard: View {
                 Spacer(minLength: 0)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(FaloSpacing.xSmall)
+            .background {
+                if isDropTargeted {
+                    RoundedRectangle(cornerRadius: FaloRadius.small, style: .continuous)
+                        .fill(BonsaiWorldColors.accentSubtle.opacity(0.45))
+                }
+            }
+            .overlay {
+                if isDropTargeted {
+                    RoundedRectangle(cornerRadius: FaloRadius.small, style: .continuous)
+                        .strokeBorder(BonsaiWorldColors.accent, style: StrokeStyle(lineWidth: 2, dash: [6, 4]))
+                }
+            }
+            .bonsaiImageFileDrop(
+                isEnabled: allowsEditing && onDropImageFiles != nil,
+                isTargeted: $isDropTargeted
+            ) { urls in
+                onDropImageFiles?(urls)
+            }
         }
     }
 

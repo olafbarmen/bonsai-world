@@ -33,6 +33,7 @@ struct NewTreeDraft: Sendable {
 
     var acquisitionDate: Date?
     var acquisitionMethodID: UUID?
+    var propagation: TreePropagation?
     var acquisitionSourceName: String = ""
     var purchasePrice: Decimal?
     var acquisitionNotes: String = ""

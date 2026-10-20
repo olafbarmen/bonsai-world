@@ -15,6 +15,7 @@ struct TreeDetailDraft: Equatable, Sendable {
     var sizeClassID: UUID?
     var treeStageID: UUID?
     var healthStatus: TreeHealthStatus
+    var healthCause: String
     var lastRepottedDate: Date?
     var repottingIntervalYears: Int?
     var placementStrategy: TreePlacementStrategy
@@ -24,9 +25,12 @@ struct TreeDetailDraft: Equatable, Sendable {
     var fertilizerHealth: FertilizerHealth?
     var fertilizerKindOverride: FertilizerKind?
     var locationID: UUID?
+    var homeLocationID: UUID?
+    var winterLocationID: UUID?
     var lightConditionID: UUID?
     var soilMixID: UUID?
     var potTypeID: UUID?
+    var potColor: String
 
     var heightMillimetres: Int?
     var crownWidthMillimetres: Int?
@@ -36,6 +40,11 @@ struct TreeDetailDraft: Equatable, Sendable {
     var potWidthMillimetres: Int?
     var potHeightMillimetres: Int?
     var potDiameterMillimetres: Int?
+
+    /// Estimated origin calendar year — Age is derived (see ``Tree/originYear``).
+    var originYear: Int?
+    var countryOfOrigin: String
+    var propagation: TreePropagation?
 
     var acquisitionDate: Date?
     var acquisitionMethodID: UUID?
@@ -76,6 +85,7 @@ struct TreeDetailDraft: Equatable, Sendable {
             sizeClassID: tree.sizeClassID,
             treeStageID: tree.treeStageID,
             healthStatus: tree.healthStatus,
+            healthCause: tree.healthCause,
             lastRepottedDate: tree.lastRepottedDate,
             repottingIntervalYears: tree.repottingIntervalYears,
             placementStrategy: tree.placementStrategy,
@@ -85,9 +95,12 @@ struct TreeDetailDraft: Equatable, Sendable {
             fertilizerHealth: tree.fertilizerHealth,
             fertilizerKindOverride: tree.fertilizerKindOverride,
             locationID: tree.locationID,
+            homeLocationID: tree.homeLocationID,
+            winterLocationID: tree.winterLocationID,
             lightConditionID: tree.lightConditionID,
             soilMixID: tree.soilMixID,
             potTypeID: tree.potTypeID,
+            potColor: tree.potColor,
             heightMillimetres: tree.heightMillimetres,
             crownWidthMillimetres: tree.crownWidthMillimetres,
             nebariWidthMillimetres: tree.nebariWidthMillimetres,
@@ -96,6 +109,9 @@ struct TreeDetailDraft: Equatable, Sendable {
             potWidthMillimetres: tree.potWidthMillimetres,
             potHeightMillimetres: tree.potHeightMillimetres,
             potDiameterMillimetres: tree.potDiameterMillimetres,
+            originYear: tree.originYear,
+            countryOfOrigin: tree.countryOfOrigin,
+            propagation: tree.propagation,
             acquisitionDate: tree.acquisitionDate,
             acquisitionMethodID: tree.acquisitionMethodID,
             acquisitionSourceName: tree.acquisitionSourceName,

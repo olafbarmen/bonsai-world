@@ -48,7 +48,7 @@ struct SidebarView: View {
                 let toolsCap = mid.size.height * Self.contextToolsMaxHeightFraction
 
                 VStack(spacing: 0) {
-                    List(selection: $appState.selectedSection) {
+                    List(selection: sidebarSelection) {
                         Section {
                             ForEach(AppModule.primaryWorkspaceModules) { module in
                                 moduleNavigation(module)
@@ -208,10 +208,11 @@ struct SidebarView: View {
 
     private var sidebarBranding: some View {
         HStack(alignment: .center, spacing: FaloSpacing.small) {
-            Image(systemName: "leaf.circle.fill")
-                .font(.system(size: 30, weight: .regular))
-                .symbolRenderingMode(.monochrome)
-                .foregroundStyle(BonsaiWorldColors.sidebarAccent)
+            Image("FaloBonsaiMark")
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 32, height: 32)
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: 2) {
@@ -286,10 +287,23 @@ struct SidebarView: View {
         FaloDisplayValue.text(profile.defaultGarden?.name)
     }
 
+    /// List selection for the sidebar.
+    private var sidebarSelection: Binding<AppRoute?> {
+        Binding(
+            get: { appState.selectedSection },
+            set: { newValue in
+                guard let newValue else { return }
+                appState.selectedSection = newValue
+            }
+        )
+    }
+
     @ViewBuilder
     private func moduleNavigation(_ module: AppModule) -> some View {
         let routes = module.routes
-        if module.showsChildNavigation {
+        if routes.isEmpty {
+            EmptyView()
+        } else if module.showsChildNavigation {
             let isExpanded = expansionBinding(for: module)
             Button {
                 isExpanded.wrappedValue.toggle()
@@ -479,10 +493,7 @@ struct SidebarView: View {
             appState.requestTreeQuickAction(.viewTreeHistory)
         case ContextQuickActionsCatalog.openTreeWorkspaceID:
             if let treeID = appState.selectedTreeID {
-                openWindow(
-                    id: TreeWorkspaceWindowContext.windowID,
-                    value: TreeWorkspaceWindowContext(treeID: treeID)
-                )
+                appState.openTreeInPlace(treeID: treeID)
             }
         case ContextQuickActionsCatalog.showOnMapID:
             appState.requestTreeQuickAction(.showOnMap)

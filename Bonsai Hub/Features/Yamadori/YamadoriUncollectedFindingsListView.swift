@@ -2,7 +2,7 @@
 //  YamadoriUncollectedFindingsListView.swift
 //  Bonsai World
 //
-//  Uncollected Finds — Table layout matching Garden → Trees.
+//  Uncollected Finds — same Table config as Garden → Trees (fills pane, scrolls itself).
 //
 
 import SwiftUI
@@ -13,7 +13,6 @@ struct YamadoriUncollectedFindingsListView: View {
     @Environment(AppState.self) private var appState
     @Environment(YamadoriService.self) private var yamadoriService
     @Environment(ImageService.self) private var imageService
-    @Environment(\.openWindow) private var openWindow
 
     @State private var tableSelection: Set<YamadoriFind.ID> = []
     @State private var sortOrder: [KeyPathComparator<YamadoriFindListRow>] = [
@@ -40,6 +39,8 @@ struct YamadoriUncollectedFindingsListView: View {
         sorted(formerRows)
     }
 
+    private var findingsTableMinimumWidth: CGFloat { 200 + 120 + 160 + 24 }
+
     var body: some View {
         Group {
             if activeRows.isEmpty, formerRows.isEmpty {
@@ -49,7 +50,7 @@ struct YamadoriUncollectedFindingsListView: View {
                     description: Text("Findings from Yamadori trips appear here until collected.")
                 )
             } else {
-                listScroll
+                listContent
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -68,29 +69,29 @@ struct YamadoriUncollectedFindingsListView: View {
         }
     }
 
-    private var listScroll: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: FaloSpacing.xxLarge) {
+    /// Same structure as Trees — Table fills remaining height.
+    private var listContent: some View {
+        VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+            findingsBlock(
+                title: "Uncollected Findings",
+                subtitle: nil,
+                rows: sortedActiveRows,
+                emptyMessage: "No uncollected findings.",
+                fillsHeight: formerRows.isEmpty
+            )
+            if !formerRows.isEmpty {
                 findingsBlock(
-                    title: "Uncollected Findings",
-                    subtitle: nil,
-                    rows: sortedActiveRows,
-                    emptyMessage: "No uncollected findings."
+                    title: "Former Findings",
+                    subtitle: "Abandoned or archived before collection",
+                    rows: sortedFormerRows,
+                    emptyMessage: nil,
+                    fillsHeight: true
                 )
-                if !formerRows.isEmpty {
-                    findingsBlock(
-                        title: "Former Findings",
-                        subtitle: "Abandoned or archived before collection",
-                        rows: sortedFormerRows,
-                        emptyMessage: nil
-                    )
-                }
             }
-            .padding(.top, FaloSpacing.small)
-            .padding(.bottom, FaloSpacing.xLarge)
-            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .frame(minWidth: findingsTableMinimumWidth, maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .faloScrollSurface()
+        .environment(\.defaultMinListRowHeight, 56)
     }
 
     @ViewBuilder
@@ -98,7 +99,8 @@ struct YamadoriUncollectedFindingsListView: View {
         title: String,
         subtitle: String?,
         rows: [YamadoriFindListRow],
-        emptyMessage: String?
+        emptyMessage: String?,
+        fillsHeight: Bool
     ) -> some View {
         VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
             VStack(alignment: .leading, spacing: 2) {
@@ -112,6 +114,7 @@ struct YamadoriUncollectedFindingsListView: View {
                 }
             }
             .padding(.horizontal, FaloSpacing.medium)
+            .padding(.top, FaloSpacing.small)
             .accessibilityAddTraits(.isHeader)
 
             if rows.isEmpty, let emptyMessage {
@@ -119,37 +122,30 @@ struct YamadoriUncollectedFindingsListView: View {
                     .font(FaloTypography.caption)
                     .foregroundStyle(.secondary)
                     .padding(.horizontal, FaloSpacing.medium)
+                    .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : nil, alignment: .topLeading)
             } else if !rows.isEmpty {
                 findingsTable(rows)
+                    .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : nil)
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: fillsHeight ? .infinity : nil, alignment: .topLeading)
     }
 
     private func findingsTable(_ rows: [YamadoriFindListRow]) -> some View {
-        let minWidth: CGFloat = 200 + 120 + 160 + 24
-        let height = tableHeight(for: rows.count)
-        return GeometryReader { geo in
-            ScrollView(.horizontal, showsIndicators: true) {
-                findingsTableContent(rows)
-                    .frame(width: max(geo.size.width, minWidth), height: height)
-            }
-        }
-        .frame(height: height)
-    }
-
-    private func findingsTableContent(_ rows: [YamadoriFindListRow]) -> some View {
         Table(rows, selection: $tableSelection, sortOrder: $sortOrder) {
             TableColumn("Finding", value: \.displayName, comparator: .localizedStandard) { row in
-                HStack(spacing: FaloSpacing.medium) {
+                HStack(alignment: .center, spacing: FaloSpacing.small) {
                     TreeListThumbnail(
                         imageID: row.find.primaryImageID ?? row.find.imageIDs.first,
                         imageService: imageService
                     )
                     Text(row.displayName)
-                        .font(FaloTypography.body)
+                        .font(FaloTypography.body.weight(.semibold))
                         .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(.vertical, FaloSpacing.xSmall)
+                .padding(.vertical, 2)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
             .width(min: 200, max: .infinity)
 
@@ -170,8 +166,7 @@ struct YamadoriUncollectedFindingsListView: View {
             .width(min: 160, max: .infinity)
         }
         .tableStyle(.inset(alternatesRowBackgrounds: true))
-                .environment(imageService)
-        .scrollDisabled(true)
+        .environment(imageService)
         .contextMenu(forSelectionType: YamadoriFind.ID.self) { selection in
             if selection.count == 1, let id = selection.first,
                let find = yamadoriService.getFind(id: id) {
@@ -201,12 +196,6 @@ struct YamadoriUncollectedFindingsListView: View {
         return rows.sorted(using: sortOrder)
     }
 
-    private func tableHeight(for rowCount: Int) -> CGFloat {
-        let headerHeight: CGFloat = 30
-        let rowHeight: CGFloat = 60
-        return headerHeight + CGFloat(rowCount) * rowHeight
-    }
-
     private func syncSelectionFromAppState() {
         if let id = appState.selectedYamadoriFindID {
             tableSelection = [id]
@@ -216,22 +205,15 @@ struct YamadoriUncollectedFindingsListView: View {
     }
 
     private func openFindWorkspace(_ find: YamadoriFind) {
-        openWindow(
-            id: YamadoriFindWorkspaceWindowContext.windowID,
-            value: YamadoriFindWorkspaceWindowContext(findID: find.id, tripID: find.yamadoriID)
-        )
+        appState.openYamadoriFindInPlace(findID: find.id, tripID: find.yamadoriID)
     }
 
     private func tripName(for find: YamadoriFind) -> String {
         guard let trip = yamadoriService.getYamadori(id: find.yamadoriID) else { return "" }
-        let trimmed = trip.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !trimmed.isEmpty { return trimmed }
-        if !trip.locationDescription.isEmpty { return trip.locationDescription }
-        return "Untitled trip"
+        return trip.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
 
-@MainActor
 private struct YamadoriFindListRow: Identifiable {
     var id: UUID { find.id }
     let find: YamadoriFind
@@ -239,8 +221,8 @@ private struct YamadoriFindListRow: Identifiable {
     let imageService: ImageService
 
     var displayName: String {
-        let trimmed = find.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? find.yamadoriCode : trimmed
+        let name = find.displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? find.yamadoriCode : name
     }
 
     var code: String { find.yamadoriCode }

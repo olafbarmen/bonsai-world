@@ -183,3 +183,5 @@ struct LocationReferenceDraft: Identifiable, Hashable, Sendable {
         )
     }
 }
+
+extension LocationReference: ReferenceNamedItem {}

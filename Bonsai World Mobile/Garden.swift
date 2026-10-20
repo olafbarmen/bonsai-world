@@ -15,6 +15,8 @@ struct Garden: Identifiable, Codable, Hashable, Sendable {
     var postalCode: String
     var city: String
     var country: String
+    var hemisphere: GardenHemisphere?
+    var season: GardenSeason?
     var region: String
     var hardinessZone: String
     var elevationMeters: Double?
@@ -23,6 +25,10 @@ struct Garden: Identifiable, Codable, Hashable, Sendable {
     var isActive: Bool
     var isDefault: Bool
 
+    var climateSummary: String? {
+        GardenClimate.summary(hemisphere: hemisphere, season: season)
+    }
+
     init(
         id: UUID = UUID(),
         name: String,
@@ -30,6 +36,8 @@ struct Garden: Identifiable, Codable, Hashable, Sendable {
         postalCode: String = "",
         city: String = "",
         country: String = "",
+        hemisphere: GardenHemisphere? = nil,
+        season: GardenSeason? = nil,
         region: String = "",
         hardinessZone: String = "",
         elevationMeters: Double? = nil,
@@ -44,6 +52,8 @@ struct Garden: Identifiable, Codable, Hashable, Sendable {
         self.postalCode = postalCode
         self.city = city
         self.country = country
+        self.hemisphere = hemisphere
+        self.season = season
         self.region = region
         self.hardinessZone = hardinessZone
         self.elevationMeters = elevationMeters
@@ -65,6 +75,7 @@ struct Garden: Identifiable, Codable, Hashable, Sendable {
 
     enum CodingKeys: String, CodingKey {
         case id, name, address, postalCode, city, country
+        case hemisphere, season
         case region, hardinessZone, elevationMeters
         case latitude, longitude, isActive, isDefault
     }
@@ -77,6 +88,8 @@ struct Garden: Identifiable, Codable, Hashable, Sendable {
         postalCode = try container.decodeIfPresent(String.self, forKey: .postalCode) ?? ""
         city = try container.decodeIfPresent(String.self, forKey: .city) ?? ""
         country = try container.decodeIfPresent(String.self, forKey: .country) ?? ""
+        hemisphere = try container.decodeIfPresent(GardenHemisphere.self, forKey: .hemisphere)
+        season = try container.decodeIfPresent(GardenSeason.self, forKey: .season)
         region = try container.decodeIfPresent(String.self, forKey: .region) ?? ""
         hardinessZone = try container.decodeIfPresent(String.self, forKey: .hardinessZone) ?? ""
         elevationMeters = try container.decodeIfPresent(Double.self, forKey: .elevationMeters)
@@ -84,5 +97,24 @@ struct Garden: Identifiable, Codable, Hashable, Sendable {
         longitude = try container.decodeIfPresent(Double.self, forKey: .longitude)
         isActive = try container.decodeIfPresent(Bool.self, forKey: .isActive) ?? true
         isDefault = try container.decodeIfPresent(Bool.self, forKey: .isDefault) ?? false
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(address, forKey: .address)
+        try container.encode(postalCode, forKey: .postalCode)
+        try container.encode(city, forKey: .city)
+        try container.encode(country, forKey: .country)
+        try container.encodeIfPresent(hemisphere, forKey: .hemisphere)
+        try container.encodeIfPresent(season, forKey: .season)
+        try container.encode(region, forKey: .region)
+        try container.encode(hardinessZone, forKey: .hardinessZone)
+        try container.encodeIfPresent(elevationMeters, forKey: .elevationMeters)
+        try container.encodeIfPresent(latitude, forKey: .latitude)
+        try container.encodeIfPresent(longitude, forKey: .longitude)
+        try container.encode(isActive, forKey: .isActive)
+        try container.encode(isDefault, forKey: .isDefault)
     }
 }

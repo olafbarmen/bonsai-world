@@ -9,13 +9,20 @@ import MapKit
 import SwiftUI
 
 struct YamadoriDetailView: View {
+    private static let autoSaveDebounceMilliseconds: UInt64 = 600
+    private static let savedIndicatorMilliseconds: UInt64 = 1200
+
     @Environment(AppState.self) private var appState
     @Environment(YamadoriService.self) private var yamadoriService
     @Environment(TreeService.self) private var treeService
     @Environment(ImageService.self) private var imageService
-    @Environment(\.openWindow) private var openWindow
+    @Environment(\.scenePhase) private var scenePhase
 
     @State private var draft: YamadoriTripDetailDraft?
+    @State private var lastPersistedDraft: YamadoriTripDetailDraft?
+    @State private var autoSaveStatus: TreeAutoSaveStatus = .idle
+    @State private var autoSaveTask: Task<Void, Never>?
+    @State private var savedIndicatorTask: Task<Void, Never>?
     @State private var errorMessage: String?
     @State private var confirmDelete = false
 
@@ -46,9 +53,18 @@ struct YamadoriDetailView: View {
                 )
             }
         }
-        .onChange(of: appState.selectedYamadoriID) { _, _ in
-            draft = nil
-            appState.yamadoriDetailInteractionMode = .viewing
+        .onChange(of: appState.selectedYamadoriID) { oldID, _ in
+            persistBeforeLeaving(tripID: oldID)
+        }
+        .onChange(of: draft) { _, newDraft in
+            guard isEditing, newDraft != nil else { return }
+            scheduleAutoSave()
+        }
+        .onDisappear { flushAutoSaveIfNeeded() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .inactive || phase == .background {
+                flushAutoSaveIfNeeded()
+            }
         }
         .onAppear { consumePendingQuickAction() }
         .onChange(of: appState.pendingYamadoriQuickAction) { _, _ in
@@ -81,26 +97,31 @@ struct YamadoriDetailView: View {
 
     @ViewBuilder
     private func content(for trip: Yamadori) -> some View {
-        FaloAdaptiveDesktopWorkspace(profile: .treeDetail) {
-            VStack(alignment: .leading, spacing: TreeDetailSpacing.cardGap) {
-                TreeDetailCardColumns {
-                    YamadoriSiteMapCard(
-                        title: "Area Map",
-                        latitude: tripMapLatitudeBinding(for: trip),
-                        longitude: tripMapLongitudeBinding(for: trip),
-                        primaryTitle: displayName(for: trip),
-                        isEditing: isEditing,
-                        secondaryPins: findMapPins,
-                        focusedLatitudeDelta: 0.12,
-                        mapHeight: 220
-                    )
-                    identitySection(trip)
-                    wildSiteCard(trip)
-                } column1: {
-                    findsSection
-                } column2: {
-                    collectionPlanSection(trip)
-                    notesSection(trip)
+        VStack(spacing: 0) {
+            if isEditing {
+                TreeAutoSaveBanner(status: autoSaveStatus)
+            }
+            FaloAdaptiveDesktopWorkspace(profile: .treeDetail) {
+                VStack(alignment: .leading, spacing: TreeDetailSpacing.cardGap) {
+                    TreeDetailCardColumns {
+                        YamadoriSiteMapCard(
+                            title: "Area Map",
+                            latitude: tripMapLatitudeBinding(for: trip),
+                            longitude: tripMapLongitudeBinding(for: trip),
+                            primaryTitle: displayName(for: trip),
+                            isEditing: isEditing,
+                            secondaryPins: findMapPins,
+                            focusedLatitudeDelta: 0.12,
+                            mapHeight: 220
+                        )
+                        identitySection(trip)
+                        wildSiteCard(trip)
+                    } column1: {
+                        findsSection
+                    } column2: {
+                        collectionPlanSection(trip)
+                        notesSection(trip)
+                    }
                 }
             }
         }
@@ -111,13 +132,29 @@ struct YamadoriDetailView: View {
         DetailCard(title: "Trip") {
             if isEditing, let binding = draftBinding {
                 DetailEditableTextRow(label: "Display Name", text: binding.displayName)
+                VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+                    Text("Trip Date")
+                        .font(FaloTypography.caption)
+                        .foregroundStyle(.secondary)
+                    DatePicker(
+                        "Trip Date",
+                        selection: Binding(
+                            get: { binding.wrappedValue.tripDate ?? .now },
+                            set: { binding.wrappedValue.tripDate = $0 }
+                        ),
+                        displayedComponents: .date
+                    )
+                    .labelsHidden()
+                    .datePickerStyle(.compact)
+                }
+                .padding(.vertical, FaloSpacing.xSmall)
             } else {
                 DetailLabeledRow(label: "Display Name", value: trip.displayName)
+                DetailLabeledRow(
+                    label: "Trip Date",
+                    value: trip.tripDate.map { Self.dateFormatter.string(from: $0) } ?? ""
+                )
             }
-            DetailLabeledRow(
-                label: "Trip Date",
-                value: trip.tripDate.map { Self.dateFormatter.string(from: $0) } ?? ""
-            )
             DetailLabeledRow(label: "Finds", value: "\(tripFinds.count)")
         }
     }
@@ -159,8 +196,9 @@ struct YamadoriDetailView: View {
             get: { isEditing ? (draft?.latitude ?? trip.latitude) : trip.latitude },
             set: { newValue in
                 guard isEditing else { return }
-                if draft == nil { draft = YamadoriTripDetailDraft(from: trip) }
-                draft?.latitude = newValue
+                var next = draft ?? YamadoriTripDetailDraft(from: trip)
+                next.latitude = newValue
+                draft = next
             }
         )
     }
@@ -170,8 +208,9 @@ struct YamadoriDetailView: View {
             get: { isEditing ? (draft?.longitude ?? trip.longitude) : trip.longitude },
             set: { newValue in
                 guard isEditing else { return }
-                if draft == nil { draft = YamadoriTripDetailDraft(from: trip) }
-                draft?.longitude = newValue
+                var next = draft ?? YamadoriTripDetailDraft(from: trip)
+                next.longitude = newValue
+                draft = next
             }
         )
     }
@@ -182,41 +221,32 @@ struct YamadoriDetailView: View {
                 DetailLabeledRow(label: "Finds", value: "None yet")
             } else {
                 ForEach(tripFinds) { find in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(findDisplayName(find))
-                                .font(FaloTypography.body)
-                            Text("\(find.yamadoriCode) · \(find.status.title)")
-                                .font(FaloTypography.caption)
-                                .foregroundStyle(.secondary)
+                    Button {
+                        openFind(find)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(findDisplayName(find))
+                                    .font(FaloTypography.body)
+                                    .foregroundStyle(.primary)
+                                Text("\(find.yamadoriCode) · \(find.status.title)")
+                                    .font(FaloTypography.caption)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(.tertiary)
                         }
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.tertiary)
+                        .contentShape(Rectangle())
                     }
-                    .contentShape(Rectangle())
-                    .onTapGesture(count: 2) {
-                        openWindow(
-                            id: YamadoriFindWorkspaceWindowContext.windowID,
-                            value: YamadoriFindWorkspaceWindowContext(
-                                findID: find.id,
-                                tripID: find.yamadoriID
-                            )
-                        )
-                    }
-                    .onTapGesture(count: 1) {
-                        let tree = find.linkedTreeID.flatMap { treeService.getTree(id: $0) }
-                        appState.openYamadoriFindAtLastPosition(find: find, tree: tree)
-                    }
+                    .buttonStyle(.plain)
+                    .disabled(isEditing)
                     .contextMenu {
+                        Button("Open Find") {
+                            openFind(find)
+                        }
                         Button("Open Find Workspace") {
-                            openWindow(
-                                id: YamadoriFindWorkspaceWindowContext.windowID,
-                                value: YamadoriFindWorkspaceWindowContext(
-                                    findID: find.id,
-                                    tripID: find.yamadoriID
-                                )
-                            )
+                            appState.openYamadoriFindInPlace(findID: find.id, tripID: find.yamadoriID)
                         }
                     }
                 }
@@ -288,18 +318,106 @@ struct YamadoriDetailView: View {
     }
 
     private func beginEditing(_ trip: Yamadori) {
-        draft = YamadoriTripDetailDraft(from: trip)
+        let captured = YamadoriTripDetailDraft(from: trip)
+        draft = captured
+        lastPersistedDraft = captured
+        autoSaveStatus = .idle
         appState.yamadoriDetailInteractionMode = .editing
     }
 
-    private func commitDraft(for trip: Yamadori) {
-        guard let draft else { return }
+    /// Finish — flush pending Auto Save, then leave Edit Mode (does not discard).
+    private func finishEditing() {
+        autoSaveTask?.cancel()
+        autoSaveTask = nil
+        persistDraftNow(exitEditing: true)
+    }
+
+    private func scheduleAutoSave() {
+        guard isEditing, let draft else { return }
+        guard draft != lastPersistedDraft else { return }
+        autoSaveTask?.cancel()
+        autoSaveTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: Self.autoSaveDebounceMilliseconds * 1_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            persistDraftNow(exitEditing: false)
+        }
+    }
+
+    private func flushAutoSaveIfNeeded() {
+        guard isEditing else { return }
+        guard let draft, draft != lastPersistedDraft else { return }
+        autoSaveTask?.cancel()
+        autoSaveTask = nil
+        persistDraftNow(exitEditing: false)
+    }
+
+    private func persistBeforeLeaving(tripID: UUID?) {
+        if isEditing, let tripID, let draft, draft != lastPersistedDraft {
+            try? yamadoriService.applyTripDraft(id: tripID, draft: draft)
+        }
+        leaveEditing()
+    }
+
+    private func persistDraftNow(exitEditing: Bool) {
+        guard isEditing, let trip else {
+            if exitEditing { leaveEditing() }
+            return
+        }
+        guard let currentDraft = draft else {
+            if exitEditing { leaveEditing() }
+            return
+        }
+        if currentDraft == lastPersistedDraft {
+            if exitEditing { leaveEditing() }
+            return
+        }
+
+        autoSaveStatus = .saving
         do {
-            try yamadoriService.applyTripDraft(id: trip.id, draft: draft)
-            self.draft = nil
-            appState.yamadoriDetailInteractionMode = .viewing
+            try yamadoriService.applyTripDraft(id: trip.id, draft: currentDraft)
+            if let updated = yamadoriService.getYamadori(id: trip.id) {
+                let refreshed = YamadoriTripDetailDraft(from: updated)
+                draft = refreshed
+                lastPersistedDraft = refreshed
+            } else {
+                lastPersistedDraft = currentDraft
+            }
+            autoSaveStatus = .saved
+            showSavedThenIdle()
+            if exitEditing { leaveEditing() }
         } catch {
+            autoSaveStatus = .failed
             errorMessage = error.localizedDescription
+        }
+    }
+
+    private func leaveEditing() {
+        autoSaveTask?.cancel()
+        autoSaveTask = nil
+        savedIndicatorTask?.cancel()
+        savedIndicatorTask = nil
+        draft = nil
+        lastPersistedDraft = nil
+        autoSaveStatus = .idle
+        appState.yamadoriDetailInteractionMode = .viewing
+    }
+
+    private func showSavedThenIdle() {
+        savedIndicatorTask?.cancel()
+        savedIndicatorTask = Task { @MainActor in
+            do {
+                try await Task.sleep(nanoseconds: Self.savedIndicatorMilliseconds * 1_000_000)
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            if autoSaveStatus == .saved {
+                autoSaveStatus = .idle
+            }
         }
     }
 
@@ -313,8 +431,7 @@ struct YamadoriDetailView: View {
         case .deleteYamadori:
             confirmDelete = true
         case .cancel:
-            draft = nil
-            appState.yamadoriDetailInteractionMode = .viewing
+            finishEditing()
         default:
             break
         }
@@ -336,11 +453,16 @@ struct YamadoriDetailView: View {
         guard let trip else { return }
         do {
             let find = try yamadoriService.createFind(onYamadoriID: trip.id)
-            let tree = find.linkedTreeID.flatMap { treeService.getTree(id: $0) }
-            appState.openYamadoriFindAtLastPosition(find: find, tree: tree)
+            openFind(find)
         } catch {
             errorMessage = error.localizedDescription
         }
+    }
+
+    /// Opens Find at its home tab (Uncollected Findings / Yamadori Trees / Transferred).
+    private func openFind(_ find: YamadoriFind) {
+        let tree = find.linkedTreeID.flatMap { treeService.getTree(id: $0) }
+        appState.openYamadoriFindAtLastPosition(find: find, tree: tree)
     }
 
     private func displayName(for trip: Yamadori) -> String {

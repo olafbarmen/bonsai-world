@@ -241,6 +241,79 @@ final class LibraryService {
         librarySessionRevision += 1
     }
 
+    /// Watches the shared iCloud library and reports when phone photos land on disk.
+    func startExternalLibraryRefresh(onChange: @escaping () -> Void) {
+        onExternalLibraryChange = onChange
+        guard externalRefreshTimer == nil else { return }
+        externalContentStamp = externalLibraryStamp()
+        let timer = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.refreshExternalLibraryIfChanged()
+            }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        externalRefreshTimer = timer
+    }
+
+    /// Re-reads iCloud photo files. Safe to call when the window becomes active.
+    func refreshExternalLibraryIfChanged() {
+        guard isLibraryReady else { return }
+        guard storage.libraryLocationConfiguration.kind == .iCloudDrive else { return }
+        requestICloudDownload()
+        if let wrote = storage.lastImageWriteAt, Date().timeIntervalSince(wrote) < 3 {
+            externalContentStamp = externalLibraryStamp()
+            return
+        }
+        let stamp = externalLibraryStamp()
+        guard let stamp else { return }
+        if externalContentStamp == nil {
+            externalContentStamp = stamp
+            return
+        }
+        guard stamp != externalContentStamp else { return }
+        externalContentStamp = stamp
+        onExternalLibraryChange?()
+    }
+
+    private var externalRefreshTimer: Timer?
+    private var externalContentStamp: Date?
+    private var onExternalLibraryChange: (() -> Void)?
+
+    private func requestICloudDownload() {
+        guard let root = storage.libraryPackageRootURL else { return }
+        let fileManager = FileManager.default
+        for folder in [LibraryPackageLayout.database, LibraryPackageLayout.images, LibraryPackageLayout.imagesOriginals] {
+            let url = root.appendingPathComponent(folder, isDirectory: true)
+            try? fileManager.startDownloadingUbiquitousItem(at: url)
+        }
+    }
+
+    /// Newest photo catalog, tree file, or original. Ignores the writer lease.
+    private func externalLibraryStamp() -> Date? {
+        guard let root = storage.libraryPackageRootURL else { return nil }
+        let fileManager = FileManager.default
+        var dates: [Date] = []
+        for relative in [LibraryPackageLayout.treesFileName, LibraryPackageLayout.imagesCatalogFileName] {
+            let url = root.appendingPathComponent(relative)
+            if let date = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate {
+                dates.append(date)
+            }
+        }
+        let originals = root.appendingPathComponent(LibraryPackageLayout.imagesOriginals, isDirectory: true)
+        if let files = try? fileManager.contentsOfDirectory(
+            at: originals,
+            includingPropertiesForKeys: [.contentModificationDateKey],
+            options: [.skipsHiddenFiles]
+        ) {
+            for file in files {
+                if let date = try? file.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate {
+                    dates.append(date)
+                }
+            }
+        }
+        return dates.max()
+    }
+
     /// Creates any missing folders on an already-selected library (repair).
     func verifyLibraryStructure() throws {
         try storage.ensureLibraryFolderStructure()

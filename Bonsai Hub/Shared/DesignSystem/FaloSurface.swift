@@ -15,13 +15,13 @@ enum FaloSurface {
 extension View {
     /// Quiet raised panel: World raised fill, hairline border, one shadow (Level 2).
     /// Content is clipped to the same continuous corner so edges stay round on all sides.
-    func faloRaisedSurface() -> some View {
+    func faloRaisedSurface(fillOpacity: CGFloat = 1) -> some View {
         let shape = RoundedRectangle(cornerRadius: FaloSurface.cornerRadius, style: .continuous)
         return self
             .clipShape(shape)
             .background {
                 shape
-                    .fill(BonsaiWorldColors.raisedSurface)
+                    .fill(BonsaiWorldColors.raisedSurface.opacity(fillOpacity))
                     .shadow(
                         color: FaloShadow.color,
                         radius: FaloShadow.radius,

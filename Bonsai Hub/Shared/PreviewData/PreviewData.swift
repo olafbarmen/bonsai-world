@@ -237,7 +237,9 @@ final class PreviewData {
     }
 
     /// Development seed from the one-time Olaf Excel migration (`OlafDevelopmentTrees.json`).
+    /// Release and TestFlight do not load it. A new library stays empty either way.
     private static func makeImportedTrees() -> [Tree] {
+        #if DEBUG
         let bundle = Bundle(for: PreviewData.self)
         // Synchronized Resources/Import files are copied flat into Contents/Resources.
         let url =
@@ -256,6 +258,9 @@ final class PreviewData {
         } catch {
             preconditionFailure("Failed to decode OlafDevelopmentTrees.json: \(error)")
         }
+        #else
+        return []
+        #endif
     }
 
     private static func makeCollections() -> [Collection] {

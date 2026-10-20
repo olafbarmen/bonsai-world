@@ -88,7 +88,9 @@ struct YamadoriWorkspaceView: View {
     private var detailPane: some View {
         switch appState.selectedYamadoriWorkspaceTab {
         case .yamadories:
-            if appState.selectedYamadoriID != nil {
+            if appState.selectedYamadoriFindID != nil {
+                YamadoriFindDetailView()
+            } else if appState.selectedYamadoriID != nil {
                 YamadoriDetailView()
             } else {
                 emptyDetail(
@@ -139,9 +141,9 @@ struct YamadoriWorkspaceView: View {
             appState.selectedTreeID = nil
             appState.treeDetailInteractionMode = .viewing
             appState.pendingTreeQuickAction = nil
-            if tab == .yamadories {
-                appState.selectedYamadoriFindID = nil
-            }
+            // Do not clear selectedYamadoriFindID here — opening a Find from a trip
+            // sets the Yamadories tab and find ID in the same update; wiping find
+            // would cancel navigation. Trip list selection clears find when needed.
         }
     }
 }

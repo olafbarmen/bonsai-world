@@ -15,12 +15,14 @@ struct AddInventoryStockView: View {
     @Environment(AppSettings.self) private var appSettings
     @Environment(InventoryStockService.self) private var inventoryStock
     @Environment(ReferenceDataService.self) private var referenceData
+    @Environment(ReferenceDataManager.self) private var referenceDataManager
 
     @Environment(ImageImportService.self) private var imageImportService
 
     @State private var draft = NewInventoryStockDraft()
     @State private var selectedImageID: UUID?
     @State private var errorMessage: String?
+    @State private var newFertilizerDraft: FertilizerTypeDraft?
 
     private var catalogOptions: [(id: UUID, name: String)] {
         switch kind {
@@ -74,10 +76,21 @@ struct AddInventoryStockView: View {
             Form {
                 if kind.usesCatalog {
                     Section {
-                        Picker("Type", selection: $draft.catalogItemID) {
-                            Text("Select from catalog").tag(Optional<UUID>.none)
-                            ForEach(catalogOptions, id: \.id) { option in
-                                Text(option.name).tag(Optional(option.id))
+                        HStack {
+                            Picker("Type", selection: $draft.catalogItemID) {
+                                Text("Select from catalog").tag(Optional<UUID>.none)
+                                ForEach(catalogOptions, id: \.id) { option in
+                                    Text(option.name).tag(Optional(option.id))
+                                }
+                            }
+                            if kind == .fertilizer {
+                                Button {
+                                    newFertilizerDraft = referenceDataManager.blankFertilizerTypeDraft()
+                                } label: {
+                                    Image(systemName: "plus.circle")
+                                }
+                                .buttonStyle(.borderless)
+                                .help("Add a new fertilizer product")
                             }
                         }
                         if catalogOptions.isEmpty {
@@ -135,7 +148,10 @@ struct AddInventoryStockView: View {
                     primaryImageID: $draft.primaryImageID,
                     imageIDs: $draft.imageIDs,
                     selectedImageID: $selectedImageID,
-                    onAddImage: addImage
+                    onAddImage: addImage,
+                    onDropImageFiles: { sources in
+                        Task { await importDroppedImages(sources) }
+                    }
                 )
 
                 Section("Optional") {
@@ -155,6 +171,11 @@ struct AddInventoryStockView: View {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Add") { save() }
                         .disabled(!canSave)
+                }
+            }
+            .sheet(item: $newFertilizerDraft) { fertilizerDraft in
+                FertilizerTypeEditorSheet(draft: fertilizerDraft) { created in
+                    draft.catalogItemID = created.id
                 }
             }
             .alert("Could Not Add Stock", isPresented: Binding(
@@ -180,14 +201,25 @@ struct AddInventoryStockView: View {
     private func addImage() {
         Task {
             guard let asset = try? await imageImportService.importGalleryImageFromFinder() else { return }
-            if !draft.imageIDs.contains(asset.id) {
-                draft.imageIDs.append(asset.id)
-            }
-            if draft.primaryImageID == nil {
-                draft.primaryImageID = asset.id
-            }
-            selectedImageID = asset.id
+            attach(asset)
         }
+    }
+
+    private func importDroppedImages(_ sources: [ImageDropSource]) async {
+        for source in sources {
+            guard let asset = try? await imageImportService.importImage(from: source, asPrimary: false) else { continue }
+            attach(asset)
+        }
+    }
+
+    private func attach(_ asset: ImageAsset) {
+        if !draft.imageIDs.contains(asset.id) {
+            draft.imageIDs.append(asset.id)
+        }
+        if draft.primaryImageID == nil {
+            draft.primaryImageID = asset.id
+        }
+        selectedImageID = asset.id
     }
 
     private func save() {

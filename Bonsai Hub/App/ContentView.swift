@@ -53,6 +53,11 @@ struct ContentView: View {
         appState.selectedSection == .knowledgeHandbook
     }
 
+    /// Knowledge → Care Calendar — sidebar + full-width reading view.
+    private var isKnowledgeCareCalendarSelected: Bool {
+        appState.selectedSection == .knowledgeCareCalendar
+    }
+
     /// Knowledge → Fertilizer Guides — sidebar + full-width reading view.
     private var isKnowledgeFertilizerGuidesSelected: Bool {
         appState.selectedSection == .knowledgeFertilizerGuides
@@ -212,6 +217,8 @@ struct ContentView: View {
             tasksContent
         } else if isKnowledgeHandbookSelected {
             BonsaiHandbookView()
+        } else if isKnowledgeCareCalendarSelected {
+            CareCalendarKnowledgeView()
         } else if isKnowledgeFertilizerGuidesSelected {
             FertilizerGuidesView()
         } else if isKnowledgeSeedStratificationSelected {
@@ -269,7 +276,7 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    /// Library: Images browse. Image Workspace: one image fills the content area.
+    /// Library: Images browse. An opened image fills this window; Back returns to the list.
     @ViewBuilder
     private var mediaImagesContent: some View {
         if let imageID = appState.imageWorkspaceImageID {
@@ -309,7 +316,7 @@ struct ContentView: View {
         .bonsaiWorkspaceNavigationTitle("Species Library")
     }
 
-    /// Library: list + embedded Overview. Tree Workspace: one Tree fills the content area.
+    /// Library: list + embedded Overview. An opened Tree fills this window; Back returns to the list.
     @ViewBuilder
     private var treesContent: some View {
         if let treeID = appState.treeWorkspaceTreeID {
@@ -319,13 +326,15 @@ struct ContentView: View {
         }
     }
 
-    /// Library: tabs + list/detail. Trip/Find Workspace: one record fills the content area.
+    /// Library: tabs + list/detail. An opened trip or find fills this window; Back returns to the list.
     @ViewBuilder
     private var yamadoriContent: some View {
         if appState.yamadoriWorkspaceTripID != nil {
             YamadoriDetailView()
+                .bonsaiWorkspaceNavigationTitle("Yamadori", onBack: { appState.showCurrentList() })
         } else if appState.yamadoriWorkspaceFindID != nil {
             YamadoriFindDetailView()
+                .bonsaiWorkspaceNavigationTitle("Yamadori", onBack: { appState.showCurrentList() })
         } else {
             YamadoriWorkspaceView()
         }
@@ -422,6 +431,9 @@ struct ContentView: View {
             EmptyView()
         case .knowledgeHandbook:
             // Unreachable while `isKnowledgeHandbookSelected` uses the two-column shell.
+            EmptyView()
+        case .knowledgeCareCalendar:
+            // Unreachable while `isKnowledgeCareCalendarSelected` uses the two-column shell.
             EmptyView()
         case .knowledgePotGuidelines:
             // Redirected to Handbook → Pots & Containers in `AppState.handleSelectedSectionChange`.

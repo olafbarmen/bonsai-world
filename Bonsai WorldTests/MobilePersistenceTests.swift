@@ -193,7 +193,8 @@ struct MobilePersistenceTests {
             locationID: newLocation,
             soilMixID: original.soilMixID,
             notes: "Grower note — do not translate.",
-            healthStatus: original.healthStatus
+            healthStatus: original.healthStatus,
+            healthCause: original.healthCause
         )
         #expect(first.lastSaveError == nil)
         #expect(first.tree(id: Self.mapleID)?.id == Self.mapleID)
@@ -307,7 +308,8 @@ struct MobilePersistenceTests {
             locationID: CanonicalLocationID.id(n: 1),
             soilMixID: original.soilMixID,
             notes: original.notes,
-            healthStatus: original.healthStatus
+            healthStatus: original.healthStatus,
+            healthCause: original.healthCause
         )
         #expect(first.lastSaveError == nil)
 
@@ -408,7 +410,8 @@ struct MobilePersistenceTests {
             locationID: created.id,
             soilMixID: original.soilMixID,
             notes: original.notes,
-            healthStatus: original.healthStatus
+            healthStatus: original.healthStatus,
+            healthCause: original.healthCause
         )
         let treeIDs = first.trees.map(\.id)
         let mapleLocation = created.id
@@ -563,17 +566,23 @@ struct MobilePersistenceTests {
         defer { try? FileManager.default.removeItem(at: temp) }
 
         let first = DemoLibrary(store: store)
-        #expect(first.addYamadori(displayName: "   ") == nil)
+        #expect(first.addYamadoriTrip(displayName: "   ") == nil)
 
-        let created = try #require(first.addYamadori(displayName: "  Ridge walk  ", notes: "  First sighting  "))
-        #expect(created.find.status == .scout)
-        #expect(created.find.yamadoriCode.hasPrefix("YAM-"))
-        #expect(created.trip.displayName == "Ridge walk")
-        #expect(created.find.notes == "First sighting")
+        let tripCreated = try #require(first.addYamadoriTrip(
+            displayName: "  Ridge walk  ",
+            notes: "  First sighting  "
+        ))
+        #expect(tripCreated.displayName == "Ridge walk")
+        #expect(tripCreated.notes == "First sighting")
+        #expect(first.finds(forYamadoriID: tripCreated.id).isEmpty)
         #expect(first.lastSaveError == nil)
 
+        let findCreated = try #require(first.addFind(onYamadoriID: tripCreated.id, displayName: "Ridge maple"))
+        #expect(findCreated.status == .scout)
+        #expect(findCreated.yamadoriCode.hasPrefix("YAM-"))
+
         first.updateYamadoriFind(
-            id: created.find.id,
+            id: findCreated.id,
             displayName: "Ridge maple",
             status: .planned,
             notes: "Pin set in field",
@@ -583,15 +592,16 @@ struct MobilePersistenceTests {
         #expect(first.lastSaveError == nil)
 
         let second = DemoLibrary(store: store)
-        let trip = try #require(second.yamadoriTrip(id: created.trip.id))
-        let find = try #require(second.yamadoriFind(id: created.find.id))
+        let trip = try #require(second.yamadoriTrip(id: tripCreated.id))
+        let find = try #require(second.yamadoriFind(id: findCreated.id))
         #expect(trip.displayName == "Ridge walk")
+        #expect(trip.notes == "First sighting")
         #expect(find.displayName == "Ridge maple")
         #expect(find.status == .planned)
         #expect(find.notes == "Pin set in field")
         #expect(find.latitude == 60.3913)
         #expect(find.longitude == 5.3221)
-        #expect(find.yamadoriCode == created.find.yamadoriCode)
+        #expect(find.yamadoriCode == findCreated.yamadoriCode)
         #expect(second.finds(forYamadoriID: trip.id).map(\.id) == [find.id])
     }
 
@@ -600,16 +610,17 @@ struct MobilePersistenceTests {
         defer { try? FileManager.default.removeItem(at: temp) }
 
         let first = DemoLibrary(store: store)
-        let created = try #require(first.addYamadori(displayName: "Valley trip"))
-        first.updateYamadoriTrip(id: created.trip.id, displayName: "  Valley day  ", tripDate: Date(timeIntervalSince1970: 1_700_000_000))
-        first.updateYamadoriTrip(id: created.trip.id, displayName: "   ", tripDate: .now)
+        let trip = try #require(first.addYamadoriTrip(displayName: "Valley trip"))
+        let firstFind = try #require(first.addFind(onYamadoriID: trip.id, displayName: "Valley stump"))
+        first.updateYamadoriTrip(id: trip.id, displayName: "  Valley day  ", tripDate: Date(timeIntervalSince1970: 1_700_000_000))
+        first.updateYamadoriTrip(id: trip.id, displayName: "   ", tripDate: .now)
         // empty name rejected — name unchanged
-        #expect(first.yamadoriTrip(id: created.trip.id)?.displayName == "Valley day")
+        #expect(first.yamadoriTrip(id: trip.id)?.displayName == "Valley day")
 
-        let secondFind = try #require(first.addFind(onYamadoriID: created.trip.id, displayName: "  Side stump  "))
+        let secondFind = try #require(first.addFind(onYamadoriID: trip.id, displayName: "  Side stump  "))
         #expect(secondFind.status == .scout)
-        #expect(secondFind.yamadoriCode != created.find.yamadoriCode)
-        #expect(first.finds(forYamadoriID: created.trip.id).count == 2)
+        #expect(secondFind.yamadoriCode != firstFind.yamadoriCode)
+        #expect(first.finds(forYamadoriID: trip.id).count == 2)
 
         // Scout cannot collect
         #expect(first.markYamadoriCollected(
@@ -645,9 +656,9 @@ struct MobilePersistenceTests {
         #expect(first.yamadoriFind(id: secondFind.id)?.linkedTreeID == tree.id)
 
         let second = DemoLibrary(store: store)
-        #expect(second.yamadoriTrip(id: created.trip.id)?.displayName == "Valley day")
-        #expect(second.yamadoriTrip(id: created.trip.id)?.tripDate == Date(timeIntervalSince1970: 1_700_000_000))
-        #expect(second.finds(forYamadoriID: created.trip.id).count == 2)
+        #expect(second.yamadoriTrip(id: trip.id)?.displayName == "Valley day")
+        #expect(second.yamadoriTrip(id: trip.id)?.tripDate == Date(timeIntervalSince1970: 1_700_000_000))
+        #expect(second.finds(forYamadoriID: trip.id).count == 2)
         let reloadedFind = try #require(second.yamadoriFind(id: secondFind.id))
         #expect(reloadedFind.status == .collected)
         #expect(reloadedFind.linkedTreeID == tree.id)
@@ -657,8 +668,8 @@ struct MobilePersistenceTests {
         #expect(reloadedTree.bonsaiName == secondFind.yamadoriCode)
         #expect(second.yamadoriNurseryTrees.map(\.id) == [tree.id])
 
-        first.updateYamadoriTripSite(id: created.trip.id, latitude: 61.0, longitude: 8.5)
-        #expect(first.yamadoriTrip(id: created.trip.id)?.latitude == 61.0)
+        first.updateYamadoriTripSite(id: trip.id, latitude: 61.0, longitude: 8.5)
+        #expect(first.yamadoriTrip(id: trip.id)?.latitude == 61.0)
 
         let moved = try #require(first.moveYamadoriToMyTrees(
             findID: secondFind.id,
@@ -681,8 +692,8 @@ struct MobilePersistenceTests {
         #expect(first.moveYamadoriToMyTrees(findID: secondFind.id, bonsaiName: "Again") == nil)
 
         let third = DemoLibrary(store: store)
-        #expect(third.yamadoriTrip(id: created.trip.id)?.latitude == 61.0)
-        #expect(third.yamadoriTrip(id: created.trip.id)?.longitude == 8.5)
+        #expect(third.yamadoriTrip(id: trip.id)?.latitude == 61.0)
+        #expect(third.yamadoriTrip(id: trip.id)?.longitude == 8.5)
         let graduated = try #require(third.tree(id: moved.id))
         #expect(graduated.yamadoriNursery == false)
         #expect(graduated.bonsaiName == "PIN-SYL-2024-001")
@@ -697,22 +708,23 @@ struct MobilePersistenceTests {
         defer { try? FileManager.default.removeItem(at: temp) }
 
         let first = DemoLibrary(store: store)
-        let created = try #require(first.addYamadori(displayName: "Cliff"))
+        let trip = try #require(first.addYamadoriTrip(displayName: "Cliff"))
+        let createdFind = try #require(first.addFind(onYamadoriID: trip.id, displayName: "Cliff find"))
         let observation = try #require(
             first.addYamadoriObservation(
-                findID: created.find.id,
+                findID: createdFind.id,
                 text: "  Strong nebari  ",
                 date: Date(timeIntervalSince1970: 1_700_100_000)
             )
         )
         #expect(observation.text == "Strong nebari")
-        #expect(first.addYamadoriObservation(findID: created.find.id, text: "   ") == nil)
+        #expect(first.addYamadoriObservation(findID: createdFind.id, text: "   ") == nil)
 
-        #expect(first.setYamadoriFindStatus(findID: created.find.id, to: .archived) == nil)
-        let abandoned = try #require(first.setYamadoriFindStatus(findID: created.find.id, to: .abandoned))
+        #expect(first.setYamadoriFindStatus(findID: createdFind.id, to: .archived) == nil)
+        let abandoned = try #require(first.setYamadoriFindStatus(findID: createdFind.id, to: .abandoned))
         #expect(abandoned.status == .abandoned)
-        #expect(first.setYamadoriFindStatus(findID: created.find.id, to: .planned) == nil)
-        let archived = try #require(first.setYamadoriFindStatus(findID: created.find.id, to: .archived))
+        #expect(first.setYamadoriFindStatus(findID: createdFind.id, to: .planned) == nil)
+        let archived = try #require(first.setYamadoriFindStatus(findID: createdFind.id, to: .archived))
         #expect(archived.status == .archived)
 
         let garden = try #require(first.addGarden(
@@ -735,7 +747,7 @@ struct MobilePersistenceTests {
         )
 
         let second = DemoLibrary(store: store)
-        let find = try #require(second.yamadoriFind(id: created.find.id))
+        let find = try #require(second.yamadoriFind(id: createdFind.id))
         #expect(find.status == .archived)
         #expect(find.observations.count == 1)
         #expect(find.observations[0].text == "Strong nebari")
@@ -744,8 +756,10 @@ struct MobilePersistenceTests {
         #expect(reloadedGarden.address == "14 Bank St")
         #expect(reloadedGarden.postalCode == "5001")
         #expect(reloadedGarden.city == "Bergen")
+        #expect(reloadedGarden.hemisphere == nil)
+        #expect(reloadedGarden.season == nil)
         #expect(reloadedGarden.country == "Norway")
-        #expect(second.formerYamadoriFindings.map(\.id) == [created.find.id])
+        #expect(second.formerYamadoriFindings.map(\.id) == [createdFind.id])
     }
 
     @Test func seedBatchSpeciesEstimateAndTransferredSurviveRestart() throws {
@@ -769,9 +783,10 @@ struct MobilePersistenceTests {
         )
         #expect(first.lastSaveError == nil)
 
-        let yam = try #require(first.addYamadori(displayName: "Ridge"))
+        let trip = try #require(first.addYamadoriTrip(displayName: "Ridge"))
+        let find = try #require(first.addFind(onYamadoriID: trip.id, displayName: "Ridge maple"))
         first.updateYamadoriFind(
-            id: yam.find.id,
+            id: find.id,
             displayName: "Ridge maple",
             status: .planned,
             notes: "",
@@ -780,12 +795,12 @@ struct MobilePersistenceTests {
             speciesEstimate: "  Acer campestre  "
         )
         let tree = try #require(first.markYamadoriCollected(
-            findID: yam.find.id,
-            botanicalName: first.yamadoriFind(id: yam.find.id)?.speciesEstimate ?? "Acer campestre",
+            findID: find.id,
+            botanicalName: first.yamadoriFind(id: find.id)?.speciesEstimate ?? "Acer campestre",
             locationID: CanonicalLocationID.altan
         ))
         let moved = try #require(first.moveYamadoriToMyTrees(
-            findID: yam.find.id,
+            findID: find.id,
             bonsaiName: "ACE-CAM-2026-001"
         ))
         #expect(moved.yamadoriNursery == false)
@@ -796,8 +811,8 @@ struct MobilePersistenceTests {
         let reloadedBatch = try #require(second.seedBatch(id: batch.id))
         #expect(reloadedBatch.stage == .stratifying)
         #expect(reloadedBatch.notes == "Fridge")
-        #expect(second.yamadoriFind(id: yam.find.id)?.speciesEstimate == "Acer campestre")
-        #expect(second.yamadoriFind(id: yam.find.id)?.status == .transferred)
+        #expect(second.yamadoriFind(id: find.id)?.speciesEstimate == "Acer campestre")
+        #expect(second.yamadoriFind(id: find.id)?.status == .transferred)
         #expect(second.transferredYamadoriTrees.map(\.id) == [moved.id])
     }
 
@@ -1063,5 +1078,36 @@ struct MobilePersistenceTests {
         let second = DemoLibrary(store: store)
         #expect(second.tree(id: Self.mapleID)?.imageIDs.isEmpty == true)
         #expect(second.tree(id: Self.mapleID)?.nickname == "Terrace Maple")
+    }
+
+    @Test func gardenClimateSurvivesRestartAndNameEdit() throws {
+        let legacy = Data(#"{"id":"A1B2C3D4-E5F6-7890-ABCD-EF1234567890","name":"My Garden","isDefault":true}"#.utf8)
+        let decoded = try JSONDecoder().decode(Garden.self, from: legacy)
+        #expect(decoded.hemisphere == nil)
+        #expect(decoded.season == nil)
+        #expect(GardenHemisphere.suggested(latitude: -33) == .southern)
+        #expect(GardenHemisphere.suggested(latitude: 60) == .northern)
+
+        let (store, temp) = try makeTempStore()
+        defer { try? FileManager.default.removeItem(at: temp) }
+
+        let first = DemoLibrary(store: store)
+        let garden = try #require(first.addGarden(
+            name: "South plot",
+            hemisphere: .southern,
+            season: .mild
+        ))
+        #expect(garden.climateSummary == "Southern · Mild")
+
+        first.updateGarden(id: garden.id, name: "South plot renamed", isDefault: false)
+        let kept = try #require(first.garden(id: garden.id))
+        #expect(kept.hemisphere == .southern)
+        #expect(kept.season == .mild)
+
+        let second = DemoLibrary(store: store)
+        let reloaded = try #require(second.garden(id: garden.id))
+        #expect(reloaded.name == "South plot renamed")
+        #expect(reloaded.hemisphere == .southern)
+        #expect(reloaded.season == .mild)
     }
 }

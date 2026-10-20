@@ -15,7 +15,6 @@ struct NurseryVegetativeListView: View {
     @Environment(NurseryPropagationService.self) private var service
     @Environment(ReferenceDataService.self) private var referenceData
     @Environment(TreeService.self) private var treeService
-    @Environment(\.openWindow) private var openWindow
 
     @State private var tableSelection: Set<UUID> = []
     @State private var sortOrder: [KeyPathComparator<NurseryVegetativeListRow>] = [
@@ -182,7 +181,7 @@ struct NurseryVegetativeListView: View {
                 .scrollDisabled(true)
         .contextMenu(forSelectionType: UUID.self) { selection in
             if selection.count == 1, let id = selection.first {
-                Button("Open in New Window") {
+                Button("Open") {
                     openProjectWindow(projectID: id)
                 }
             }
@@ -238,11 +237,7 @@ struct NurseryVegetativeListView: View {
     }
 
     private func openProjectWindow(projectID: UUID) {
-        appState.setSelectedNurseryPropagationProjectID(projectID, for: kind)
-        openWindow(
-            id: NurseryPropagationWorkspaceWindowContext.windowID,
-            value: NurseryPropagationWorkspaceWindowContext(kind: kind, projectID: projectID)
-        )
+        appState.openNurseryProjectInPlace(projectID: projectID, kind: kind)
     }
 }
 

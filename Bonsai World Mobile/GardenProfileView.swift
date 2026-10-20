@@ -60,6 +60,25 @@ struct GardenProfileView: View {
                 .listRowBackground(BonsaiWorldColors.surface)
             }
 
+            if garden.hemisphere != nil || garden.season != nil {
+                Section("Climate") {
+                    if let hemisphere = garden.hemisphere {
+                        LabeledContent("Hemisphere", value: hemisphere.title)
+                            .font(FaloTypography.body)
+                            .listRowBackground(BonsaiWorldColors.surface)
+                    }
+                    if let season = garden.season {
+                        LabeledContent("Season", value: season.title)
+                            .font(FaloTypography.body)
+                            .listRowBackground(BonsaiWorldColors.surface)
+                        Text(season.summary)
+                            .font(FaloTypography.caption)
+                            .foregroundStyle(BonsaiWorldColors.textSecondary)
+                            .listRowBackground(BonsaiWorldColors.surface)
+                    }
+                }
+            }
+
             if hasAddress(garden) {
                 Section("Address") {
                     if !trimmed(garden.address).isEmpty {

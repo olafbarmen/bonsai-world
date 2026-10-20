@@ -21,6 +21,7 @@ enum CanonicalWorkTypeID {
     static let repotting = id(n: 3)
     static let branchPruning = id(n: 5)
     static let wiring = id(n: 6)
+    static let pinching = id(n: 11)
     static let wireRemoval = id(n: 7)
 
     /// Display names in `WorkTypePreviewData` seed order. Identity is `id(n:)`, not the name.

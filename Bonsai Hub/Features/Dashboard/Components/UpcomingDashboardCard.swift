@@ -2,8 +2,8 @@
 //  UpcomingDashboardCard.swift
 //  Bonsai World
 //
-//  Dashboard Upcoming — live horizon counts from TaskService (not Today).
-//  Today lives on the Tasks card. Read-only; tap opens that Tasks horizon.
+//  Dashboard Upcoming Tasks — live horizon counts from TaskService (not Today).
+//  Each row is Tasks, like Tasks Today. Tap opens that Tasks horizon.
 //
 
 import SwiftUI
@@ -33,7 +33,7 @@ struct UpcomingDashboardCard: View {
                         appState.selectSection(bucket.route)
                     } label: {
                         DashboardMetricRow(
-                            title: bucket.horizon.title,
+                            title: "Tasks · \(bucket.horizon.title)",
                             value: "\(count)",
                             compact: true
                         )

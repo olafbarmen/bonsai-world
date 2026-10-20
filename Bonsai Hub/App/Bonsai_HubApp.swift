@@ -7,6 +7,7 @@ import SwiftUI
 
 @main
 struct Bonsai_HubApp: App {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var appState: AppState
     @State private var appSettings: AppSettings
     @State private var treeListColumnConfiguration: TreeListColumnConfiguration
@@ -46,6 +47,7 @@ struct Bonsai_HubApp: App {
     @State private var greenhouseCareService: GreenhouseCareService
     @State private var fertilizerBagsService: FertilizerBagsService
     @State private var repottingCareService: RepottingCareService
+    @State private var speciesCareService: SpeciesCareService
 
     init() {
         let previewData = PreviewData()
@@ -203,6 +205,12 @@ struct Bonsai_HubApp: App {
                 workService: workService
             )
         )
+        _speciesCareService = State(
+            initialValue: SpeciesCareService(
+                treeService: treeService,
+                taskService: taskService
+            )
+        )
         let seedBatchRepository = Self.makeSeedBatchRepository(
             storage: storage,
             libraryReady: library.isLibraryReady
@@ -298,10 +306,12 @@ struct Bonsai_HubApp: App {
     private var seasonalCareSyncToken: String {
         let treesKey = treeService.trees
             .map {
-                "\($0.id.uuidString):\($0.placementStrategy.rawValue):\($0.seasonPlacement.rawValue):\($0.winterCareCompletedSteps.map(\.rawValue).joined(separator: ",")):\($0.springCareCompletedSteps.map(\.rawValue).joined(separator: ",")):\($0.lastFertilizerBagReplacedAt?.timeIntervalSince1970 ?? -1)"
+                "\($0.id.uuidString):\($0.placementStrategy.rawValue):\($0.seasonPlacement.rawValue):\($0.speciesID?.uuidString ?? ""):\($0.botanicalName):\($0.winterCareCompletedSteps.map(\.rawValue).joined(separator: ",")):\($0.springCareCompletedSteps.map(\.rawValue).joined(separator: ",")):\($0.lastFertilizerBagReplacedAt?.timeIntervalSince1970 ?? -1)"
             }
             .sorted()
             .joined(separator: "|")
+        let garden = userProfile.defaultGarden
+        let climateKey = "\(garden?.hemisphere?.rawValue ?? "-")|\(garden?.season?.rawValue ?? "-")"
         let locationsKey = referenceDataService.locations
             .map {
                 "\($0.id.uuidString):\($0.environment.setting?.rawValue ?? ""):\($0.greenhouseSpringCheckYear.map(String.init) ?? "nil")"
@@ -310,7 +320,7 @@ struct Bonsai_HubApp: App {
             .joined(separator: "|")
         let weatherKey = weatherService.snapshot.map { String($0.fetchedAt.timeIntervalSince1970) } ?? "nil"
         // Do not include taskService.revision — sync writes Tasks and would loop forever.
-        return "\(treesKey)|\(locationsKey)|\(referenceDataManager.revision)|\(weatherKey)|\(appSettings.winterCareReminderMonth)|\(appSettings.winterCareReminderDay)|\(appSettings.winterCareFrostCelsius)|\(appSettings.springCareReminderMonth)|\(appSettings.springCareReminderDay)|\(appSettings.greenhouseSpringReminderMonth)|\(appSettings.greenhouseSpringReminderDay)|\(appSettings.fertilizerBagsIntervalWeeks)"
+        return "\(treesKey)|\(climateKey)|\(locationsKey)|\(referenceDataManager.revision)|\(weatherKey)|\(appSettings.winterCareReminderMonth)|\(appSettings.winterCareReminderDay)|\(appSettings.winterCareFrostCelsius)|\(appSettings.springCareReminderMonth)|\(appSettings.springCareReminderDay)|\(appSettings.greenhouseSpringReminderMonth)|\(appSettings.greenhouseSpringReminderDay)|\(appSettings.fertilizerBagsIntervalWeeks)"
     }
 
     var body: some Scene {
@@ -367,6 +377,10 @@ struct Bonsai_HubApp: App {
                 try? springCareService.syncSpringCareTask()
                 try? greenhouseCareService.syncGreenhouseSpringCheckTask()
                 try? fertilizerBagsService.syncFertilizerBagsTask()
+                try? speciesCareService.sync(
+                    hemisphere: userProfile.defaultGarden?.hemisphere,
+                    season: userProfile.defaultGarden?.season
+                )
             }
             .task {
                 // Cold launch with an already-open library never fires isLibraryReady onChange.
@@ -386,6 +400,16 @@ struct Bonsai_HubApp: App {
                 Task { @MainActor in
                     attachActiveLibrarySession()
                 }
+            }
+            .task(id: libraryService.isLibraryReady) {
+                guard libraryService.isLibraryReady else { return }
+                libraryService.startExternalLibraryRefresh {
+                    reloadSharedLibraryPhotos()
+                }
+            }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase == .active else { return }
+                libraryService.refreshExternalLibraryIfChanged()
             }
         }
         .windowResizability(.contentMinSize)
@@ -668,6 +692,13 @@ struct Bonsai_HubApp: App {
     }
 
     @MainActor
+    private func reloadSharedLibraryPhotos() {
+        treeService.reload()
+        imageService.attachStorage(storageService)
+        photoIndexStore.rebuildFromTreesAsSourceOfTruth(treeService.trees)
+    }
+
+    @MainActor
     private func attachActiveLibrarySession() {
         bonsaiNameSequenceStore.setLibraryPersistenceEnabled(true)
         let service = Self.makeTreeService(
@@ -824,12 +855,10 @@ struct Bonsai_HubApp: App {
             return PreviewTreeRepository(previewData: previewData)
         }
 
-        let previewRepository = PreviewTreeRepository(previewData: previewData)
         let libraryRepository = LibraryTreeRepository(storage: storage)
         _ = TreeMigrationService.migrateIfNeeded(
             storage: storage,
             libraryReady: true,
-            previewRepository: previewRepository,
             libraryRepository: libraryRepository,
             bonsaiNameSequences: bonsaiNameSequences
         )
@@ -845,12 +874,10 @@ struct Bonsai_HubApp: App {
             return PreviewCollectionRepository(previewData: previewData)
         }
 
-        let previewRepository = PreviewCollectionRepository(previewData: previewData)
         let libraryRepository = LibraryCollectionRepository(storage: storage)
         _ = CollectionMigrationService.migrateIfNeeded(
             storage: storage,
             libraryReady: true,
-            previewRepository: previewRepository,
             libraryRepository: libraryRepository
         )
         return libraryRepository

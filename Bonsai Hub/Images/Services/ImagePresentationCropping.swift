@@ -53,6 +53,16 @@ enum ImagePresentationCropping {
         isMirroredHorizontally: Bool = false,
         maxPixelSize: Int? = nil
     ) -> CGImage? {
+        // ImageIO thumbnails stay as CGImage. Wrapping them in NSImage and reading
+        // the pixels back off the main thread often fails, so the strip stays empty
+        // while the large photo (full decode) still appears.
+        if let maxPixelSize,
+           let thumb = imageIOThumbnail(from: data, maxPixelSize: maxPixelSize),
+           isFullFrame(normalizedCrop),
+           normalizedTurns(rotationDegrees) == 0,
+           !isMirroredHorizontally {
+            return thumb
+        }
         guard let image = displayImage(
             from: data,
             normalizedCrop: normalizedCrop,
@@ -61,6 +71,21 @@ enum ImagePresentationCropping {
             maxPixelSize: maxPixelSize
         ) else { return nil }
         return cgImage(from: image)
+    }
+
+    private static func normalizedTurns(_ degrees: Int) -> Int {
+        ((degrees / 90) % 4 + 4) % 4
+    }
+
+    private static func imageIOThumbnail(from data: Data, maxPixelSize: Int) -> CGImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let options: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixelSize,
+            kCGImageSourceShouldCacheImmediately: true
+        ]
+        return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
     }
 
     /// Decode `data` off the hot path. When `maxPixelSize` is set, uses an ImageIO thumbnail
@@ -72,14 +97,15 @@ enum ImagePresentationCropping {
         isMirroredHorizontally: Bool = false,
         maxPixelSize: Int? = nil
     ) -> NSImage? {
-        if let maxPixelSize {
-            return thumbnail(
-                from: data,
-                normalizedCrop: normalizedCrop,
-                rotationDegrees: rotationDegrees,
-                isMirroredHorizontally: isMirroredHorizontally,
-                maxPixelSize: maxPixelSize
-            )
+        if let maxPixelSize,
+           let thumb = thumbnail(
+            from: data,
+            normalizedCrop: normalizedCrop,
+            rotationDegrees: rotationDegrees,
+            isMirroredHorizontally: isMirroredHorizontally,
+            maxPixelSize: maxPixelSize
+           ) {
+            return thumb
         }
         guard let original = NSImage(data: data) else { return nil }
         return croppedImage(

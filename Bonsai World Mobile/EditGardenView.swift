@@ -2,7 +2,7 @@
 //  EditGardenView.swift
 //  Bonsai World
 //
-//  Field Garden edit — Name, Default, Address. Save / Cancel.
+//  Field Garden edit — Name, Default, Address, Climate. Save / Cancel.
 //
 
 import SwiftUI
@@ -19,6 +19,9 @@ struct EditGardenView: View {
     @State private var postalCode = ""
     @State private var city = ""
     @State private var country = ""
+    @State private var hemisphere: GardenHemisphere?
+    @State private var season: GardenSeason?
+    @State private var hemisphereFollowsPosition = false
     @State private var didLoadDraft = false
 
     private var garden: Garden? { library.garden(id: gardenID) }
@@ -68,6 +71,8 @@ struct EditGardenView: View {
                     .foregroundStyle(BonsaiWorldColors.textPrimary)
                     .accessibilityLabel("Country")
             }
+
+            climateSection
         }
         .scrollContentBackground(.hidden)
         .background(BonsaiWorldColors.canvas)
@@ -87,6 +92,7 @@ struct EditGardenView: View {
         }
         .toolbarBackground(BonsaiWorldColors.canvas, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(.light, for: .navigationBar)
         .onAppear {
             guard !didLoadDraft, let garden else { return }
             name = garden.name
@@ -95,7 +101,50 @@ struct EditGardenView: View {
             postalCode = garden.postalCode
             city = garden.city
             country = garden.country
+            hemisphere = garden.hemisphere
+            season = garden.season
+            if hemisphere == nil, let latitude = garden.latitude {
+                hemisphere = GardenHemisphere.suggested(latitude: latitude)
+                hemisphereFollowsPosition = true
+            }
             didLoadDraft = true
+        }
+    }
+
+    private var climateSection: some View {
+        Section {
+            Picker("Hemisphere", selection: $hemisphere) {
+                Text("Not Set").tag(GardenHemisphere?.none)
+                ForEach(GardenHemisphere.allCases) { item in
+                    Text(item.title).tag(Optional(item))
+                }
+            }
+            .font(FaloTypography.body)
+            .accessibilityLabel("Hemisphere")
+            .onChange(of: hemisphere) { _, newValue in
+                guard hemisphereFollowsPosition else { return }
+                let suggested = garden?.latitude.map { GardenHemisphere.suggested(latitude: $0) }
+                if newValue != suggested {
+                    hemisphereFollowsPosition = false
+                }
+            }
+
+            Picker("Season", selection: $season) {
+                Text("Not Set").tag(GardenSeason?.none)
+                ForEach(GardenSeason.allCases) { item in
+                    Text(item.title).tag(Optional(item))
+                }
+            }
+            .font(FaloTypography.body)
+            .accessibilityLabel("Season")
+        } header: {
+            Text("Climate")
+        } footer: {
+            Text(GardenClimate.settingsFooter(
+                hemisphereFollowsPosition: hemisphereFollowsPosition,
+                season: season
+            ))
+            .font(FaloTypography.caption)
         }
     }
 
@@ -107,7 +156,10 @@ struct EditGardenView: View {
             address: address,
             postalCode: postalCode,
             city: city,
-            country: country
+            country: country,
+            hemisphere: hemisphere,
+            season: season,
+            includeClimate: true
         )
         dismiss()
     }

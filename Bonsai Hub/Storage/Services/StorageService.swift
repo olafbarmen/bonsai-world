@@ -34,6 +34,9 @@ final class StorageService {
     /// Single-writer warning when another device updated the iCloud lease recently (A1).
     private(set) var foreignWriterWarning: String?
 
+    /// When this Mac last wrote the shared image catalog or an original file.
+    private(set) var lastImageWriteAt: Date?
+
     private init() {
         let configuration = LibraryLocationConfiguration.defaultLocal
         self.libraryLocationConfiguration = configuration
@@ -215,6 +218,9 @@ final class StorageService {
 
     func savePackageFile(relativePath: String, data: Data) throws {
         try provider.savePackageFile(relativePath: relativePath, data: data)
+        if relativePath == LibraryPackageLayout.imagesCatalogFileName {
+            lastImageWriteAt = Date()
+        }
         touchWriterLease()
     }
 
@@ -231,6 +237,7 @@ final class StorageService {
 
     func saveImage(id: StorageAssetID, data: Data, fileExtension: String) async throws {
         try await provider.saveImage(id: id, data: data, fileExtension: fileExtension)
+        lastImageWriteAt = Date()
         touchWriterLease()
     }
 

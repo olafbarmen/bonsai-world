@@ -2,7 +2,7 @@
 //  SeedBatchProfileView.swift
 //  Bonsai World
 //
-//  Seed Batch profile — name, species, stage, photos, notes.
+//  Seed Batch profile — Mac SeedBatchDetailView fields and work actions the model supports.
 //
 
 import PhotosUI
@@ -19,8 +19,23 @@ struct SeedBatchProfileView: View {
     @State private var stage: SeedBatchStage = .planned
     @State private var notes: String = ""
     @State private var soilMixID: UUID?
+    @State private var source: String = ""
+    @State private var seedYear: Int = Calendar.current.component(.year, from: Date())
+    @State private var locationID: UUID?
+    @State private var containerDescription: String = ""
+    @State private var initialSeedCountText = ""
+    @State private var viableSeedCountText = ""
+    @State private var sownCountText = ""
+    @State private var germCountText = ""
+    @State private var survivingCountText = ""
+    @State private var selectCountText = ""
     @State private var didLoad = false
     @State private var confirmAdvance = false
+    @State private var confirmFailed = false
+    @State private var showSow = false
+    @State private var showGerm = false
+    @State private var showSurvive = false
+    @State private var showSeparate = false
     @State private var isShowingAddPhotoOptions = false
     @State private var isPhotoPickerPresented = false
     @State private var photoPickerItem: PhotosPickerItem?
@@ -45,114 +60,12 @@ struct SeedBatchProfileView: View {
     var body: some View {
         Group {
             if let batch {
-                form(batch)
+                formContent(batch)
             } else {
                 ContentUnavailableView("Seed Batch not found", systemImage: "leaf.arrow.circlepath")
             }
         }
         .onAppear { loadIfNeeded() }
-    }
-
-    private func form(_ batch: SeedBatch) -> some View {
-        Form {
-            if let heroID = batch.primaryImageID ?? batch.imageIDs.first {
-                Section {
-                    MobileAssetImage(imageID: heroID, style: .hero)
-                        .listRowInsets(EdgeInsets(
-                            top: FaloSpacing.medium,
-                            leading: FaloSpacing.large,
-                            bottom: FaloSpacing.medium,
-                            trailing: FaloSpacing.large
-                        ))
-                        .listRowBackground(BonsaiWorldColors.surface)
-                        .accessibilityLabel("Primary photo")
-                }
-            }
-
-            Section {
-                if !batch.batchCode.isEmpty {
-                    LabeledContent("Code", value: batch.batchCode)
-                        .font(FaloTypography.body)
-                }
-                TextField("Name", text: $name)
-                    .font(FaloTypography.body)
-                    .foregroundStyle(BonsaiWorldColors.textPrimary)
-                    .accessibilityLabel("Name")
-                TextField("Species", text: $species)
-                    .font(FaloTypography.body)
-                    .foregroundStyle(BonsaiWorldColors.textPrimary)
-                    .accessibilityLabel("Species")
-                Picker("Stage", selection: $stage) {
-                    ForEach(editableStages) { value in
-                        Text(value.title).tag(value)
-                    }
-                }
-            }
-
-            if !library.orderedSoilMixes.isEmpty {
-                Section("Soil Mix") {
-                    Picker("Soil Mix", selection: $soilMixID) {
-                        Text("None").tag(Optional<UUID>.none)
-                        ForEach(library.orderedSoilMixes) { mix in
-                            Text(mix.name).tag(Optional(mix.id))
-                        }
-                    }
-                    .accessibilityLabel("Soil Mix")
-
-                    if let mixID = soilMixID,
-                       let mixName = library.soilMix(id: mixID)?.name.trimmingCharacters(in: .whitespacesAndNewlines),
-                       !mixName.isEmpty
-                    {
-                        NavigationLink(value: MobileRoute.soilMix(mixID)) {
-                            Text(mixName)
-                                .font(FaloTypography.body)
-                                .foregroundStyle(BonsaiWorldColors.textPrimary)
-                        }
-                        .accessibilityLabel("Open \(mixName)")
-                        .accessibilityHint("Open soil mix")
-                    }
-                }
-            }
-
-            if let nextStage {
-                Section {
-                    Button("Advance Stage") {
-                        confirmAdvance = true
-                    }
-                    .font(FaloTypography.body.weight(.semibold))
-                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
-                    .contentShape(Rectangle())
-                    .accessibilityLabel("Advance Stage")
-                    .accessibilityHint("Move to \(nextStage.title)")
-                } footer: {
-                    Text("Next: \(nextStage.title)")
-                }
-            }
-
-            photosSection(batch)
-
-            Section("Notes") {
-                TextEditor(text: $notes)
-                    .frame(minHeight: 88)
-                    .font(FaloTypography.body)
-                    .foregroundStyle(BonsaiWorldColors.textPrimary)
-                    .accessibilityLabel("Notes")
-            }
-        }
-        .scrollContentBackground(.hidden)
-        .background(BonsaiWorldColors.canvas)
-        .scrollDismissesKeyboard(.interactively)
-        .navigationTitle(seedNavigationTitle(batch))
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Save") { save() }
-                    .fontWeight(.semibold)
-                    .disabled(!canSave)
-            }
-        }
-        .toolbarBackground(BonsaiWorldColors.canvas, for: .navigationBar)
-        .toolbarBackground(.visible, for: .navigationBar)
         .confirmationDialog(
             "Advance to \(nextStage?.title ?? "next stage")?",
             isPresented: $confirmAdvance,
@@ -162,6 +75,17 @@ struct SeedBatchProfileView: View {
                 if let advanced = library.advanceSeedBatchStage(id: batchID) {
                     stage = advanced
                 }
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .confirmationDialog(
+            "Mark this batch failed?",
+            isPresented: $confirmFailed,
+            titleVisibility: .visible
+        ) {
+            Button("Mark Failed", role: .destructive) {
+                _ = library.markSeedBatchFailed(id: batchID)
+                stage = .failed
             }
             Button("Cancel", role: .cancel) {}
         }
@@ -201,6 +125,359 @@ struct SeedBatchProfileView: View {
                 onCancel: { isShowingCamera = false }
             )
             .ignoresSafeArea()
+        }
+        .sheet(isPresented: $showSow) { sowSheet }
+        .sheet(isPresented: $showGerm) { germSheet }
+        .sheet(isPresented: $showSurvive) { surviveSheet }
+        .sheet(isPresented: $showSeparate) { separateSheet }
+    }
+
+    private func formContent(_ batch: SeedBatch) -> some View {
+        Form {
+            heroSection(batch)
+            identitySection
+            currentSection(batch)
+            resultsSection(batch)
+            soilMixSection
+            actionsSection(batch)
+            timelineSection(batch)
+            photosSection(batch)
+            notesSection
+        }
+        .scrollContentBackground(.hidden)
+        .background(BonsaiWorldColors.canvas)
+        .scrollDismissesKeyboard(.interactively)
+        .navigationTitle(seedNavigationTitle(batch))
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .confirmationAction) {
+                Button("Save") { save() }
+                    .fontWeight(.semibold)
+                    .disabled(!canSave)
+            }
+        }
+        .toolbarBackground(BonsaiWorldColors.canvas, for: .navigationBar)
+        .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(.light, for: .navigationBar)
+    }
+
+    @ViewBuilder
+    private func heroSection(_ batch: SeedBatch) -> some View {
+        if let heroID = batch.primaryImageID ?? batch.imageIDs.first {
+            Section {
+                MobileAssetImage(imageID: heroID, style: .hero)
+                    .listRowInsets(EdgeInsets(
+                        top: FaloSpacing.medium,
+                        leading: FaloSpacing.large,
+                        bottom: FaloSpacing.medium,
+                        trailing: FaloSpacing.large
+                    ))
+                    .listRowBackground(BonsaiWorldColors.surface)
+                    .accessibilityLabel("Primary photo")
+            }
+        }
+    }
+
+    private var identitySection: some View {
+        Section {
+            if let code = batch?.batchCode, !code.isEmpty {
+                LabeledContent("Code", value: code)
+                    .font(FaloTypography.body)
+            }
+            TextField("Name", text: $name)
+                .font(FaloTypography.body)
+                .foregroundStyle(BonsaiWorldColors.textPrimary)
+                .accessibilityLabel("Name")
+            TextField("Species", text: $species)
+                .font(FaloTypography.body)
+                .foregroundStyle(BonsaiWorldColors.textPrimary)
+                .accessibilityLabel("Species")
+            Picker("Stage", selection: $stage) {
+                ForEach(editableStages) { value in
+                    Text(value.title).tag(value)
+                }
+            }
+            TextField("Source", text: $source)
+                .font(FaloTypography.body)
+                .foregroundStyle(BonsaiWorldColors.textPrimary)
+                .accessibilityLabel("Source")
+            TextField("Seed year", value: $seedYear, format: .number.grouping(.never))
+                .keyboardType(.numberPad)
+                .font(FaloTypography.body)
+                .foregroundStyle(BonsaiWorldColors.textPrimary)
+                .accessibilityLabel("Seed year")
+            TextField("Number of seeds", text: $initialSeedCountText)
+                .keyboardType(.numberPad)
+                .font(FaloTypography.body)
+                .foregroundStyle(BonsaiWorldColors.textPrimary)
+                .accessibilityLabel("Number of seeds")
+        }
+    }
+
+    private func currentSection(_ batch: SeedBatch) -> some View {
+        Section("Current") {
+            LabeledContent("Stage", value: batch.stage.title)
+            Picker("Location", selection: $locationID) {
+                Text("None").tag(Optional<UUID>.none)
+                ForEach(library.orderedLocations) { location in
+                    Text(location.name).tag(Optional(location.id))
+                }
+            }
+            .accessibilityLabel("Location")
+            TextField("Container", text: $containerDescription)
+                .font(FaloTypography.body)
+                .foregroundStyle(BonsaiWorldColors.textPrimary)
+                .accessibilityLabel("Container")
+            TextField("Viable", text: $viableSeedCountText)
+                .keyboardType(.numberPad)
+            TextField("Sown", text: $sownCountText)
+                .keyboardType(.numberPad)
+            TextField("Germinated", text: $germCountText)
+                .keyboardType(.numberPad)
+            TextField("Surviving", text: $survivingCountText)
+                .keyboardType(.numberPad)
+            LabeledContent("Selected", value: "\(batch.selectedTreeCount)")
+            LabeledContent("Trees created", value: "\(batch.createdTreeIDs.count)")
+        }
+    }
+
+    private func resultsSection(_ batch: SeedBatch) -> some View {
+        Section("Propagation Results") {
+            LabeledContent("Germination", value: SeedBatch.percentLabel(batch.germinationRate))
+            LabeledContent("Seedling survival", value: SeedBatch.percentLabel(batch.survivalRate))
+            LabeledContent("Seed → seedling", value: SeedBatch.percentLabel(batch.seedToSeedlingRate))
+            LabeledContent("Seed → tree", value: SeedBatch.percentLabel(batch.seedToTreeRate))
+        }
+    }
+
+    @ViewBuilder
+    private var soilMixSection: some View {
+        if !library.orderedSoilMixes.isEmpty {
+            Section("Soil Mix") {
+                Picker("Soil Mix", selection: $soilMixID) {
+                    Text("None").tag(Optional<UUID>.none)
+                    ForEach(library.orderedSoilMixes) { mix in
+                        Text(mix.name).tag(Optional(mix.id))
+                    }
+                }
+                .accessibilityLabel("Soil Mix")
+
+                if let mixID = soilMixID,
+                   let mixName = library.soilMix(id: mixID)?.name.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !mixName.isEmpty
+                {
+                    NavigationLink(value: MobileRoute.soilMix(mixID)) {
+                        Text(mixName)
+                            .font(FaloTypography.body)
+                            .foregroundStyle(BonsaiWorldColors.textPrimary)
+                    }
+                    .accessibilityLabel("Open \(mixName)")
+                    .accessibilityHint("Open soil mix")
+                }
+            }
+        }
+    }
+
+    private func actionsSection(_ batch: SeedBatch) -> some View {
+        Section {
+            if nextStage != nil {
+                Button("Advance Stage") {
+                    confirmAdvance = true
+                }
+                .accessibilityLabel("Advance Stage")
+            }
+            if batch.stage == .readyToSow || batch.stage == .stratifying || batch.stage == .planned {
+                Button("Record Sowing") { showSow = true }
+            }
+            if batch.stage == .sown || batch.stage == .germinating {
+                Button("Record Germination") { showGerm = true }
+            }
+            if batch.stage == .germinating || batch.stage == .seedling || batch.stage == .developing {
+                Button("Update Survival") { showSurvive = true }
+                Button("Separate Seedlings") { showSeparate = true }
+            }
+            if batch.stage.isActive {
+                Button("Mark Failed", role: .destructive) {
+                    confirmFailed = true
+                }
+            }
+        } header: {
+            Text("Actions")
+        } footer: {
+            if let nextStage {
+                Text("Next: \(nextStage.title)")
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func timelineSection(_ batch: SeedBatch) -> some View {
+        if !batch.orderedEvents.isEmpty {
+            Section("Timeline") {
+                ForEach(Array(batch.orderedEvents.reversed().prefix(20))) { event in
+                    VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+                        Text(event.date.formatted(date: .abbreviated, time: .shortened))
+                            .font(FaloTypography.caption)
+                            .foregroundStyle(BonsaiWorldColors.textSecondary)
+                        Text(event.kind.title)
+                            .font(FaloTypography.body)
+                            .foregroundStyle(BonsaiWorldColors.textPrimary)
+                        if let quantity = event.quantity {
+                            Text("Quantity: \(quantity)")
+                                .font(FaloTypography.caption)
+                                .foregroundStyle(BonsaiWorldColors.textSecondary)
+                        }
+                        if !event.notes.isEmpty {
+                            Text(event.notes)
+                                .font(FaloTypography.caption)
+                                .foregroundStyle(BonsaiWorldColors.textSecondary)
+                        }
+                    }
+                    .listRowBackground(BonsaiWorldColors.surface)
+                }
+            }
+        }
+    }
+
+    private var notesSection: some View {
+        Section("Notes") {
+            TextEditor(text: $notes)
+                .frame(minHeight: 88)
+                .font(FaloTypography.body)
+                .foregroundStyle(BonsaiWorldColors.textPrimary)
+                .accessibilityLabel("Notes")
+        }
+    }
+
+    private var sowSheet: some View {
+        NavigationStack {
+            Form {
+                Section("Sowing") {
+                    TextField("Seeds sown", text: $sownCountText)
+                        .keyboardType(.numberPad)
+                    Picker("Soil mix", selection: $soilMixID) {
+                        Text("Select").tag(Optional<UUID>.none)
+                        ForEach(library.orderedSoilMixes) { mix in
+                            Text(mix.name).tag(Optional(mix.id))
+                        }
+                    }
+                    TextField("Container", text: $containerDescription)
+                    Picker("Location", selection: $locationID) {
+                        Text("Keep current").tag(Optional<UUID>.none)
+                        ForEach(library.orderedLocations) { location in
+                            Text(location.name).tag(Optional(location.id))
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Record Sowing")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showSow = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        guard let count = Int(sownCountText), count > 0 else { return }
+                        if library.recordSeedBatchSowing(
+                            id: batchID,
+                            sownCount: count,
+                            soilMixID: soilMixID,
+                            locationID: locationID,
+                            containerDescription: containerDescription
+                        ) {
+                            stage = library.seedBatch(id: batchID)?.stage ?? stage
+                            showSow = false
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var germSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Germinated count", text: $germCountText)
+                        .keyboardType(.numberPad)
+                }
+            }
+            .navigationTitle("Record Germination")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showGerm = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        guard let count = Int(germCountText), count >= 0 else { return }
+                        if library.recordSeedBatchGermination(id: batchID, germinatedCount: count) {
+                            stage = library.seedBatch(id: batchID)?.stage ?? stage
+                            showGerm = false
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var surviveSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Surviving seedlings", text: $survivingCountText)
+                        .keyboardType(.numberPad)
+                }
+            }
+            .navigationTitle("Update Survival")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showSurvive = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        guard let count = Int(survivingCountText), count >= 0 else { return }
+                        if library.updateSeedBatchSurvival(id: batchID, survivingCount: count) {
+                            stage = library.seedBatch(id: batchID)?.stage ?? stage
+                            showSurvive = false
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private var separateSheet: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("Seedlings to select", text: $selectCountText)
+                        .keyboardType(.numberPad)
+                } footer: {
+                    if let batch {
+                        Text("Surviving: \(batch.survivingSeedlingCount)")
+                    }
+                }
+            }
+            .navigationTitle("Separate Seedlings")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { showSeparate = false }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        guard let count = Int(selectCountText), count > 0 else { return }
+                        if library.separateSeedBatchSeedlings(id: batchID, selectCount: count) {
+                            stage = library.seedBatch(id: batchID)?.stage ?? stage
+                            survivingCountText = "\(library.seedBatch(id: batchID)?.survivingSeedlingCount ?? 0)"
+                            showSeparate = false
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -279,6 +556,15 @@ struct SeedBatchProfileView: View {
         stage = batch.stage.isActive ? batch.stage : .planned
         notes = batch.notes
         soilMixID = batch.soilMixID
+        source = batch.source
+        seedYear = batch.seedYear
+        locationID = batch.locationID
+        containerDescription = batch.containerDescription
+        initialSeedCountText = "\(batch.initialSeedCount)"
+        viableSeedCountText = "\(batch.viableSeedCount)"
+        sownCountText = "\(batch.sownSeedCount)"
+        germCountText = "\(batch.germinatedSeedCount)"
+        survivingCountText = "\(batch.survivingSeedlingCount)"
         didLoad = true
     }
 
@@ -296,8 +582,17 @@ struct SeedBatchProfileView: View {
             species: species,
             stage: stage,
             notes: notes,
-            soilMixID: soilMixID
+            soilMixID: soilMixID,
+            source: source,
+            seedYear: seedYear,
+            containerDescription: containerDescription,
+            initialSeedCount: Int(initialSeedCountText),
+            viableSeedCount: Int(viableSeedCountText),
+            sownSeedCount: Int(sownCountText),
+            germinatedSeedCount: Int(germCountText),
+            survivingSeedlingCount: Int(survivingCountText)
         )
+        library.setSeedBatchLocation(id: batchID, locationID: locationID)
     }
 
     private func importPickedItem(_ item: PhotosPickerItem) async {

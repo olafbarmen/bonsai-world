@@ -14,6 +14,8 @@ import Observation
 @MainActor
 final class TreeListColumnConfiguration {
     private static let storageKey = "falo.treeList.visibleColumnIDs"
+    /// One-time: insert Age after Botanical Name for existing saved layouts.
+    private static let ageColumnMigrationKey = "falo.treeList.migratedAgeColumn"
 
     /// Ordered list of currently visible columns (required identity always included).
     /// Prefer `setVisible` / `reorder(to:)` so order stays normalized.
@@ -28,10 +30,27 @@ final class TreeListColumnConfiguration {
         if let visibleColumnIDs {
             self.visibleColumnIDs = Self.normalized(visibleColumnIDs)
         } else if let stored = Self.loadStored() {
-            self.visibleColumnIDs = stored
+            self.visibleColumnIDs = Self.migratingInAgeColumnIfNeeded(stored)
         } else {
             self.visibleColumnIDs = TreeListColumnID.defaultOrder
+            UserDefaults.standard.set(true, forKey: Self.ageColumnMigrationKey)
         }
+    }
+
+    /// Existing installs keep their layout but get Age once (default-on).
+    private static func migratingInAgeColumnIfNeeded(_ stored: [TreeListColumnID]) -> [TreeListColumnID] {
+        guard !UserDefaults.standard.bool(forKey: ageColumnMigrationKey) else {
+            return stored
+        }
+        UserDefaults.standard.set(true, forKey: ageColumnMigrationKey)
+        guard !stored.contains(.age) else { return stored }
+        var next = stored
+        if let botanicalIndex = next.firstIndex(of: .botanicalName) {
+            next.insert(.age, at: botanicalIndex + 1)
+        } else {
+            next.insert(.age, at: 0)
+        }
+        return normalized(next)
     }
 
     // MARK: - Settings-facing API (no UI yet)

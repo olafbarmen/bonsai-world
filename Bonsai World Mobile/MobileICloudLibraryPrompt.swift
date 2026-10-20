@@ -10,7 +10,7 @@ import SwiftUI
 struct MobileICloudLibraryPrompt: View {
     var onChoose: (MobileLibraryStore.LocationPreference) -> Void
 
-    private var iCloudAvailable: Bool { BonsaiWorldICloudLibrary.isAvailable }
+    @State private var iCloudAvailable = BonsaiWorldICloudLibrary.cachedLibraryRootURL() != nil
 
     var body: some View {
         NavigationStack {
@@ -68,9 +68,17 @@ struct MobileICloudLibraryPrompt: View {
             .background(BonsaiWorldColors.canvas)
             .navigationTitle("Library")
             .navigationBarTitleDisplayMode(.large)
+            .task {
+                switch await BonsaiWorldICloudLibrary.resolveLibraryRootURL() {
+                case .available: iCloudAvailable = true
+                case .unavailable: iCloudAvailable = false
+                case .timedOut: break
+                }
+            }
         }
         .tint(BonsaiWorldColors.accent)
         .preferredColorScheme(.light)
+        .toolbarColorScheme(.light, for: .navigationBar)
     }
 }
 

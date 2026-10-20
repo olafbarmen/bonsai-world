@@ -2,7 +2,8 @@
 //  YamadoriFindProfileView.swift
 //  Bonsai World
 //
-//  Find profile — code, name, status (Scout/Planned), notes, map, photos, Mark Collected.
+//  Find profile — Mac Find fields: botanical pickers, Evaluation, Collection,
+//  Recovery, History (read-only), photos, Mark Collected.
 //
 
 import PhotosUI
@@ -11,22 +12,53 @@ import UIKit
 
 struct YamadoriFindProfileView: View {
     @Environment(DemoLibrary.self) private var library
+    @Environment(\.dismiss) private var dismiss
 
     let findID: UUID
     var onCollectedTree: ((UUID) -> Void)? = nil
 
     @State private var displayName: String = ""
     @State private var status: YamadoriStatus = .scout
-    @State private var speciesEstimate: String = ""
+    @State private var genusID: UUID?
+    @State private var speciesID: UUID?
+    @State private var cultivarID: UUID?
     @State private var notes: String = ""
     @State private var latitude: Double?
     @State private var longitude: Double?
+
+    @State private var evaluationTrunk = ""
+    @State private var evaluationNebari = ""
+    @State private var evaluationMovement = ""
+    @State private var evaluationTaper = ""
+    @State private var evaluationBranches = ""
+    @State private var evaluationHealth = ""
+    @State private var evaluationAccessibility = ""
+    @State private var evaluationDifficulty = ""
+    @State private var evaluationOverall = ""
+
+    @State private var knowsCollectionDate = false
+    @State private var collectionDate = Date.now
+    @State private var collectionObservations = ""
+    @State private var rootNotes = ""
+    @State private var transportNotes = ""
+    @State private var initialPlacement = ""
+    @State private var initialRecoveryNotes = ""
+
+    @State private var recoveryLocationNotes = ""
+    @State private var recoveryCareNotes = ""
+    @State private var establishmentAssessment = ""
+
+    @State private var genera: [Genus] = []
+    @State private var speciesAll: [Species] = []
+    @State private var cultivarsAll: [Cultivar] = []
+
     @State private var didLoad = false
     @State private var isShowingCollect = false
     @State private var isShowingMove = false
     @State private var isShowingAddObservation = false
     @State private var confirmAbandon = false
     @State private var confirmArchive = false
+    @State private var confirmDeleteFind = false
     @State private var isShowingAddPhotoOptions = false
     @State private var isPhotoPickerPresented = false
     @State private var photoPickerItem: PhotosPickerItem?
@@ -70,6 +102,20 @@ struct YamadoriFindProfileView: View {
         find?.status != .archived
     }
 
+    private var speciesChoices: [Species] {
+        guard let genusID else { return [] }
+        return speciesAll
+            .filter { $0.genusID == genusID && $0.isActive }
+            .sorted { $0.sortOrder < $1.sortOrder }
+    }
+
+    private var cultivarChoices: [Cultivar] {
+        guard let speciesID else { return [] }
+        return cultivarsAll
+            .filter { $0.speciesID == speciesID && $0.isActive }
+            .sorted { $0.sortOrder < $1.sortOrder }
+    }
+
     var body: some View {
         Group {
             if let find {
@@ -97,46 +143,7 @@ struct YamadoriFindProfileView: View {
                 }
             }
 
-            Section {
-                LabeledContent("Code", value: find.yamadoriCode)
-                    .font(FaloTypography.body)
-
-                NavigationLink(value: MobileRoute.yamadoriTrip(find.yamadoriID)) {
-                    Text("Open Trip")
-                        .font(FaloTypography.body)
-                }
-                .accessibilityHint("Open the Yamadori trip for this find")
-
-                if isUncollected {
-                    TextField("Name", text: $displayName)
-                        .font(FaloTypography.body)
-                        .foregroundStyle(BonsaiWorldColors.textPrimary)
-                        .accessibilityLabel("Name")
-
-                    Picker("Status", selection: $status) {
-                        ForEach(editableStatuses, id: \.self) { value in
-                            Text(value.title).tag(value)
-                        }
-                    }
-
-                    TextField("Species estimate", text: $speciesEstimate)
-                        .font(FaloTypography.body)
-                        .foregroundStyle(BonsaiWorldColors.textPrimary)
-                        .accessibilityLabel("Species estimate")
-                } else {
-                    LabeledContent("Name", value: find.displayName.isEmpty ? find.yamadoriCode : find.displayName)
-                    LabeledContent("Status", value: find.status.title)
-                    if let estimate = find.speciesEstimate, !estimate.isEmpty {
-                        LabeledContent("Species estimate", value: estimate)
-                    }
-                    if let treeID = find.linkedTreeID {
-                        NavigationLink(value: MobileRoute.tree(treeID)) {
-                            Text("Open Yamadori Tree")
-                                .font(FaloTypography.body)
-                        }
-                    }
-                }
-            }
+            identitySection(find)
 
             if isUncollected {
                 Section("Site") {
@@ -156,14 +163,17 @@ struct YamadoriFindProfileView: View {
                 }
             }
 
+            evaluationSection(find)
+            collectionSection(find)
+            recoverySection(find)
             photosSection(find)
-
             observationsSection(find)
+            historySection(find)
 
             if isUncollected {
                 Section("Notes") {
-                    TextEditor(text: $notes)
-                        .frame(minHeight: 88)
+                    TextField("Notes", text: $notes, axis: .vertical)
+                        .lineLimit(3...8)
                         .font(FaloTypography.body)
                         .foregroundStyle(BonsaiWorldColors.textPrimary)
                         .accessibilityLabel("Notes")
@@ -229,6 +239,17 @@ struct YamadoriFindProfileView: View {
                     .accessibilityLabel("Archive Find")
                 }
             }
+
+            Section {
+                Button("Delete Find", role: .destructive) {
+                    confirmDeleteFind = true
+                }
+                .font(FaloTypography.body)
+                .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+                .contentShape(Rectangle())
+                .listRowBackground(BonsaiWorldColors.surface)
+                .accessibilityLabel("Delete Find")
+            }
         }
         .scrollContentBackground(.hidden)
         .background(BonsaiWorldColors.canvas)
@@ -246,6 +267,18 @@ struct YamadoriFindProfileView: View {
         }
         .toolbarBackground(BonsaiWorldColors.canvas, for: .navigationBar)
         .toolbarBackground(.visible, for: .navigationBar)
+        .toolbarColorScheme(.light, for: .navigationBar)
+        .onChange(of: genusID) { _, _ in
+            if let speciesID, !speciesChoices.contains(where: { $0.id == speciesID }) {
+                self.speciesID = nil
+                self.cultivarID = nil
+            }
+        }
+        .onChange(of: speciesID) { _, _ in
+            if let cultivarID, !cultivarChoices.contains(where: { $0.id == cultivarID }) {
+                self.cultivarID = nil
+            }
+        }
         .sheet(isPresented: $isShowingCollect) {
             MarkYamadoriCollectedView(findID: findID) { treeID in
                 onCollectedTree?(treeID)
@@ -284,6 +317,19 @@ struct YamadoriFindProfileView: View {
             Text("Moves the abandoned Find to history.")
         }
         .confirmationDialog(
+            "Delete this Find?",
+            isPresented: $confirmDeleteFind,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Find", role: .destructive) {
+                library.deleteYamadoriFind(id: findID)
+                dismiss()
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This permanently deletes the Find. The trip stays.")
+        }
+        .confirmationDialog(
             "Remove this photo?",
             isPresented: $confirmRemovePhoto,
             titleVisibility: .visible
@@ -319,6 +365,156 @@ struct YamadoriFindProfileView: View {
                 onCancel: { isShowingCamera = false }
             )
             .ignoresSafeArea()
+        }
+    }
+
+    @ViewBuilder
+    private func identitySection(_ find: YamadoriFind) -> some View {
+        Section {
+            LabeledContent("Code", value: find.yamadoriCode)
+                .font(FaloTypography.body)
+
+            NavigationLink(value: MobileRoute.yamadoriTrip(find.yamadoriID)) {
+                Text("Open Trip")
+                    .font(FaloTypography.body)
+            }
+            .accessibilityHint("Open the Yamadori trip for this find")
+
+            if isUncollected {
+                TextField("Display Name", text: $displayName)
+                    .font(FaloTypography.body)
+                    .foregroundStyle(BonsaiWorldColors.textPrimary)
+                    .accessibilityLabel("Display Name")
+
+                Picker("Status", selection: $status) {
+                    ForEach(editableStatuses, id: \.self) { value in
+                        Text(value.title).tag(value)
+                    }
+                }
+
+                Picker("Genus", selection: $genusID) {
+                    Text("Select Genus").tag(Optional<UUID>.none)
+                    ForEach(genera) { genus in
+                        Text(genus.name).tag(Optional(genus.id))
+                    }
+                }
+                .accessibilityLabel("Genus")
+
+                Picker("Species", selection: $speciesID) {
+                    Text("Select Species").tag(Optional<UUID>.none)
+                    ForEach(speciesChoices) { species in
+                        Text(species.name).tag(Optional(species.id))
+                    }
+                }
+                .disabled(genusID == nil)
+                .accessibilityLabel("Species")
+
+                Picker("Cultivar", selection: $cultivarID) {
+                    Text("None").tag(Optional<UUID>.none)
+                    ForEach(cultivarChoices) { cultivar in
+                        Text(cultivar.name).tag(Optional(cultivar.id))
+                    }
+                }
+                .disabled(speciesID == nil)
+                .accessibilityLabel("Cultivar")
+            } else {
+                LabeledContent("Display Name", value: find.displayName.isEmpty ? find.yamadoriCode : find.displayName)
+                LabeledContent("Status", value: find.status.title)
+                LabeledContent("Genus", value: genusName(find.genusID))
+                LabeledContent("Species", value: speciesName(find.speciesID))
+                LabeledContent("Cultivar", value: cultivarName(find.cultivarID))
+                if let treeID = find.linkedTreeID {
+                    NavigationLink(value: MobileRoute.tree(treeID)) {
+                        Text("Open Yamadori Tree")
+                            .font(FaloTypography.body)
+                    }
+                }
+            }
+        } header: {
+            Text("Find")
+        }
+    }
+
+    @ViewBuilder
+    private func evaluationSection(_ find: YamadoriFind) -> some View {
+        Section("Evaluation") {
+            if isUncollected {
+                evaluationField("Trunk", text: $evaluationTrunk)
+                evaluationField("Nebari", text: $evaluationNebari)
+                evaluationField("Movement", text: $evaluationMovement)
+                evaluationField("Taper", text: $evaluationTaper)
+                evaluationField("Branches", text: $evaluationBranches)
+                evaluationField("Health", text: $evaluationHealth)
+                evaluationField("Accessibility", text: $evaluationAccessibility)
+                evaluationField("Difficulty", text: $evaluationDifficulty)
+                evaluationField("Overall", text: $evaluationOverall)
+            } else {
+                readOnlyEvaluation("Trunk", find.evaluationTrunk)
+                readOnlyEvaluation("Nebari", find.evaluationNebari)
+                readOnlyEvaluation("Movement", find.evaluationMovement)
+                readOnlyEvaluation("Taper", find.evaluationTaper)
+                readOnlyEvaluation("Branches", find.evaluationBranches)
+                readOnlyEvaluation("Health", find.evaluationHealth)
+                readOnlyEvaluation("Accessibility", find.evaluationAccessibility)
+                readOnlyEvaluation("Difficulty", find.evaluationDifficulty)
+                readOnlyEvaluation("Overall", find.evaluationOverall)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func collectionSection(_ find: YamadoriFind) -> some View {
+        Section("Collection") {
+            if isUncollected {
+                Toggle("Collection Date", isOn: $knowsCollectionDate)
+                if knowsCollectionDate {
+                    DatePicker("Date", selection: $collectionDate, displayedComponents: .date)
+                }
+                evaluationField("Collection Observations", text: $collectionObservations)
+                evaluationField("Root Notes", text: $rootNotes)
+                evaluationField("Transport Notes", text: $transportNotes)
+                evaluationField("Initial Placement", text: $initialPlacement)
+                evaluationField("Initial Recovery Notes", text: $initialRecoveryNotes)
+            } else {
+                if let date = find.collectionDate {
+                    LabeledContent("Collection Date", value: date.formatted(date: .abbreviated, time: .omitted))
+                }
+                readOnlyEvaluation("Collection Observations", find.collectionObservations)
+                readOnlyEvaluation("Root Notes", find.rootNotes)
+                readOnlyEvaluation("Transport Notes", find.transportNotes)
+                readOnlyEvaluation("Initial Placement", find.initialPlacement)
+                readOnlyEvaluation("Initial Recovery Notes", find.initialRecoveryNotes)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func recoverySection(_ find: YamadoriFind) -> some View {
+        Section("Recovery") {
+            if isUncollected {
+                evaluationField("Location Notes", text: $recoveryLocationNotes)
+                evaluationField("Care Notes", text: $recoveryCareNotes)
+                evaluationField("Establishment", text: $establishmentAssessment)
+            } else {
+                readOnlyEvaluation("Location Notes", find.recoveryLocationNotes)
+                readOnlyEvaluation("Care Notes", find.recoveryCareNotes)
+                readOnlyEvaluation("Establishment", find.establishmentAssessment)
+            }
+        }
+    }
+
+    private func evaluationField(_ label: String, text: Binding<String>) -> some View {
+        TextField(label, text: text, axis: .vertical)
+            .lineLimit(1...4)
+            .font(FaloTypography.body)
+            .foregroundStyle(BonsaiWorldColors.textPrimary)
+            .accessibilityLabel(label)
+    }
+
+    @ViewBuilder
+    private func readOnlyEvaluation(_ label: String, _ value: String) -> some View {
+        if !value.isEmpty {
+            LabeledContent(label, value: value)
         }
     }
 
@@ -435,14 +631,93 @@ struct YamadoriFindProfileView: View {
         }
     }
 
+    @ViewBuilder
+    private func historySection(_ find: YamadoriFind) -> some View {
+        let ordered = find.history.sorted { $0.date > $1.date }
+        Section("History") {
+            if ordered.isEmpty {
+                Text("No history yet.")
+                    .font(FaloTypography.body)
+                    .foregroundStyle(BonsaiWorldColors.textSecondary)
+                    .listRowBackground(BonsaiWorldColors.surface)
+            } else {
+                ForEach(ordered) { entry in
+                    VStack(alignment: .leading, spacing: FaloSpacing.xSmall) {
+                        Text(entry.date, format: .dateTime.day().month().year().hour().minute())
+                            .font(FaloTypography.caption)
+                            .foregroundStyle(BonsaiWorldColors.textSecondary)
+                        Text(entry.note.isEmpty ? entry.kind.title : "\(entry.kind.title) — \(entry.note)")
+                            .font(FaloTypography.body)
+                            .foregroundStyle(BonsaiWorldColors.textPrimary)
+                    }
+                    .padding(.vertical, FaloSpacing.xSmall)
+                    .listRowBackground(BonsaiWorldColors.surface)
+                    .accessibilityElement(children: .combine)
+                }
+            }
+        }
+    }
+
+    private func genusName(_ id: UUID?) -> String {
+        guard let id else { return "" }
+        return genera.first { $0.id == id }?.name
+            ?? GenusPreviewData.all.first { $0.id == id }?.name
+            ?? ""
+    }
+
+    private func speciesName(_ id: UUID?) -> String {
+        guard let id else { return "" }
+        return speciesAll.first { $0.id == id }?.name
+            ?? SpeciesPreviewData.all.first { $0.id == id }?.name
+            ?? ""
+    }
+
+    private func cultivarName(_ id: UUID?) -> String {
+        guard let id else { return "" }
+        return cultivarsAll.first { $0.id == id }?.name
+            ?? CultivarPreviewData.all.first { $0.id == id }?.name
+            ?? ""
+    }
+
     private func loadIfNeeded() {
         guard !didLoad, let find else { return }
+        genera = GenusPreviewData.all.filter(\.isActive).sorted { $0.sortOrder < $1.sortOrder }
+        speciesAll = SpeciesPreviewData.all
+        cultivarsAll = CultivarPreviewData.all
+
         displayName = find.displayName
         status = find.status.isUncollected ? find.status : .scout
-        speciesEstimate = find.speciesEstimate ?? ""
+        genusID = find.genusID
+        speciesID = find.speciesID
+        cultivarID = find.cultivarID
         notes = find.notes
         latitude = find.latitude
         longitude = find.longitude
+
+        evaluationTrunk = find.evaluationTrunk
+        evaluationNebari = find.evaluationNebari
+        evaluationMovement = find.evaluationMovement
+        evaluationTaper = find.evaluationTaper
+        evaluationBranches = find.evaluationBranches
+        evaluationHealth = find.evaluationHealth
+        evaluationAccessibility = find.evaluationAccessibility
+        evaluationDifficulty = find.evaluationDifficulty
+        evaluationOverall = find.evaluationOverall
+
+        if let date = find.collectionDate {
+            knowsCollectionDate = true
+            collectionDate = date
+        }
+        collectionObservations = find.collectionObservations
+        rootNotes = find.rootNotes
+        transportNotes = find.transportNotes
+        initialPlacement = find.initialPlacement
+        initialRecoveryNotes = find.initialRecoveryNotes
+
+        recoveryLocationNotes = find.recoveryLocationNotes
+        recoveryCareNotes = find.recoveryCareNotes
+        establishmentAssessment = find.establishmentAssessment
+
         didLoad = true
     }
 
@@ -454,7 +729,28 @@ struct YamadoriFindProfileView: View {
             notes: notes,
             latitude: latitude,
             longitude: longitude,
-            speciesEstimate: speciesEstimate
+            genusID: genusID,
+            speciesID: speciesID,
+            cultivarID: cultivarID,
+            evaluationTrunk: evaluationTrunk,
+            evaluationNebari: evaluationNebari,
+            evaluationMovement: evaluationMovement,
+            evaluationTaper: evaluationTaper,
+            evaluationBranches: evaluationBranches,
+            evaluationHealth: evaluationHealth,
+            evaluationAccessibility: evaluationAccessibility,
+            evaluationDifficulty: evaluationDifficulty,
+            evaluationOverall: evaluationOverall,
+            collectionDate: knowsCollectionDate ? collectionDate : nil,
+            clearCollectionDate: !knowsCollectionDate,
+            collectionObservations: collectionObservations,
+            rootNotes: rootNotes,
+            transportNotes: transportNotes,
+            initialPlacement: initialPlacement,
+            initialRecoveryNotes: initialRecoveryNotes,
+            recoveryLocationNotes: recoveryLocationNotes,
+            recoveryCareNotes: recoveryCareNotes,
+            establishmentAssessment: establishmentAssessment
         )
     }
 

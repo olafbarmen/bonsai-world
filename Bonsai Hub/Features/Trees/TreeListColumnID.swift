@@ -12,6 +12,7 @@ import Foundation
 /// Botanical Name is the identity column (always visible).
 enum TreeListColumnID: String, CaseIterable, Codable, Identifiable, Hashable, Sendable {
     case botanicalName
+    case age
     case style
     case treeStatus
     case location
@@ -24,6 +25,7 @@ enum TreeListColumnID: String, CaseIterable, Codable, Identifiable, Hashable, Se
     var title: String {
         switch self {
         case .botanicalName: "Botanical Name"
+        case .age: "Age"
         case .style: "Style"
         case .treeStatus: "Tree Stage"
         case .location: "Location"
@@ -44,7 +46,7 @@ enum TreeListColumnID: String, CaseIterable, Codable, Identifiable, Hashable, Se
         case .botanicalName: 196
         case .style, .location, .pot: 80
         case .treeStatus, .lastRepot: 80
-        case .acquisition: 64
+        case .acquisition, .age: 64
         }
     }
 
@@ -52,6 +54,7 @@ enum TreeListColumnID: String, CaseIterable, Codable, Identifiable, Hashable, Se
     /// Count must stay ≤ slots in `TreeListView.table` (indexed `tableColumn(at:)`).
     static let defaultOrder: [TreeListColumnID] = [
         .botanicalName,
+        .age,
         .style,
         .treeStatus,
         .location,
