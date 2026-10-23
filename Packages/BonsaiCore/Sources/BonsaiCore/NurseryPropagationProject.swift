@@ -1,10 +1,11 @@
 //
 //  NurseryPropagationProject.swift
-//  Bonsai World
+//  BonsaiCore
 //
 //  Nursery → Cuttings / Air Layers / Field Tree — one project record per unit.
 //  Grafting remains a stored kind for existing data, but is not a Nursery destination
 //  (record grafting as Work on a Tree instead).
+//  Shared JSON: Database/NurseryPropagationProjects.json
 //
 
 import Foundation
@@ -51,15 +52,6 @@ enum NurseryPropagationKind: String, Codable, CaseIterable, Identifiable, Hashab
 
     var projectNoun: String {
         "\(singularTitle) Project"
-    }
-
-    var route: AppRoute {
-        switch self {
-        case .cutting: .nurseryCuttings
-        case .airLayer: .nurseryAirLayers
-        case .grafting: .nurseryGrafting
-        case .fieldTree: .nurseryFieldTree
-        }
     }
 
     var codePrefix: String {

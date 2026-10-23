@@ -12,12 +12,34 @@
 import Foundation
 import UIKit
 
+extension Notification.Name {
+    /// Posted after the library location preference changes and the package is ready to reopen.
+    static let bonsaiMobileLibraryLocationDidChange = Notification.Name("bonsai.mobile.libraryLocationDidChange")
+}
+
+enum MobileLibraryMoveError: LocalizedError {
+    case iCloudUnavailable
+
+    var errorDescription: String? {
+        switch self {
+        case .iCloudUnavailable:
+            return "iCloud Drive is not available on this iPhone."
+        }
+    }
+}
+
 /// Relative paths inside the iOS library package. Values match Mac `LibraryPackageLayout`.
 enum MobileLibraryPackageLayout {
     static let database = "Database"
     static let images = "Images"
     static let imagesOriginals = "Images/Originals"
-    static let treesFileName = "Database/Trees.json"
+    static let imagesThumbnails = "Images/Thumbnails"
+    static let imagesPreviews = "Images/Previews"
+    static let treesFileName = LibraryTreesCatalog.relativePath
+    /// Same path as Mac `LibraryPackageLayout.catalogSyncStampFileName`.
+    static let catalogSyncStampFileName = "Database/CatalogSyncStamp.json"
+    /// Same path as Mac `LibraryPackageLayout.treesCatalogZipFileName`.
+    static let treesCatalogZipFileName = LibraryTreesCatalogZip.packageRelativePath
     static let workFileName = "Database/Work.json"
     static let collectionsFileName = "Database/Collections.json"
     static let locationsFileName = "Database/Locations.json"
@@ -28,9 +50,14 @@ enum MobileLibraryPackageLayout {
     static let yamadoriFileName = "Database/Yamadori.json"
     static let seedBatchesFileName = "Database/SeedBatches.json"
     static let soilMixesFileName = "Database/SoilMixes.json"
+    static let referenceCatalogFileName = "Database/ReferenceCatalog.json"
     static let inventoryStockFileName = "Database/InventoryStock.json"
     /// Same path as Mac `LibraryPackageLayout.potsFileName`.
     static let potsFileName = "Database/Pots.json"
+    /// Same path as Mac `LibraryPackageLayout.nurseryPropagationProjectsFileName`.
+    static let nurseryPropagationProjectsFileName = "Database/NurseryPropagationProjects.json"
+    /// Same path as Mac `LibraryPackageLayout.potBrandsFileName`.
+    static let potBrandsFileName = "Database/PotBrandsAndMakers.json"
     static let imagesCatalogFileName = "Images/Catalog.json"
     /// Same path as Mac `LibraryPackageLayout.userProfileFileName`.
     static let userProfileFileName = "Database/UserProfile.json"
@@ -44,6 +71,10 @@ enum MobileLibraryStoreError: Error, LocalizedError, Equatable {
     case invalidRelativePath(String)
     /// The file exists in iCloud but its bytes are not on this device yet.
     case notLocal
+    /// Another device holds the writer lease — catalog write blocked (S3).
+    case foreignWriterActive(String)
+    /// Local Trees.json is smaller than Mac’s lease count — refuse to overwrite the shared catalog.
+    case catalogBehindRemote(String)
 
     var errorDescription: String? {
         switch self {
@@ -55,6 +86,10 @@ enum MobileLibraryStoreError: Error, LocalizedError, Equatable {
             return "Bonsai World rejected an invalid library path (\(path))."
         case .notLocal:
             return "Bonsai World is still downloading this library file from iCloud."
+        case .foreignWriterActive(let message):
+            return message
+        case .catalogBehindRemote(let message):
+            return message
         }
     }
 }
@@ -74,11 +109,6 @@ struct MobileUserProfileFile: Codable, Hashable, Sendable {
         name = try container.decodeIfPresent(String.self, forKey: .name) ?? ""
         email = try container.decodeIfPresent(String.self, forKey: .email) ?? ""
     }
-}
-
-/// Envelope for `Database/Trees.json` — same JSON shape as Mac `LibraryTreesFile`.
-private struct MobileLibraryTreesFile: Codable {
-    var trees: [Tree]
 }
 
 /// Envelope for `Database/Work.json` — same JSON shape as Mac `LibraryWorkFile`.
@@ -146,6 +176,15 @@ private struct MobileLibrarySoilMixesFile: Codable {
     }
 }
 
+/// Envelope for `Database/ReferenceCatalog.json` — Settings → Reference Data lists.
+private struct MobileLibraryReferenceCatalogFile: Codable {
+    var catalog: MobileReferenceCatalog
+
+    init(catalog: MobileReferenceCatalog) {
+        self.catalog = catalog
+    }
+}
+
 /// Envelope for `Database/InventoryStock.json` — same shape as Mac `LibraryInventoryStockFile`.
 private struct MobileLibraryInventoryStockFile: Codable {
     var schemaVersion: Int
@@ -166,12 +205,39 @@ private struct MobileLibraryPotsFile: Codable {
     }
 }
 
+/// Envelope for `Database/NurseryPropagationProjects.json` — same shape as Mac.
+private struct MobileLibraryNurseryPropagationFile: Codable {
+    var schemaVersion: Int
+    var projects: [NurseryPropagationProject]
+
+    init(schemaVersion: Int = 1, projects: [NurseryPropagationProject] = []) {
+        self.schemaVersion = schemaVersion
+        self.projects = projects
+    }
+}
+
+/// Envelope for `Database/PotBrandsAndMakers.json` — same shape as Mac.
+private struct MobileLibraryPotBrandsFile: Codable {
+    var seedVersion: Int?
+    var brands: [PotBrand]
+    var makers: [PotMaker]
+
+    init(seedVersion: Int? = nil, brands: [PotBrand] = [], makers: [PotMaker] = []) {
+        self.seedVersion = seedVersion
+        self.brands = brands
+        self.makers = makers
+    }
+}
+
 /// Local JSON + JPEG package rooted at `rootURL` (injectable for tests).
 struct MobileLibraryStore {
     let rootURL: URL
     /// Whether this store points at the shared iCloud package. Fixed at creation — no ubiquity lookup.
     let isICloudDrive: Bool
     private let fileManager: FileManager
+
+    /// Process-wide bypass after Settings → Write anyway (S3).
+    private static var libraryWriteBypassUntil: Date?
 
     init(rootURL: URL, isICloudDrive: Bool = false, fileManager: FileManager = .default) {
         self.rootURL = rootURL
@@ -219,14 +285,29 @@ struct MobileLibraryStore {
         return MobileLibraryStore(rootURL: root, isICloudDrive: true, fileManager: fileManager)
     }
 
-    /// Resolves the preferred store after first-launch choice (local fallback if iCloud fails or times out).
+    /// Resolves the preferred store after first-launch choice.
+    /// When preference is iCloud, never silently returns the On This iPhone package (that hid Mac updates).
     static func resolvedPreferred(fileManager: FileManager = .default) async -> MobileLibraryStore {
         switch locationPreference {
         case .iCloud:
             if let iCloud = await iCloudDrive(fileManager: fileManager) {
                 return iCloud
             }
+            if let root = BonsaiWorldICloudLibrary.cachedLibraryRootURL(fileManager: fileManager)
+                ?? BonsaiWorldICloudLibrary.discoveredLibraryRootURL(fileManager: fileManager) {
+                return MobileLibraryStore(rootURL: root, isICloudDrive: true, fileManager: fileManager)
+            }
+            #if targetEnvironment(simulator)
             return applicationSupport(fileManager: fileManager)
+            #else
+            // Expected Mobile Documents path — DemoLibrary stays on “Opening iCloud library” until Trees.json lands.
+            let root = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent(
+                    "Library/Mobile Documents/iCloud~no~olafbarmen~BonsaiWorld/Documents/Bonsai World Library",
+                    isDirectory: true
+                )
+            return MobileLibraryStore(rootURL: root, isICloudDrive: true, fileManager: fileManager)
+            #endif
         case .local, .undecided:
             return applicationSupport(fileManager: fileManager)
         }
@@ -234,10 +315,21 @@ struct MobileLibraryStore {
 
     /// Synchronous variant for non-async callers: cached/discovered iCloud root only, never a ubiquity lookup.
     static func resolvedPreferredWithoutLookup(fileManager: FileManager = .default) -> MobileLibraryStore {
-        if locationPreference == .iCloud,
-           let root = BonsaiWorldICloudLibrary.cachedLibraryRootURL(fileManager: fileManager)
-            ?? BonsaiWorldICloudLibrary.discoveredLibraryRootURL(fileManager: fileManager) {
+        if locationPreference == .iCloud {
+            if let root = BonsaiWorldICloudLibrary.cachedLibraryRootURL(fileManager: fileManager)
+                ?? BonsaiWorldICloudLibrary.discoveredLibraryRootURL(fileManager: fileManager) {
+                return MobileLibraryStore(rootURL: root, isICloudDrive: true, fileManager: fileManager)
+            }
+            #if targetEnvironment(simulator)
+            return applicationSupport(fileManager: fileManager)
+            #else
+            let root = URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+                .appendingPathComponent(
+                    "Library/Mobile Documents/iCloud~no~olafbarmen~BonsaiWorld/Documents/Bonsai World Library",
+                    isDirectory: true
+                )
             return MobileLibraryStore(rootURL: root, isICloudDrive: true, fileManager: fileManager)
+            #endif
         }
         return applicationSupport(fileManager: fileManager)
     }
@@ -246,11 +338,20 @@ struct MobileLibraryStore {
         fileManager.fileExists(atPath: url(for: MobileLibraryPackageLayout.treesFileName).path)
     }
 
+    /// True when the package root sits in the shared Bonsai World ubiquity container.
+    var matchesExpectedICloudContainer: Bool {
+        let path = rootURL.path
+        return path.contains("iCloud~no~olafbarmen~BonsaiWorld")
+            || path.contains("iCloud.no.olafbarmen.BonsaiWorld")
+    }
+
     func ensureFolderStructure() throws {
         for relative in [
             MobileLibraryPackageLayout.database,
             MobileLibraryPackageLayout.images,
-            MobileLibraryPackageLayout.imagesOriginals
+            MobileLibraryPackageLayout.imagesOriginals,
+            MobileLibraryPackageLayout.imagesThumbnails,
+            MobileLibraryPackageLayout.imagesPreviews
         ] {
             let url = rootURL.appendingPathComponent(relative, isDirectory: true)
             if !fileManager.fileExists(atPath: url.path) {
@@ -261,24 +362,41 @@ struct MobileLibraryStore {
 
     /// `nil` when the file is missing. Throws when the file exists but cannot be decoded.
     func loadTrees() throws -> [Tree]? {
-        guard let data = try loadPackageFile(relativePath: MobileLibraryPackageLayout.treesFileName) else {
+        guard let data = try loadPackageFile(relativePath: LibraryTreesCatalog.relativePath) else {
+            return nil
+        }
+        return try LibraryTreesCatalog.decode(data)
+    }
+
+    func saveTrees(_ trees: [Tree]) throws {
+        try beginLibraryCatalogWrite()
+        try refuseTreesWriteIfBehindRemoteCatalog(proposedCount: trees.count)
+        let disk = (try? loadTrees()) ?? []
+        let merged = LibraryTreeCatalogMerge.merge(disk: disk, proposed: trees)
+        let treesData = try LibraryTreesCatalog.encode(merged)
+        try writeAtomically(treesData, relativePath: LibraryTreesCatalog.relativePath)
+        let stamp = LibraryCatalogSyncStamp.make(from: merged, deviceName: UIDevice.current.name)
+        let encoder = LibraryTreesCatalog.makeEncoder()
+        try? saveJSON(
+            stamp,
+            encoder: encoder,
+            name: "catalog sync stamp",
+            relativePath: MobileLibraryPackageLayout.catalogSyncStampFileName
+        )
+        // Keep TreesCatalog.zip in lockstep so a peer can heal from this write.
+        if let zipData = try? LibraryTreesCatalogZip.makeArchive(treesJSON: treesData) {
+            try? writeAtomically(zipData, relativePath: MobileLibraryPackageLayout.treesCatalogZipFileName)
+        }
+        touchWriterLease(treeCount: stamp.treeCount, myTreesCount: stamp.myTreesCount)
+    }
+
+    func loadCatalogSyncStamp() -> LibraryCatalogSyncStamp? {
+        guard let data = try? loadPackageFile(relativePath: MobileLibraryPackageLayout.catalogSyncStampFileName) else {
             return nil
         }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(MobileLibraryTreesFile.self, from: data).trees
-    }
-
-    func saveTrees(_ trees: [Tree]) throws {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        encoder.dateEncodingStrategy = .iso8601
-        try saveJSON(
-            MobileLibraryTreesFile(trees: trees),
-            encoder: encoder,
-            name: "trees",
-            relativePath: MobileLibraryPackageLayout.treesFileName
-        )
+        return try? decoder.decode(LibraryCatalogSyncStamp.self, from: data)
     }
 
     /// `nil` when the file is missing. Throws when the file exists but cannot be decoded.
@@ -477,6 +595,28 @@ struct MobileLibraryStore {
     }
 
     /// `nil` when the file is missing. Throws when the file exists but cannot be decoded.
+    func loadReferenceCatalog() throws -> MobileReferenceCatalog? {
+        guard let data = try loadPackageFile(relativePath: MobileLibraryPackageLayout.referenceCatalogFileName) else {
+            return nil
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(MobileLibraryReferenceCatalogFile.self, from: data).catalog
+    }
+
+    func saveReferenceCatalog(_ catalog: MobileReferenceCatalog) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        try saveJSON(
+            MobileLibraryReferenceCatalogFile(catalog: catalog),
+            encoder: encoder,
+            name: "reference catalog",
+            relativePath: MobileLibraryPackageLayout.referenceCatalogFileName
+        )
+    }
+
+    /// `nil` when the file is missing. Throws when the file exists but cannot be decoded.
     func loadInventoryStock() throws -> [InventoryStockItem]? {
         guard let data = try loadPackageFile(relativePath: MobileLibraryPackageLayout.inventoryStockFileName) else {
             return nil
@@ -517,6 +657,59 @@ struct MobileLibraryStore {
             encoder: encoder,
             name: "pots",
             relativePath: MobileLibraryPackageLayout.potsFileName
+        )
+    }
+
+    /// `nil` when the file is missing. Throws when the file exists but cannot be decoded.
+    func loadNurseryPropagationProjects() throws -> [NurseryPropagationProject]? {
+        guard let data = try loadPackageFile(
+            relativePath: MobileLibraryPackageLayout.nurseryPropagationProjectsFileName
+        ) else {
+            return nil
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(MobileLibraryNurseryPropagationFile.self, from: data).projects
+    }
+
+    func saveNurseryPropagationProjects(_ projects: [NurseryPropagationProject]) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        try saveJSON(
+            MobileLibraryNurseryPropagationFile(projects: projects),
+            encoder: encoder,
+            name: "nursery propagation",
+            relativePath: MobileLibraryPackageLayout.nurseryPropagationProjectsFileName
+        )
+    }
+
+    /// `nil` when the file is missing. Throws when the file exists but cannot be decoded.
+    func loadPotBrandsAndMakers() throws -> (seedVersion: Int?, brands: [PotBrand], makers: [PotMaker])? {
+        guard let data = try loadPackageFile(
+            relativePath: MobileLibraryPackageLayout.potBrandsFileName
+        ) else {
+            return nil
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let file = try decoder.decode(MobileLibraryPotBrandsFile.self, from: data)
+        return (file.seedVersion, file.brands, file.makers)
+    }
+
+    func savePotBrandsAndMakers(
+        brands: [PotBrand],
+        makers: [PotMaker],
+        seedVersion: Int?
+    ) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        try saveJSON(
+            MobileLibraryPotBrandsFile(seedVersion: seedVersion, brands: brands, makers: makers),
+            encoder: encoder,
+            name: "pot brands",
+            relativePath: MobileLibraryPackageLayout.potBrandsFileName
         )
     }
 
@@ -588,38 +781,57 @@ struct MobileLibraryStore {
     }
 
     func treesFileState() -> TreesFileState {
-        let treesURL = url(for: MobileLibraryPackageLayout.treesFileName)
-        if fileManager.fileExists(atPath: treesURL.path) {
-            if isDatalessFile(treesURL) {
-                requestCloudDownload(at: treesURL)
-                return .notReady
-            }
-            return .ready
-        }
-        if isICloudDrive {
-            let database = rootURL.appendingPathComponent(MobileLibraryPackageLayout.database, isDirectory: true)
-            requestCloudDownload(at: database)
-            if fileManager.fileExists(atPath: database.path), isDatalessFile(database) {
-                return .notReady
-            }
-            return .missing
-        }
-        return .missing
+        packageFileState(relativePath: MobileLibraryPackageLayout.treesFileName)
     }
 
-    /// Local bytes only. No CloudDocs, no download scheduling — safe to call from SwiftUI layout.
+    /// Same CloudDocs residency check as `Trees.json`, for any package file.
+    func packageFileState(relativePath: String) -> TreesFileState {
+        let fileURL = url(for: relativePath)
+        if isICloudDrive {
+            switch ubiquityLocalState(fileURL) {
+            case .materialized:
+                return .ready
+            case .dataless:
+                requestCloudDownload(at: fileURL)
+                return .notReady
+            case .missing:
+                let parent = fileURL.deletingLastPathComponent()
+                requestCloudDownload(at: parent)
+                if ubiquityLocalState(parent) == .dataless {
+                    return .notReady
+                }
+                return .missing
+            }
+        }
+        return fileManager.fileExists(atPath: fileURL.path) ? .ready : .missing
+    }
+
+    /// Local bytes only. Prefer calling off the main actor on iCloud.
     func isImageResident(relativePath: String) -> Bool {
         guard let url = try? resolvedURL(relativePath: relativePath) else { return false }
-        guard fileManager.fileExists(atPath: url.path) else { return false }
-        if !isICloudDrive { return true }
-        return !isDatalessFile(url)
+        if !isICloudDrive {
+            return fileManager.fileExists(atPath: url.path)
+        }
+        return ubiquityLocalState(url) == .materialized
     }
 
     /// Bytes already on this device. Returns nil when the file is still a cloud placeholder.
     func residentImageData(relativePath: String) -> Data? {
         guard let url = try? resolvedURL(relativePath: relativePath) else { return nil }
-        if deferCloudRead(at: url) { return nil }
-        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        if isICloudDrive {
+            switch ubiquityLocalState(url) {
+            case .materialized:
+                break
+            case .dataless:
+                requestCloudDownload(at: url)
+                return nil
+            case .missing:
+                requestCloudDownload(at: url)
+                return nil
+            }
+        } else if !fileManager.fileExists(atPath: url.path) {
+            return nil
+        }
         return try? Data(contentsOf: url)
     }
 
@@ -677,31 +889,57 @@ struct MobileLibraryStore {
 
     private func loadPackageFile(relativePath: String) throws -> Data? {
         let url = try resolvedURL(relativePath: relativePath)
-        if deferCloudRead(at: url) {
-            throw MobileLibraryStoreError.notLocal
+        if isICloudDrive {
+            switch ubiquityLocalState(url) {
+            case .materialized:
+                break
+            case .dataless:
+                requestCloudDownload(at: url)
+                throw MobileLibraryStoreError.notLocal
+            case .missing:
+                requestCloudDownload(at: url)
+                return nil
+            }
+        } else if !fileManager.fileExists(atPath: url.path) {
+            return nil
         }
-        guard fileManager.fileExists(atPath: url.path) else { return nil }
+        if isICloudDrive {
+            return try readCoordinated(url)
+        }
         return try Data(contentsOf: url)
     }
 
-    /// A dataless iCloud placeholder reports as existing, then `Data(contentsOf:)` blocks until the download finishes.
-    /// Uses only local `getattrlist` — never CloudDocs resource values or `startDownloading` on this thread.
-    private func deferCloudRead(at url: URL) -> Bool {
-        guard fileManager.fileExists(atPath: url.path) else {
-            requestCloudDownload(at: url)
-            return false
+    /// Coordinated read so CloudDocs can finish a listed file. Do not call for dataless/missing.
+    private func readCoordinated(_ url: URL) throws -> Data {
+        var data: Data?
+        var coordError: NSError?
+        var readError: Error?
+        let coordinator = NSFileCoordinator()
+        coordinator.coordinate(readingItemAt: url, options: [], error: &coordError) { readURL in
+            do {
+                data = try Data(contentsOf: readURL)
+            } catch {
+                readError = error
+            }
         }
-        let waiting = isDatalessFile(url)
-        if waiting {
-            requestCloudDownload(at: url)
-        }
-        return waiting
+        if let coordError { throw coordError }
+        if let readError { throw readError }
+        guard let data else { throw MobileLibraryStoreError.notLocal }
+        return data
     }
 
-    /// `SF_DATALESS` via getattrlist — local syscall, no bird/XPC. Results are cached per path.
-    private func isDatalessFile(_ url: URL) -> Bool {
+    /// Cached `getattrlist` — call off the main actor when possible (Simulator bird can stall).
+    private func ubiquityLocalState(_ url: URL) -> UbiquityLocalState {
         let path = url.path
-        if let cached = DatalessCache.value(for: path) { return cached }
+        if let cached = UbiquityStateCache.value(for: path) { return cached }
+        #if targetEnvironment(simulator)
+        // Simulator CloudDocs often marks real files SF_DATALESS forever → endless
+        // “Opening iCloud library”. Trust on-disk bytes when the path exists.
+        if fileManager.fileExists(atPath: path) {
+            UbiquityStateCache.set(.materialized, for: path)
+            return .materialized
+        }
+        #endif
         var attributeList = attrlist()
         attributeList.bitmapcount = u_short(ATTR_BIT_MAP_COUNT)
         attributeList.commonattr = attrgroup_t(ATTR_CMN_FLAGS)
@@ -710,9 +948,21 @@ struct MobileLibraryStore {
             guard let pathPtr else { return -1 }
             return getattrlist(pathPtr, &attributeList, &buffer, MemoryLayout.size(ofValue: buffer), 0)
         }
-        let dataless = read == 0 && (buffer.flags & UInt32(SF_DATALESS) != 0)
-        DatalessCache.set(dataless, for: path)
-        return dataless
+        let state: UbiquityLocalState
+        if read != 0 {
+            state = .missing
+        } else if buffer.flags & UInt32(SF_DATALESS) != 0 {
+            state = .dataless
+        } else {
+            state = .materialized
+        }
+        UbiquityStateCache.set(state, for: path)
+        return state
+    }
+
+    /// `SF_DATALESS` via getattrlist — local syscall, no bird/XPC.
+    private func isDatalessFile(_ url: URL) -> Bool {
+        ubiquityLocalState(url) == .dataless
     }
 
     /// CloudDocs download requests must not run on the main thread (Simulator XPC can hang forever).
@@ -738,10 +988,44 @@ struct MobileLibraryStore {
         }
     }
 
-    func touchWriterLease() {
-        let lease = LibraryWriterLease(deviceName: UIDevice.current.name)
+    func touchWriterLease(treeCount: Int? = nil, myTreesCount: Int? = nil) {
+        var retainedTreeCount = treeCount
+        var retainedMyTreesCount = myTreesCount
+        if retainedTreeCount == nil || retainedMyTreesCount == nil,
+           let data = try? loadPackageFile(relativePath: BonsaiWorldICloudLibrary.writerLeaseRelativePath),
+           let existing = try? JSONDecoder().decode(LibraryWriterLease.self, from: data) {
+            retainedTreeCount = retainedTreeCount ?? existing.treeCount
+            retainedMyTreesCount = retainedMyTreesCount ?? existing.myTreesCount
+        }
+        let lease = LibraryWriterLease(
+            deviceName: UIDevice.current.name,
+            treeCount: retainedTreeCount,
+            myTreesCount: retainedMyTreesCount
+        )
         guard let data = try? JSONEncoder().encode(lease) else { return }
         try? writeAtomically(data, relativePath: BonsaiWorldICloudLibrary.writerLeaseRelativePath)
+    }
+
+    func allowLibraryWriteDespiteForeignLease(duration: TimeInterval = 60) {
+        Self.libraryWriteBypassUntil = Date().addingTimeInterval(duration)
+    }
+
+    func beginLibraryCatalogWrite() throws {
+        guard isICloudDrive else { return }
+        if let until = Self.libraryWriteBypassUntil, until > Date() {
+            return
+        }
+        Self.libraryWriteBypassUntil = nil
+        guard let data = try? loadPackageFile(relativePath: BonsaiWorldICloudLibrary.writerLeaseRelativePath),
+              let lease = try? JSONDecoder().decode(LibraryWriterLease.self, from: data)
+        else {
+            return
+        }
+        if lease.isForeignActive(comparedTo: UIDevice.current.name) {
+            throw MobileLibraryStoreError.foreignWriterActive(
+                lease.blockedWriteMessage(comparedTo: UIDevice.current.name)
+            )
+        }
     }
 
     func foreignWriterWarning() -> String? {
@@ -752,7 +1036,7 @@ struct MobileLibraryStore {
             return nil
         }
         if lease.isForeignActive(comparedTo: UIDevice.current.name) {
-            return "“\(lease.deviceName)” used this library recently. Avoid editing on Mac and iPhone at the same time."
+            return lease.blockedWriteMessage(comparedTo: UIDevice.current.name)
         }
         return nil
     }
@@ -773,19 +1057,42 @@ enum CloudDownload {
     private static var recentlyRequested: Set<String> = []
 
     static func request(_ url: URL) {
+        request(url, force: false)
+    }
+
+    /// Bypasses the short debounce so foreground / foreign-lease pulls can ask bird again.
+    static func forceRequest(_ url: URL) {
+        request(url, force: true)
+    }
+
+    private static func request(_ url: URL, force: Bool) {
         let path = url.standardizedFileURL.path
         lock.lock()
+        if force {
+            recentlyRequested.remove(path)
+        }
         let already = recentlyRequested.contains(path)
         if !already { recentlyRequested.insert(path) }
         lock.unlock()
         guard !already else { return }
         queue.async {
-            try? FileManager.default.startDownloadingUbiquitousItem(at: url)
+            do {
+                try FileManager.default.startDownloadingUbiquitousItem(at: url)
+            } catch {
+                print("Bonsai World: iCloud download request failed for \(url.lastPathComponent): \(error.localizedDescription)")
+            }
             queue.asyncAfter(deadline: .now() + 20) {
                 lock.lock()
                 recentlyRequested.remove(path)
                 lock.unlock()
             }
+        }
+    }
+
+    /// Container → Documents → library → Database → catalog files. Order matters.
+    static func requestLibraryMaterialize(libraryRoot: URL) {
+        for url in BonsaiWorldICloudLibrary.materializeURLs(forLibraryRoot: libraryRoot) {
+            forceRequest(url)
         }
     }
 
@@ -796,24 +1103,145 @@ enum CloudDownload {
     }
 }
 
+private enum UbiquityLocalState {
+    case missing
+    case dataless
+    case materialized
+}
+
 /// Avoids repeating getattrlist on the same path during list scrolling.
-private enum DatalessCache {
+private enum UbiquityStateCache {
     private static let lock = NSLock()
-    private static var values: [String: (dataless: Bool, checkedAt: Date)] = [:]
+    private static var values: [String: (state: UbiquityLocalState, checkedAt: Date)] = [:]
     private static let ttl: TimeInterval = 5
 
-    static func value(for path: String) -> Bool? {
+    static func value(for path: String) -> UbiquityLocalState? {
         lock.lock()
         defer { lock.unlock() }
         guard let entry = values[path], Date().timeIntervalSince(entry.checkedAt) < ttl else {
             return nil
         }
-        return entry.dataless
+        return entry.state
     }
 
-    static func set(_ dataless: Bool, for path: String) {
+    static func set(_ state: UbiquityLocalState, for path: String) {
         lock.lock()
-        values[path] = (dataless, Date())
+        values[path] = (state, Date())
         lock.unlock()
+    }
+
+    static func invalidate(path: String) {
+        lock.lock()
+        values.removeValue(forKey: path)
+        lock.unlock()
+    }
+}
+
+extension MobileLibraryStore {
+    /// Clears cached SF_DATALESS / materialized state so the next read re-checks disk.
+    func invalidateUbiquityCache(for relativePath: String) {
+        UbiquityStateCache.invalidate(path: url(for: relativePath).path)
+    }
+
+    /// Evicts a local `Trees.json` only when it is the built-in 3-tree demo set.
+    /// Does not write, upload, or delete Mac catalog bytes.
+    func evictLocalDemoTreesFileIfPresent() {
+        guard isICloudDrive else { return }
+        let treesURL = url(for: LibraryTreesCatalog.relativePath)
+        guard fileManager.fileExists(atPath: treesURL.path),
+              let data = try? Data(contentsOf: treesURL),
+              let trees = try? LibraryTreesCatalog.decode(data),
+              DemoLibrary.isDemoSampleCatalog(trees)
+        else { return }
+        invalidateUbiquityCache(for: LibraryTreesCatalog.relativePath)
+        try? fileManager.evictUbiquitousItem(at: treesURL)
+        CloudDownload.forceRequest(treesURL)
+    }
+
+    /// Ask bird to download the container listing, then `Trees.json` (+ lease/stamp/ZIP). Never evicts local copies.
+    func requestFreshTreesDownload() {
+        guard isICloudDrive else { return }
+        invalidateUbiquityCache(for: MobileLibraryPackageLayout.treesFileName)
+        invalidateUbiquityCache(for: BonsaiWorldICloudLibrary.writerLeaseRelativePath)
+        invalidateUbiquityCache(for: MobileLibraryPackageLayout.catalogSyncStampFileName)
+        invalidateUbiquityCache(for: MobileLibraryPackageLayout.treesCatalogZipFileName)
+        CloudDownload.requestLibraryMaterialize(libraryRoot: rootURL)
+    }
+
+    /// Expected Mac catalog size from stamp or lease (nil when sidecars are absent).
+    func expectedRemoteTreeCount() -> Int? {
+        if let stamp = loadCatalogSyncStamp() { return stamp.treeCount }
+        if let lease = loadWriterLeaseIfPresent(), let count = lease.treeCount { return count }
+        return nil
+    }
+
+    /// Loads Trees.json from `TreesCatalog.zip` when resident. Returns nil if missing / not local yet.
+    func loadTreesJSONFromCatalogZip() throws -> Data? {
+        do {
+            return try loadPackageFile(relativePath: MobileLibraryPackageLayout.treesCatalogZipFileName)
+                .map { try LibraryTreesCatalogZip.extractTreesJSON(from: $0) }
+        } catch MobileLibraryStoreError.notLocal {
+            CloudDownload.forceRequest(url(for: MobileLibraryPackageLayout.treesCatalogZipFileName))
+            return nil
+        }
+    }
+
+    /// Replaces local `Trees.json` with heal bytes (Mac ZIP content). Does not touch stamp/lease.
+    /// Refuses a ZIP that is smaller than the catalog already on this device.
+    func replaceTreesJSONFromCatalogHeal(
+        _ treesJSON: Data,
+        minimumTreeCount: Int,
+        currentLocalCount: Int = 0
+    ) throws -> [Tree] {
+        let trees = try LibraryTreesCatalog.decode(treesJSON)
+        let count = trees.count
+        if count < currentLocalCount {
+            throw MobileLibraryStoreError.catalogBehindRemote(
+                "TreesCatalog.zip has \(count) trees but this iPhone already has \(currentLocalCount)."
+            )
+        }
+        if let stamp = loadCatalogSyncStamp(), stamp.isLocalCatalogBehind(localTreeCount: count) {
+            throw MobileLibraryStoreError.catalogBehindRemote(
+                "TreesCatalog.zip has \(count) trees but stamp expects \(stamp.treeCount)."
+            )
+        }
+        if let lease = loadWriterLeaseIfPresent(), lease.isLocalCatalogBehind(localTreeCount: count) {
+            throw MobileLibraryStoreError.catalogBehindRemote(
+                "TreesCatalog.zip has \(count) trees but lease expects \(lease.treeCount ?? 0)."
+            )
+        }
+        guard count + 2 >= minimumTreeCount else {
+            throw MobileLibraryStoreError.catalogBehindRemote(
+                "TreesCatalog.zip has \(count) trees but expected at least \(minimumTreeCount)."
+            )
+        }
+        try writeAtomically(treesJSON, relativePath: LibraryTreesCatalog.relativePath)
+        invalidateUbiquityCache(for: LibraryTreesCatalog.relativePath)
+        return trees
+    }
+
+    /// Blocks saving a smaller in-memory catalog over a larger Mac catalog (lease / stamp).
+    func refuseTreesWriteIfBehindRemoteCatalog(proposedCount: Int) throws {
+        guard isICloudDrive else { return }
+        if let stamp = loadCatalogSyncStamp(), stamp.isLocalCatalogBehind(localTreeCount: proposedCount) {
+            throw MobileLibraryStoreError.catalogBehindRemote(
+                "This iPhone has \(proposedCount) trees but Mac’s catalog stamp has \(stamp.treeCount). Not saving over iCloud — waiting for Trees.json to finish downloading."
+            )
+        }
+        if let lease = loadWriterLeaseIfPresent(), lease.isLocalCatalogBehind(localTreeCount: proposedCount) {
+            throw MobileLibraryStoreError.catalogBehindRemote(
+                "This iPhone has \(proposedCount) trees but Mac’s writer lease has \(lease.treeCount ?? 0). Not saving over iCloud — waiting for Trees.json to finish downloading."
+            )
+        }
+    }
+
+    /// Writer lease from disk when resident; used to detect Mac catalog writes.
+    func loadWriterLeaseIfPresent() -> LibraryWriterLease? {
+        guard let data = try? loadPackageFile(relativePath: BonsaiWorldICloudLibrary.writerLeaseRelativePath),
+              let lease = try? JSONDecoder().decode(LibraryWriterLease.self, from: data)
+        else {
+            return nil
+        }
+        return lease
     }
 }

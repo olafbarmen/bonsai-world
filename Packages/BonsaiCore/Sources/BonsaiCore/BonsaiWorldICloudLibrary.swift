@@ -85,12 +85,24 @@ public enum BonsaiWorldICloudLibrary: Sendable {
         let env = ProcessInfo.processInfo.environment
         let folder = libraryFolderName
         let containerName = mobileDocumentsContainerName
+        let hostHome = env["SIMULATOR_HOST_HOME"].flatMap { $0.isEmpty ? nil : $0 }
 
-        if let udid = env["SIMULATOR_UDID"], !udid.isEmpty {
-            let hostHome = env["SIMULATOR_HOST_HOME"].flatMap { $0.isEmpty ? nil : $0 }
-                ?? NSHomeDirectory()
+        // Host Mac iCloud Drive (Simulator only). Seeded by Scripts/sync_sim_icloud_library.sh
+        // into the device Mobile Documents tree; also try the live Mac package when readable.
+        if let hostHome {
             candidates.append(
                 URL(fileURLWithPath: hostHome, isDirectory: true)
+                    .appendingPathComponent(
+                        "Library/Mobile Documents/\(containerName)/Documents/\(folder)",
+                        isDirectory: true
+                    )
+            )
+        }
+
+        if let udid = env["SIMULATOR_UDID"], !udid.isEmpty {
+            let simHome = hostHome ?? NSHomeDirectory()
+            candidates.append(
+                URL(fileURLWithPath: simHome, isDirectory: true)
                     .appendingPathComponent("Library/Developer/CoreSimulator/Devices/\(udid)/data/Library/Mobile Documents/\(containerName)/Documents/\(folder)", isDirectory: true)
             )
         }
@@ -156,6 +168,44 @@ public enum BonsaiWorldICloudLibrary: Sendable {
         // Timed out / failed, but the package may already exist on disk (common in Simulator).
         return discoveredLibraryRootURL()
     }
+
+    /// Remembers a library root found by metadata query or a completed ubiquity lookup.
+    public static func rememberLibraryRootURL(_ root: URL) {
+        storeCachedLibraryRootURL(root)
+    }
+
+    /// Package root when `url` is `…/Bonsai World Library/Database/Trees.json` in this container.
+    public static func libraryRoot(containingTreesFile url: URL) -> URL? {
+        let trees = url.standardizedFileURL
+        guard trees.lastPathComponent == "Trees.json" else { return nil }
+        let database = trees.deletingLastPathComponent()
+        guard database.lastPathComponent == "Database" else { return nil }
+        let root = database.deletingLastPathComponent()
+        guard root.lastPathComponent == libraryFolderName else { return nil }
+        let path = root.path
+        guard path.contains(mobileDocumentsContainerName) || path.contains(containerIdentifier) else {
+            return nil
+        }
+        return root
+    }
+
+    /// Parent-first URLs CloudDocs must see before `Trees.json` can download.
+    /// Guessing only the file path and calling `startDownloadingUbiquitousItem` is a no-op
+    /// until the container, Documents, and library folder are listed.
+    public static func materializeURLs(forLibraryRoot root: URL) -> [URL] {
+        let documents = root.deletingLastPathComponent()
+        let container = documents.deletingLastPathComponent()
+        return [
+            container,
+            documents,
+            root,
+            root.appendingPathComponent("Database", isDirectory: true),
+            root.appendingPathComponent(LibraryTreesCatalog.relativePath, isDirectory: false),
+            root.appendingPathComponent("Database/CatalogSyncStamp.json", isDirectory: false),
+            root.appendingPathComponent(LibraryTreesCatalogZip.packageRelativePath, isDirectory: false),
+            root.appendingPathComponent(writerLeaseRelativePath, isDirectory: false)
+        ]
+    }
 }
 
 /// Resumes a lookup continuation exactly once (result or timeout, whichever comes first).
@@ -215,17 +265,38 @@ private final class LookupCoordinator: @unchecked Sendable {
 public struct LibraryWriterLease: Codable, Hashable, Sendable {
     public var deviceName: String
     public var updatedAt: Date
+    /// Catalog size when this device last wrote Trees.json (optional for older leases).
+    public var treeCount: Int?
+    public var myTreesCount: Int?
 
-    public init(deviceName: String, updatedAt: Date = .now) {
+    public init(
+        deviceName: String,
+        updatedAt: Date = .now,
+        treeCount: Int? = nil,
+        myTreesCount: Int? = nil
+    ) {
         self.deviceName = deviceName
         self.updatedAt = updatedAt
+        self.treeCount = treeCount
+        self.myTreesCount = myTreesCount
     }
 
-    /// Another device wrote within this window → show the single-writer warning.
+    /// Another device wrote within this window → block catalog writes (unless bypassed).
     public static let staleAfter: TimeInterval = 5 * 60
 
     public func isForeignActive(comparedTo localDeviceName: String, now: Date = .now) -> Bool {
         guard deviceName != localDeviceName else { return false }
         return now.timeIntervalSince(updatedAt) < Self.staleAfter
+    }
+
+    /// Phone has fewer trees than the last writer recorded on the lease.
+    public func isLocalCatalogBehind(localTreeCount: Int, slack: Int = 2) -> Bool {
+        guard let treeCount else { return false }
+        return localTreeCount + slack < treeCount
+    }
+
+    /// Copy for Settings / save errors when a foreign lease is active.
+    public func blockedWriteMessage(comparedTo localDeviceName: String) -> String {
+        "“\(deviceName)” used this library recently. Saving from this device is blocked so Winter/Season and other fields are not overwritten. Wait a few minutes, or use Write anyway in Settings → Library."
     }
 }

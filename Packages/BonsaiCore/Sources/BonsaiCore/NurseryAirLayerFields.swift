@@ -1,6 +1,6 @@
 //
 //  NurseryAirLayerFields.swift
-//  Bonsai World
+//  BonsaiCore
 //
 //  Air Layer technique enums — Method / Medium / Wrap stay separate.
 //

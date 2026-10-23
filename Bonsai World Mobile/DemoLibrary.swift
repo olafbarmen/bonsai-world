@@ -7,8 +7,10 @@
 //  when constructed with `preview` for SwiftUI canvases.
 //
 
+import Darwin
 import Foundation
 import Observation
+import UIKit
 
 @Observable
 final class DemoLibrary: @unchecked Sendable {
@@ -25,10 +27,19 @@ final class DemoLibrary: @unchecked Sendable {
     private(set) var yamadoriFinds: [YamadoriFind]
     private(set) var seedBatches: [SeedBatch]
     private(set) var soilMixes: [SoilMix]
+    /// Settings → Reference Data flat lists (standalone; seeded from PreviewData).
+    private(set) var referenceCatalog: MobileReferenceCatalog
     private(set) var inventoryStock: [InventoryStockItem]
     private(set) var pots: [Pot]
+    private(set) var nurseryPropagationProjects: [NurseryPropagationProject]
+    private(set) var potBrands: [PotBrand]
+    private(set) var potMakers: [PotMaker]
+    /// Seed version written with Pot Brands & Makers (Mac `LibraryPotBrandsFile`).
+    @ObservationIgnored private var potBrandsSeedVersion: Int?
     /// Grower display name (Settings → User Profile). Same field as Mac User Profile.
     private(set) var growerName: String
+    /// Optional email (Settings → User Profile). Stored in UserProfile.json with Mac.
+    private(set) var growerEmail: String
     /// Canonical ImageAsset catalog.
     private(set) var imageAssets: [UUID: ImageAsset]
     /// Original JPEG bytes keyed by ImageAsset.id (memory cache of on-disk originals).
@@ -43,12 +54,24 @@ final class DemoLibrary: @unchecked Sendable {
     /// Set when a save fails. In-memory changes remain; files are not replaced with demo.
     private(set) var lastSaveError: String?
     /// Newest library-file modification seen at the last load. Used to pick up Mac saves.
-    @ObservationIgnored private var loadedContentStamp: Date?
+    @ObservationIgnored private var loadedContentStamp: String?
     @ObservationIgnored private var refreshTimer: Timer?
     /// Ignores our own writes for a moment so a save does not reload the screen.
     @ObservationIgnored private var suppressRefreshUntil: Date?
+    @ObservationIgnored private var derivativeBackfillTask: Task<Void, Never>?
+    @ObservationIgnored private var isDerivativeBackfillRunning = false
+    /// Last WriterLease.updatedAt successfully loaded (not merely requested).
+    @ObservationIgnored private var lastAppliedWriterLeaseAt: Date? = DemoLibrary.storedLastAppliedWriterLeaseAt()
+    private static let lastAppliedWriterLeaseKey = "bonsai.mobile.lastAppliedWriterLeaseAt"
+    /// True only after a materialized iCloud Trees.json load that is not behind Mac stamp/lease.
+    @ObservationIgnored private var iCloudCatalogReadyToWrite = false
+    @ObservationIgnored private var lastCatalogDownloadAttemptAt: Date?
+    @ObservationIgnored private var lastCatalogZipHealAttemptAt: Date?
+    /// Set when CatalogSyncStamp says Mac has more trees than this session.
+    private(set) var catalogSyncBehindMessage: String?
+    @ObservationIgnored private var treesCatalogLocator: ICloudTreesCatalogLocator?
 
-    /// App launch — load preferred package (local or iCloud), or seed demo once when Trees.json is missing.
+    /// App launch — load preferred package (local or iCloud). Missing local Trees.json starts empty.
     convenience init() {
         self.init(store: .resolvedPreferredWithoutLookup())
     }
@@ -76,17 +99,35 @@ final class DemoLibrary: @unchecked Sendable {
         self.yamadoriFinds = []
         self.seedBatches = []
         self.soilMixes = []
+        self.referenceCatalog = .seededFromPreview()
         self.inventoryStock = []
         self.pots = []
+        self.nurseryPropagationProjects = []
+        self.potBrands = []
+        self.potMakers = []
+        self.potBrandsSeedVersion = nil
         self.growerName = ""
+        self.growerEmail = ""
         self.imageAssets = [:]
         self.imageJPEGData = [:]
         loadOrSeed()
+        // scenePhase.onChange does not fire for the initial .active — request a Trees download on launch.
+        if store.isICloudDrive {
+            startTreesCatalogLocatorIfNeeded()
+            scheduleImmediateCloudCatalogPull()
+        }
         startLibraryRefresh()
+    }
+
+    private func scheduleImmediateCloudCatalogPull() {
+        DispatchQueue.main.async { [weak self] in
+            self?.pullSharedLibraryFromCloud(forceReload: true)
+        }
     }
 
     deinit {
         refreshTimer?.invalidate()
+        treesCatalogLocator?.stop()
     }
 
     /// In-memory only (previews / isolated fixtures). Does not touch disk.
@@ -107,9 +148,15 @@ final class DemoLibrary: @unchecked Sendable {
         self.yamadoriFinds = []
         self.seedBatches = []
         self.soilMixes = []
+        self.referenceCatalog = .seededFromPreview()
         self.inventoryStock = []
         self.pots = []
+        self.nurseryPropagationProjects = []
+        self.potBrands = PotBrandPreviewData.all
+        self.potMakers = PotBrandPreviewData.makers
+        self.potBrandsSeedVersion = PotBrandPreviewData.seedVersion
         self.growerName = "Olaf"
+        self.growerEmail = ""
         self.imageAssets = imageAssets
         self.imageJPEGData = imageJPEGData
         if workRecords.isEmpty {
@@ -131,6 +178,15 @@ final class DemoLibrary: @unchecked Sendable {
             .sorted {
                 MobileTreePresentation.title(for: $0)
                     .localizedStandardCompare(MobileTreePresentation.title(for: $1)) == .orderedAscending
+            }
+    }
+
+    /// Finds still in the field (Mac Uncollected Findings).
+    var uncollectedYamadoriFindings: [YamadoriFind] {
+        yamadoriFinds
+            .filter(\.status.isUncollected)
+            .sorted {
+                $0.yamadoriCode.localizedStandardCompare($1.yamadoriCode) == .orderedAscending
             }
     }
 
@@ -306,7 +362,7 @@ final class DemoLibrary: @unchecked Sendable {
         return gardens.first { $0.id == garden.id }
     }
 
-    /// Updates Garden Name, Default, and address fields. Preserves map coordinates.
+    /// Updates Garden Name, Default, and address fields. Preserves map coordinates unless `includePosition`.
     /// Climate is left unchanged unless `includeClimate` is true.
     func updateGarden(
         id: UUID,
@@ -318,7 +374,10 @@ final class DemoLibrary: @unchecked Sendable {
         country: String = "",
         hemisphere: GardenHemisphere? = nil,
         season: GardenSeason? = nil,
-        includeClimate: Bool = false
+        includeClimate: Bool = false,
+        latitude: Double? = nil,
+        longitude: Double? = nil,
+        includePosition: Bool = false
     ) {
         guard let index = gardens.firstIndex(where: { $0.id == id }) else { return }
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -332,6 +391,10 @@ final class DemoLibrary: @unchecked Sendable {
             gardens[index].hemisphere = hemisphere
             gardens[index].season = season
         }
+        if includePosition {
+            gardens[index].latitude = latitude
+            gardens[index].longitude = longitude
+        }
         if isDefault {
             applyDefaultGarden(id: id)
         } else {
@@ -339,6 +402,9 @@ final class DemoLibrary: @unchecked Sendable {
             ensureOneDefaultGarden()
         }
         persistAll()
+        if includeClimate {
+            syncSpeciesCare()
+        }
     }
 
     /// Deletes a Garden. Locations keep their gardenID. Cannot remove the last Garden.
@@ -393,7 +459,7 @@ final class DemoLibrary: @unchecked Sendable {
         return location
     }
 
-    /// Updates Name, Description, Notes, Garden, Location Type, and map pin. Preserves sort and active.
+    /// Updates Name, Description, Notes, Garden, Location Type, map pin, and Setting. Preserves sort and active.
     func updateLocation(
         id: UUID,
         name: String,
@@ -401,7 +467,8 @@ final class DemoLibrary: @unchecked Sendable {
         notes: String,
         gardenID: UUID,
         locationTypeID: UUID,
-        geographicPosition: GeographicPosition? = nil
+        geographicPosition: GeographicPosition? = nil,
+        environmentSetting: LocationEnvironmentSetting? = nil
     ) {
         guard let index = locations.firstIndex(where: { $0.id == id }) else { return }
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -412,6 +479,7 @@ final class DemoLibrary: @unchecked Sendable {
         locations[index].gardenID = gardenID
         locations[index].locationTypeID = locationTypeID
         locations[index].geographicPosition = geographicPosition
+        locations[index].environment.setting = environmentSetting
         persistAll()
     }
 
@@ -419,6 +487,13 @@ final class DemoLibrary: @unchecked Sendable {
     func deleteLocation(id: UUID) {
         guard locations.contains(where: { $0.id == id }) else { return }
         locations.removeAll { $0.id == id }
+        persistAll()
+    }
+
+    /// Marks (or clears) greenhouse spring heat / vent check year on a Location.
+    func setGreenhouseSpringCheckYear(id: UUID, year: Int?) {
+        guard let index = locations.firstIndex(where: { $0.id == id }) else { return }
+        locations[index].greenhouseSpringCheckYear = year
         persistAll()
     }
 
@@ -434,20 +509,46 @@ final class DemoLibrary: @unchecked Sendable {
     /// Bumps when a cloud photo finishes downloading, so lists can show it.
     private(set) var imageRevision = 0
 
-    var isOpeningICloudLibrary: Bool { waitingForICloudLibrary }
+    var isOpeningICloudLibrary: Bool {
+        waitingForICloudLibrary && (trees.isEmpty || Self.isDemoSampleCatalog(trees))
+    }
 
-    /// Local file for one photo. Returns nil until the bytes are on this device.
-    /// Does not talk to CloudDocs — folder downloads run on the refresh timer instead.
-    func residentImageURL(for imageID: UUID?) -> URL? {
+    /// Candidate relative paths for display (Thumbnail → Preview → Original). No disk I/O —
+    /// safe on the main thread. Callers must resolve residency off the main actor.
+    func imageDisplayCandidates(for imageID: UUID?, preferredMaxPixel: CGFloat = 512) -> (root: URL, paths: [String])? {
         guard let imageID,
-              let relativePath = imageAssets[imageID]?.relativePath,
+              let originalPath = imageAssets[imageID]?.relativePath,
               let store
         else { return nil }
-        guard store.isImageResident(relativePath: relativePath) else {
-            pendingImagePaths.insert(relativePath)
-            return nil
+        let preferred = MobileImageDerivativeKind.preferred(forMaxPixel: preferredMaxPixel)
+        let fallback: MobileImageDerivativeKind = preferred == .thumbnail ? .preview : .thumbnail
+        return (
+            store.rootURL,
+            [
+                preferred.relativePath(id: imageID),
+                fallback.relativePath(id: imageID),
+                originalPath
+            ]
+        )
+    }
+
+    /// Remember a path that failed to load so the refresh timer can promote it later.
+    func notePendingImagePath(_ relativePath: String) {
+        pendingImagePaths.insert(relativePath)
+    }
+
+    /// Local file for one photo. Prefers Thumbnail / Preview. Avoid calling from SwiftUI `body`
+    /// on iCloud — use ``imageDisplayCandidates`` + background resolve instead.
+    func residentImageURL(for imageID: UUID?, preferredMaxPixel: CGFloat = 512) -> URL? {
+        guard let plan = imageDisplayCandidates(for: imageID, preferredMaxPixel: preferredMaxPixel),
+              let store
+        else { return nil }
+        for relativePath in plan.paths {
+            if store.isImageResident(relativePath: relativePath) {
+                return store.url(for: relativePath)
+            }
         }
-        return store.url(for: relativePath)
+        return nil
     }
 
     func jpegData(for imageID: UUID?) -> Data? {
@@ -655,7 +756,7 @@ final class DemoLibrary: @unchecked Sendable {
         return record
     }
 
-    /// Field Tasks horizons — one-off CareTasks only (no Schedules in this slice).
+    /// Field Tasks horizons — Mac Tasks segmented control.
     enum MobileTasksHorizon: String, CaseIterable, Identifiable, Hashable, Sendable {
         case overdue
         case today
@@ -681,16 +782,38 @@ final class DemoLibrary: @unchecked Sendable {
         static let primaryPickerCases: [MobileTasksHorizon] = [.overdue, .today, .thisWeek, .thisMonth]
     }
 
-    /// One actionable row: a pending CareTask for one Tree.
+    /// One actionable row: a pending CareTask or a computed Schedule occurrence (Mac TaskOccurrence).
     struct MobileTaskItem: Identifiable, Hashable, Sendable {
+        enum Source: Hashable, Sendable {
+            case task(UUID)
+            case schedule(UUID)
+        }
+
         var id: String
-        var task: CareTask
+        var source: Source
+        var title: String
+        var workTypeID: UUID
         var treeID: UUID
+        var dueDate: Date
         var isInstant: Bool
+
+        var careTaskID: UUID? {
+            if case .task(let id) = source { return id }
+            return nil
+        }
+
+        var scheduleID: UUID? {
+            if case .schedule(let id) = source { return id }
+            return nil
+        }
     }
 
     func task(id: UUID) -> CareTask? {
         careTasks.first { $0.id == id }
+    }
+
+    func schedule(id: UUID) -> CareSchedule? {
+        careSchedules.first { $0.id == id }
     }
 
     /// Creates a one-off CareTask for a single Tree. Title falls back to Work Type name.
@@ -700,7 +823,8 @@ final class DemoLibrary: @unchecked Sendable {
         workTypeID: UUID,
         treeID: UUID,
         dueDate: Date,
-        notes: String = ""
+        notes: String = "",
+        systemKind: CareTaskSystemKind? = nil
     ) -> CareTask? {
         guard tree(id: treeID) != nil else { return nil }
         guard CanonicalWorkTypeID.catalog.contains(where: { $0.id == workTypeID }) else { return nil }
@@ -712,6 +836,7 @@ final class DemoLibrary: @unchecked Sendable {
             title: resolvedTitle,
             workTypeID: workTypeID,
             treeIDs: [treeID],
+            systemKind: systemKind,
             dueDate: dueDate,
             notes: notes.trimmingCharacters(in: .whitespacesAndNewlines)
         )
@@ -721,11 +846,12 @@ final class DemoLibrary: @unchecked Sendable {
         return careTasks.first { $0.id == task.id }
     }
 
-    /// Pending tree-scoped Tasks for Overdue or Today. Missed watering is dropped.
+    /// Pending tree-scoped Tasks + due Schedule occurrences (Mac TaskService).
     func pendingTasks(due horizon: MobileTasksHorizon) -> [MobileTaskItem] {
         let now = Date.now
         let calendar = Calendar.current
         var items: [MobileTaskItem] = []
+
         for task in careTasks where task.status == .pending {
             let instant = Self.completesInstantly(workTypeID: task.workTypeID)
             let expires = Self.expiresIfMissed(workTypeID: task.workTypeID)
@@ -740,16 +866,64 @@ final class DemoLibrary: @unchecked Sendable {
                 items.append(
                     MobileTaskItem(
                         id: "\(task.id.uuidString)-\(treeID.uuidString)",
-                        task: task,
+                        source: .task(task.id),
+                        title: task.title,
+                        workTypeID: task.workTypeID,
                         treeID: treeID,
+                        dueDate: task.dueDate,
                         isInstant: instant
                     )
                 )
             }
         }
-        return items.sorted {
-            if $0.task.dueDate != $1.task.dueDate {
-                return $0.task.dueDate < $1.task.dueDate
+
+        let currentMonth = calendar.component(.month, from: now)
+        for schedule in careSchedules where schedule.isActive {
+            if let window = schedule.seasonalWindow, !window.contains(month: currentMonth) {
+                continue
+            }
+            // Day-part schedules stay Mac-only for now; interval cadences (incl. autoRepotting) expand here.
+            guard schedule.recurrence.dayParts.isEmpty else { continue }
+            let expires = Self.expiresIfMissed(workTypeID: schedule.workTypeID)
+            for treeID in resolvedTreeIDs(for: schedule.target) {
+                guard let tree = tree(id: treeID), tree.isInCare, !tree.yamadoriNursery else { continue }
+                guard let rawDue = nextDueDate(for: schedule, treeID: treeID, calendar: calendar) else { continue }
+                let dueDate: Date
+                if expires, Self.isOverdue(rawDue, now: now, calendar: calendar) {
+                    dueDate = calendar.startOfDay(for: now)
+                } else {
+                    dueDate = rawDue
+                }
+                guard Self.belongs(dueDate: dueDate, expiresIfMissed: expires, to: horizon, now: now, calendar: calendar) else {
+                    continue
+                }
+                let title = schedule.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                    ? CanonicalWorkTypeID.name(for: schedule.workTypeID)
+                    : schedule.title
+                items.append(
+                    MobileTaskItem(
+                        id: "schedule-\(schedule.id.uuidString)-\(treeID.uuidString)",
+                        source: .schedule(schedule.id),
+                        title: title,
+                        workTypeID: schedule.workTypeID,
+                        treeID: treeID,
+                        dueDate: dueDate,
+                        isInstant: true
+                    )
+                )
+            }
+        }
+
+        // Prefer one row when Task and Schedule ask for the same work on the same tree.
+        var seen = Set<String>()
+        let deduped = items.filter { item in
+            let key = "\(item.treeID.uuidString)-\(item.workTypeID.uuidString)"
+            return seen.insert(key).inserted
+        }
+
+        return deduped.sorted {
+            if $0.dueDate != $1.dueDate {
+                return $0.dueDate < $1.dueDate
             }
             let left = taskSortTitle($0)
             let right = taskSortTitle($1)
@@ -763,10 +937,78 @@ final class DemoLibrary: @unchecked Sendable {
             + pendingTasks(due: .today).filter { $0.treeID == treeID }
     }
 
+    /// Care Today — overdue + today (Mac Care → Today).
+    func careTodayItems() -> [MobileTaskItem] {
+        pendingTasks(due: .overdue) + pendingTasks(due: .today)
+    }
+
     private func taskSortTitle(_ item: MobileTaskItem) -> String {
-        let trimmed = item.task.title.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmed = item.title.trimmingCharacters(in: .whitespacesAndNewlines)
         if !trimmed.isEmpty { return trimmed }
-        return CanonicalWorkTypeID.name(for: item.task.workTypeID)
+        return CanonicalWorkTypeID.name(for: item.workTypeID)
+    }
+
+    private func resolvedTreeIDs(for target: CareScheduleTarget) -> [UUID] {
+        switch target {
+        case .trees(let ids):
+            return Array(ids)
+        case .location(let locationID):
+            return trees.filter { $0.locationID == locationID && $0.isInCare }.map(\.id)
+        case .genus(let genusID):
+            return trees.filter { $0.genusID == genusID && $0.isInCare }.map(\.id)
+        }
+    }
+
+    /// Next due for an interval schedule (Mac TaskService.nextDueDate).
+    private func nextDueDate(for schedule: CareSchedule, treeID: UUID, calendar: Calendar) -> Date? {
+        let lastPerformed = workRecords
+            .filter { $0.treeIDs.contains(treeID) && $0.workTypeID == schedule.workTypeID }
+            .map(\.performedAt)
+            .max()
+
+        if let postponed = schedule.postponedDueByTreeID[treeID] {
+            let postponedDay = calendar.startOfDay(for: postponed)
+            if lastPerformed == nil || lastPerformed! < postponedDay {
+                return postponedDay
+            }
+        }
+
+        let base = lastPerformed ?? schedule.createdDate
+        guard let raw = calendar.date(
+            byAdding: schedule.recurrence.unit.calendarComponent,
+            value: schedule.recurrence.interval,
+            to: base
+        ) else { return nil }
+        if schedule.systemKind == .autoRepotting {
+            return Self.clampToRepottingSeason(raw, calendar: calendar)
+        }
+        return raw
+    }
+
+    /// March–May snap (Mac RepottingCareService.clampToRepottingSeason).
+    static func clampToRepottingSeason(_ date: Date, calendar: Calendar = .current) -> Date {
+        let month = calendar.component(.month, from: date)
+        let year = calendar.component(.year, from: date)
+        if (3...5).contains(month) {
+            return calendar.startOfDay(for: date)
+        }
+        if month < 3 {
+            return calendar.date(from: DateComponents(year: year, month: 3, day: 1))
+                ?? calendar.startOfDay(for: date)
+        }
+        return calendar.date(from: DateComponents(year: year + 1, month: 3, day: 1))
+            ?? calendar.startOfDay(for: date)
+    }
+
+    /// Completes a Task or Schedule occurrence (instant path).
+    @discardableResult
+    func completeOccurrenceInstantly(_ item: MobileTaskItem) -> WorkRecord? {
+        switch item.source {
+        case .task(let taskID):
+            return completeTaskInstantly(id: taskID)
+        case .schedule(let scheduleID):
+            return completeScheduleOccurrence(scheduleID: scheduleID, treeID: item.treeID, workTypeID: item.workTypeID)
+        }
     }
 
     /// Watering completes instantly (Blueprint §5.9). Writes Work + marks Task completed.
@@ -798,6 +1040,33 @@ final class DemoLibrary: @unchecked Sendable {
         return record
     }
 
+    /// Logs Work for a Schedule occurrence — resets the cadence (Mac completeOccurrence).
+    @discardableResult
+    func completeScheduleOccurrence(
+        scheduleID: UUID,
+        treeID: UUID,
+        workTypeID: UUID,
+        performedAt: Date = .now,
+        notes: String = "",
+        soilMixID: UUID? = nil,
+        applySoilMix: Bool = false
+    ) -> WorkRecord? {
+        guard schedule(id: scheduleID) != nil else { return nil }
+        guard tree(id: treeID) != nil else { return nil }
+        let record = addWork(
+            treeID: treeID,
+            workTypeID: workTypeID,
+            performedAt: performedAt,
+            notes: notes,
+            scheduleID: scheduleID,
+            soilMixID: soilMixID,
+            applySoilMix: applySoilMix
+        )
+        clearSchedulePostpone(scheduleID: scheduleID, treeID: treeID)
+        refreshTodayTasksNotification()
+        return record
+    }
+
     /// Marks Task completed after Add Work saved a WorkRecord.
     func completeTask(id: UUID, resultingWorkRecordID: UUID?) {
         guard let index = careTasks.firstIndex(where: { $0.id == id }) else { return }
@@ -820,7 +1089,90 @@ final class DemoLibrary: @unchecked Sendable {
         refreshTodayTasksNotification()
     }
 
-    /// Active CareSchedules that cover this Tree (list-only; full TaskService materialization is Mac).
+    /// Postpones one Task or Schedule occurrence (Mac postponeOccurrence).
+    func postponeOccurrence(_ item: MobileTaskItem, to date: Date) {
+        let due = Calendar.current.startOfDay(for: date)
+        switch item.source {
+        case .task(let taskID):
+            postponeTask(id: taskID, to: due)
+        case .schedule(let scheduleID):
+            guard let index = careSchedules.firstIndex(where: { $0.id == scheduleID }) else { return }
+            careSchedules[index].postponedDueByTreeID[item.treeID] = due
+            careSchedules[index].modifiedDate = .now
+            persistAll()
+            refreshTodayTasksNotification()
+        }
+    }
+
+    private func clearSchedulePostpone(scheduleID: UUID, treeID: UUID) {
+        guard let index = careSchedules.firstIndex(where: { $0.id == scheduleID }) else { return }
+        guard careSchedules[index].postponedDueByTreeID.removeValue(forKey: treeID) != nil else { return }
+        careSchedules[index].modifiedDate = .now
+        persistAll()
+    }
+
+    /// Mac SpeciesCareService.sync — pending pinch/cut jobs from garden climate.
+    func syncSpeciesCare(now: Date = .now, calendar: Calendar = .current) {
+        let hemisphere = defaultGarden?.hemisphere
+        let season = defaultGarden?.season
+        guard let hemisphere, let season, season != .tropical else { return }
+
+        var changed = false
+        for tree in trees where tree.isInCare {
+            guard let job = SpeciesCareJob.job(
+                speciesID: tree.speciesID,
+                cultivarID: tree.cultivarID,
+                botanicalName: tree.botanicalName
+            ),
+            CanonicalWorkTypeID.catalog.contains(where: { $0.id == job.workTypeID }),
+            let window = SpeciesCareCalendar.activeWindow(
+                job: job,
+                on: now,
+                hemisphere: hemisphere,
+                season: season,
+                calendar: calendar
+            )
+            else { continue }
+
+            let related = careTasks.filter {
+                $0.systemKind == job.systemKind && $0.treeIDs.contains(tree.id)
+            }
+            let pending = related.first { $0.status == .pending }
+            let covered = related.contains { window.covers($0.dueDate, calendar: calendar) }
+            switch SpeciesCareCalendar.action(
+                now: now,
+                window: window,
+                pendingDue: pending?.dueDate,
+                covered: covered,
+                calendar: calendar
+            ) {
+            case .none:
+                break
+            case .retire:
+                guard let pending, let index = careTasks.firstIndex(where: { $0.id == pending.id }) else { break }
+                careTasks[index].status = .cancelled
+                careTasks[index].modifiedDate = .now
+                changed = true
+            case .create(let due):
+                let task = CareTask(
+                    title: job.title,
+                    workTypeID: job.workTypeID,
+                    treeIDs: [tree.id],
+                    systemKind: job.systemKind,
+                    dueDate: due,
+                    notes: job.notes
+                )
+                careTasks.append(task)
+                changed = true
+            }
+        }
+        if changed {
+            persistAll()
+            refreshTodayTasksNotification()
+        }
+    }
+
+    /// Active CareSchedules that cover this Tree.
     func activeSchedules(forTree treeID: UUID) -> [CareSchedule] {
         guard let tree = tree(id: treeID) else { return [] }
         return careSchedules
@@ -1042,6 +1394,84 @@ final class DemoLibrary: @unchecked Sendable {
         }
         persistAll()
         return yamadoriFinds.first { $0.id == find.id }
+    }
+
+    /// Copies Find fields onto new Finds (Mac Duplicate Find). New YAM codes; no display name or photos.
+    @discardableResult
+    func duplicateYamadoriFind(id: UUID, count: Int = 1) -> [YamadoriFind] {
+        guard let source = yamadoriFind(id: id) else { return [] }
+        let copies = min(99, max(1, count))
+        var created: [YamadoriFind] = []
+        created.reserveCapacity(copies)
+        let now = Date.now
+        for _ in 0..<copies {
+            let code = YamadoriIDService.nextCode(existing: yamadoriFinds + created)
+            let observations = source.observations.map {
+                YamadoriObservation(
+                    date: $0.date,
+                    text: $0.text,
+                    category: $0.category,
+                    imageIDs: []
+                )
+            }
+            let status: YamadoriStatus = {
+                switch source.status {
+                case .transferred: return .collected
+                case .abandoned, .archived: return .scout
+                default: return source.status
+                }
+            }()
+            let find = YamadoriFind(
+                yamadoriID: source.yamadoriID,
+                yamadoriCode: code,
+                displayName: "",
+                genusID: source.genusID,
+                speciesID: source.speciesID,
+                cultivarID: source.cultivarID,
+                speciesEstimate: source.speciesEstimate,
+                status: status,
+                createdDate: now,
+                modifiedDate: now,
+                discoveryDate: source.discoveryDate ?? now,
+                latitude: source.latitude,
+                longitude: source.longitude,
+                evaluationTrunk: source.evaluationTrunk,
+                evaluationNebari: source.evaluationNebari,
+                evaluationMovement: source.evaluationMovement,
+                evaluationTaper: source.evaluationTaper,
+                evaluationBranches: source.evaluationBranches,
+                evaluationHealth: source.evaluationHealth,
+                evaluationAccessibility: source.evaluationAccessibility,
+                evaluationDifficulty: source.evaluationDifficulty,
+                evaluationOverall: source.evaluationOverall,
+                collectionDate: source.collectionDate,
+                collectionObservations: source.collectionObservations,
+                rootNotes: source.rootNotes,
+                transportNotes: source.transportNotes,
+                initialPlacement: source.initialPlacement,
+                initialRecoveryNotes: source.initialRecoveryNotes,
+                recoveryStartDate: source.recoveryStartDate,
+                recoveryLocationNotes: source.recoveryLocationNotes,
+                recoveryCareNotes: source.recoveryCareNotes,
+                establishmentAssessment: source.establishmentAssessment,
+                establishedDate: source.establishedDate,
+                transferDate: nil,
+                linkedTreeID: nil,
+                transferNotes: "",
+                primaryImageID: nil,
+                imageIDs: [],
+                observations: observations,
+                history: [YamadoriHistoryEntry(kind: .created, date: now)],
+                notes: source.notes
+            )
+            created.append(find)
+        }
+        yamadoriFinds.append(contentsOf: created)
+        if let tripIndex = yamadoriTrips.firstIndex(where: { $0.id == source.yamadoriID }) {
+            yamadoriTrips[tripIndex].modifiedDate = now
+        }
+        persistAll()
+        return created
     }
 
     func updateYamadoriTrip(
@@ -1404,11 +1834,13 @@ final class DemoLibrary: @unchecked Sendable {
         seedBatches.first { $0.id == id }
     }
 
-    /// Creates a Planned seed batch. Name maps to botanicalName; species text only (A1).
+    /// Creates a Planned seed batch. Prefer catalog ``speciesID`` (Mac New Seed Batch).
     @discardableResult
     func addSeedBatch(
         name: String,
         species: String,
+        nickname: String = "",
+        speciesID: UUID? = nil,
         initialSeedCount: Int = 0,
         source: String = "",
         seedYear: Int? = nil,
@@ -1422,10 +1854,14 @@ final class DemoLibrary: @unchecked Sendable {
         let code = nextSeedBatchCode(botanicalName: botanical, year: year)
         let now = Date.now
         let count = max(0, initialSeedCount)
+        let resolvedSpeciesID = speciesID
+            ?? stratificationProfile(matchingScientificName: botanical)?.speciesID
+            ?? UUID()
         let batch = SeedBatch(
             batchCode: code,
-            speciesID: UUID(),
+            speciesID: resolvedSpeciesID,
             botanicalName: botanical,
+            nickname: nickname.trimmingCharacters(in: .whitespacesAndNewlines),
             commonName: speciesText,
             source: source.trimmingCharacters(in: .whitespacesAndNewlines),
             acquisitionDate: now,
@@ -1443,10 +1879,208 @@ final class DemoLibrary: @unchecked Sendable {
         return seedBatches.first { $0.id == batch.id }
     }
 
+    /// Stratification catalog profile for a batch (Mac SeedStratificationCatalogService).
+    func stratificationProfile(for batch: SeedBatch) -> SpeciesStratificationProfile? {
+        stratificationProfile(speciesID: batch.speciesID)
+            ?? stratificationProfile(matchingScientificName: batch.botanicalName)
+    }
+
+    func stratificationProfile(speciesID: UUID) -> SpeciesStratificationProfile? {
+        SeedStratificationCatalogData.all.first { $0.speciesID == speciesID }
+    }
+
+    func stratificationProfile(matchingScientificName name: String) -> SpeciesStratificationProfile? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        return SeedStratificationCatalogData.all.first {
+            $0.scientificName.caseInsensitiveCompare(trimmed) == .orderedSame
+        }
+    }
+
+    func matchingStratificationProfiles(search: String) -> [SpeciesStratificationProfile] {
+        let query = search.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard query.count >= 2 else { return [] }
+        return SeedStratificationCatalogData.all.filter { $0.searchText.contains(query) }
+    }
+
+    /// Mac Start Stratification — builds treatment phases from the catalog.
+    @discardableResult
+    func startSeedBatchStratification(
+        id: UUID,
+        mediumDescription: String = "",
+        locationID: UUID? = nil,
+        soilMixID: UUID? = nil,
+        notes: String = ""
+    ) -> SeedBatch? {
+        guard let index = seedBatches.firstIndex(where: { $0.id == id }) else { return nil }
+        let stage = seedBatches[index].stage
+        guard stage == .planned || stage == .readyToSow else { return nil }
+        guard let profile = stratificationProfile(for: seedBatches[index]) else { return nil }
+
+        let treatmentSteps = profile.treatmentPhasesForStart
+        let now = Date.now
+        let trimmedMedium = mediumDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedNotes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        let phaseMedium = trimmedMedium.isEmpty ? trimmedNotes : trimmedMedium
+
+        if treatmentSteps.isEmpty || profile.treatmentType == .none {
+            seedBatches[index].stage = .readyToSow
+            seedBatches[index].events.append(
+                SeedBatchEvent(
+                    date: now,
+                    kind: .noteAdded,
+                    notes: "Species profile indicates no pretreatment normally required — ready to sow."
+                )
+            )
+            seedBatches[index].updatedAt = now
+            persistAll()
+            return seedBatches[index]
+        }
+
+        var phases: [SeedBatchTreatmentPhase] = []
+        for step in treatmentSteps {
+            let suggested = SpeciesStratificationProfile.suggestedMidpointDays(
+                minDays: step.durationMinDays,
+                maxDays: step.durationMaxDays
+            ) ?? step.durationMinDays ?? step.durationMaxDays
+            var phase = SeedBatchTreatmentPhase(
+                order: step.order,
+                phaseType: step.type,
+                recommendedTemperatureMin: step.temperatureMin,
+                recommendedTemperatureMax: step.temperatureMax,
+                recommendedDurationMinDays: step.durationMinDays,
+                recommendedDurationMaxDays: step.durationMaxDays,
+                selectedDurationDays: suggested,
+                mediumDescription: phaseMedium,
+                soilMixID: soilMixID,
+                notes: step.notes
+            )
+            phases.append(phase)
+        }
+        guard !phases.isEmpty else { return nil }
+
+        phases[0].startedAt = now
+        if let days = phases[0].selectedDurationDays {
+            phases[0].targetEndAt = Calendar.current.date(byAdding: .day, value: days, to: now)
+        }
+
+        seedBatches[index].treatmentPhases = phases
+        seedBatches[index].currentTreatmentPhaseIndex = 0
+        seedBatches[index].stage = .stratifying
+        seedBatches[index].stratifiedSeedCount = seedBatches[index].viableSeedCount
+        if let locationID {
+            seedBatches[index].locationID = locationID
+        }
+        if let soilMixID {
+            seedBatches[index].soilMixID = soilMixID
+        }
+        var eventParts = [phases[0].phaseType.title]
+        if !trimmedMedium.isEmpty { eventParts.append(trimmedMedium) }
+        if !trimmedNotes.isEmpty, trimmedNotes != trimmedMedium { eventParts.append(trimmedNotes) }
+        seedBatches[index].events.append(
+            SeedBatchEvent(
+                date: now,
+                kind: .stratificationStarted,
+                quantity: seedBatches[index].stratifiedSeedCount,
+                notes: eventParts.joined(separator: " — "),
+                locationID: seedBatches[index].locationID,
+                soilMixID: soilMixID
+            )
+        )
+        seedBatches[index].updatedAt = now
+        persistAll()
+        return seedBatches[index]
+    }
+
+    /// Skip pretreatment — Ready to Sow (Mac).
+    @discardableResult
+    func skipSeedBatchToReadyToSow(id: UUID) -> SeedBatch? {
+        guard let index = seedBatches.firstIndex(where: { $0.id == id }) else { return nil }
+        guard seedBatches[index].stage == .planned else { return nil }
+        seedBatches[index].stage = .readyToSow
+        seedBatches[index].events.append(
+            SeedBatchEvent(date: .now, kind: .noteAdded, notes: "Skipped stratification — ready to sow.")
+        )
+        seedBatches[index].updatedAt = .now
+        persistAll()
+        return seedBatches[index]
+    }
+
+    /// Complete current treatment phase; advances to next or Ready to Sow (Mac).
+    @discardableResult
+    func completeSeedBatchTreatmentPhase(id: UUID, notes: String = "") -> SeedBatch? {
+        guard let index = seedBatches.firstIndex(where: { $0.id == id }) else { return nil }
+        guard seedBatches[index].stage == .stratifying,
+              seedBatches[index].treatmentPhases.indices.contains(seedBatches[index].currentTreatmentPhaseIndex)
+        else { return nil }
+
+        let now = Date.now
+        let phaseIndex = seedBatches[index].currentTreatmentPhaseIndex
+        seedBatches[index].treatmentPhases[phaseIndex].completedAt = now
+        let phaseTitle = seedBatches[index].treatmentPhases[phaseIndex].phaseType.title
+        let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        seedBatches[index].events.append(
+            SeedBatchEvent(
+                date: now,
+                kind: .stratificationCompleted,
+                notes: trimmed.isEmpty ? "Completed \(phaseTitle)" : trimmed
+            )
+        )
+
+        let nextIndex = phaseIndex + 1
+        if nextIndex < seedBatches[index].treatmentPhases.count {
+            seedBatches[index].currentTreatmentPhaseIndex = nextIndex
+            seedBatches[index].treatmentPhases[nextIndex].startedAt = now
+            if let days = seedBatches[index].treatmentPhases[nextIndex].selectedDurationDays {
+                seedBatches[index].treatmentPhases[nextIndex].targetEndAt =
+                    Calendar.current.date(byAdding: .day, value: days, to: now)
+            }
+            seedBatches[index].events.append(
+                SeedBatchEvent(
+                    date: now,
+                    kind: .stratificationStarted,
+                    notes: "Started \(seedBatches[index].treatmentPhases[nextIndex].phaseType.title)"
+                )
+            )
+        } else {
+            seedBatches[index].stage = .readyToSow
+        }
+        seedBatches[index].updatedAt = now
+        persistAll()
+        return seedBatches[index]
+    }
+
+    /// Active batches needing attention today (phase end due / overdue, or Planned).
+    func seedBatchesDueToday() -> [SeedBatch] {
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: .now)
+        return orderedSeedBatches.filter { batch in
+            guard batch.stage.isActive else { return false }
+            if batch.stage == .planned { return true }
+            guard batch.stage == .stratifying,
+                  let end = batch.currentPhase?.targetEndAt
+            else { return false }
+            return cal.startOfDay(for: end) <= start
+        }
+    }
+
+    /// Stratifying batches with a future phase end (Mac Upcoming).
+    func seedBatchesUpcoming() -> [SeedBatch] {
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: .now)
+        return orderedSeedBatches.filter { batch in
+            guard batch.stage == .stratifying,
+                  let end = batch.currentPhase?.targetEndAt
+            else { return false }
+            return cal.startOfDay(for: end) > start
+        }
+    }
+
     func updateSeedBatch(
         id: UUID,
         name: String,
         species: String,
+        nickname: String = "",
         stage: SeedBatchStage,
         notes: String,
         soilMixID: UUID?,
@@ -1465,6 +2099,7 @@ final class DemoLibrary: @unchecked Sendable {
         let botanical = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !botanical.isEmpty else { return }
         seedBatches[index].botanicalName = botanical
+        seedBatches[index].nickname = nickname.trimmingCharacters(in: .whitespacesAndNewlines)
         seedBatches[index].commonName = species.trimmingCharacters(in: .whitespacesAndNewlines)
         seedBatches[index].stage = stage
         seedBatches[index].notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1680,6 +2315,9 @@ final class DemoLibrary: @unchecked Sendable {
     @discardableResult
     func addPot(
         name: String = "",
+        potTypeID: UUID? = nil,
+        brandID: UUID? = nil,
+        makerID: UUID? = nil,
         material: String = "",
         shape: String = "",
         notes: String = ""
@@ -1687,6 +2325,9 @@ final class DemoLibrary: @unchecked Sendable {
         let now = Date.now
         let pot = Pot(
             name: name.trimmingCharacters(in: .whitespacesAndNewlines),
+            potTypeID: potTypeID,
+            brandID: brandID,
+            makerID: makerID,
             material: material.trimmingCharacters(in: .whitespacesAndNewlines),
             shape: shape.trimmingCharacters(in: .whitespacesAndNewlines),
             status: .available,
@@ -1698,6 +2339,419 @@ final class DemoLibrary: @unchecked Sendable {
         pots.append(pot)
         persistAll()
         return pots.first { $0.id == pot.id }
+    }
+
+    // MARK: - Nursery Propagation (Cuttings / Air Layers)
+
+    func nurseryPropagationProjects(kind: NurseryPropagationKind) -> [NurseryPropagationProject] {
+        nurseryPropagationProjects
+            .filter { $0.kind == kind }
+            .sorted {
+                if $0.updatedAt != $1.updatedAt { return $0.updatedAt > $1.updatedAt }
+                return $0.projectCode.localizedStandardCompare($1.projectCode) == .orderedAscending
+            }
+    }
+
+    func nurseryPropagationProject(id: UUID) -> NurseryPropagationProject? {
+        nurseryPropagationProjects.first { $0.id == id }
+    }
+
+    @discardableResult
+    func addNurseryPropagationProject(
+        kind: NurseryPropagationKind,
+        botanicalName: String,
+        commonName: String = "",
+        parentTreeID: UUID? = nil,
+        quantity: Int = 1,
+        locationID: UUID? = nil,
+        notes: String = "",
+        cuttingTakenAt: Date? = nil,
+        cuttingWoodMaturity: NurseryCuttingWoodMaturity? = nil,
+        cuttingBaseTechnique: NurseryCuttingBaseTechnique? = nil,
+        cuttingStructure: NurseryCuttingStructure? = nil,
+        airLayerStartedAt: Date? = nil,
+        airLayerMethod: NurseryAirLayerMethod? = nil
+    ) -> NurseryPropagationProject? {
+        let botanical = botanicalName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !botanical.isEmpty else { return nil }
+        if kind == .airLayer, parentTreeID == nil { return nil }
+        let qty = max(1, quantity)
+        let code = nextNurseryPropagationCode(kind: kind)
+        let now = Date.now
+        var project = NurseryPropagationProject(
+            kind: kind,
+            projectCode: code,
+            botanicalName: botanical,
+            commonName: commonName.trimmingCharacters(in: .whitespacesAndNewlines),
+            parentTreeID: parentTreeID,
+            quantity: qty,
+            stage: .planned,
+            locationID: locationID,
+            notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
+            events: [
+                NurseryPropagationEvent(
+                    kind: .created,
+                    quantity: qty,
+                    notes: "\(kind.projectNoun) \(code) created."
+                )
+            ],
+            cuttingTakenAt: kind == .cutting ? (cuttingTakenAt ?? now) : nil,
+            cuttingWoodMaturity: kind == .cutting ? cuttingWoodMaturity : nil,
+            cuttingBaseTechnique: kind == .cutting ? cuttingBaseTechnique : nil,
+            cuttingStructure: kind == .cutting ? cuttingStructure : nil,
+            airLayerMethod: kind == .airLayer ? (airLayerMethod ?? .completeRing) : nil,
+            airLayerRootingAid: kind == .airLayer ? .none : nil,
+            airLayerMediumPreset: kind == .airLayer ? .longFiberSphagnum : nil,
+            airLayerRootDevelopment: kind == .airLayer ? .noRoots : nil,
+            airLayerStartedAt: kind == .airLayer ? (airLayerStartedAt ?? now) : nil,
+            createdAt: now,
+            updatedAt: now
+        )
+        if let parentTreeID, let tree = tree(id: parentTreeID) {
+            project.genusID = tree.genusID
+            project.speciesID = tree.speciesID
+            project.cultivarID = tree.cultivarID
+            if project.botanicalName.isEmpty {
+                project.botanicalName = tree.botanicalName
+            }
+            if project.commonName.isEmpty {
+                project.commonName = tree.bonsaiName
+            }
+        }
+        nurseryPropagationProjects.append(project)
+        persistAll()
+        return nurseryPropagationProjects.first { $0.id == project.id }
+    }
+
+    func updateNurseryPropagationProject(
+        id: UUID,
+        botanicalName: String,
+        commonName: String,
+        parentTreeID: UUID?,
+        quantity: Int,
+        locationID: UUID?,
+        notes: String,
+        stage: NurseryPropagationStage
+    ) {
+        guard let index = nurseryPropagationProjects.firstIndex(where: { $0.id == id }) else { return }
+        let botanical = botanicalName.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !botanical.isEmpty else { return }
+        let qty = max(1, quantity)
+        let previousQuantity = nurseryPropagationProjects[index].quantity
+        let previousStage = nurseryPropagationProjects[index].stage
+        nurseryPropagationProjects[index].botanicalName = botanical
+        nurseryPropagationProjects[index].commonName = commonName.trimmingCharacters(in: .whitespacesAndNewlines)
+        nurseryPropagationProjects[index].parentTreeID = parentTreeID
+        nurseryPropagationProjects[index].quantity = qty
+        nurseryPropagationProjects[index].locationID = locationID
+        nurseryPropagationProjects[index].notes = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        if stage != previousStage {
+            nurseryPropagationProjects[index].stage = stage
+            nurseryPropagationProjects[index].events.append(
+                NurseryPropagationEvent(
+                    kind: .stageChanged,
+                    notes: "Stage set to \(stage.title(for: nurseryPropagationProjects[index].kind))."
+                )
+            )
+        }
+        if qty != previousQuantity {
+            nurseryPropagationProjects[index].events.append(
+                NurseryPropagationEvent(
+                    kind: .quantityUpdated,
+                    quantity: qty,
+                    notes: "Quantity changed from \(previousQuantity) to \(qty)."
+                )
+            )
+        }
+        nurseryPropagationProjects[index].updatedAt = .now
+        persistAll()
+    }
+
+    @discardableResult
+    func advanceNurseryPropagationStage(id: UUID) -> NurseryPropagationStage? {
+        guard let index = nurseryPropagationProjects.firstIndex(where: { $0.id == id }) else { return nil }
+        let kind = nurseryPropagationProjects[index].kind
+        var stage = nurseryPropagationProjects[index].stage
+        if kind == .cutting, stage == .developing {
+            stage = .potted
+        } else if kind == .airLayer, stage == .developing {
+            stage = .potted
+        } else {
+            let path = kind.mainPath
+            guard let pathIndex = path.firstIndex(of: stage), pathIndex + 1 < path.count else { return nil }
+            stage = path[pathIndex + 1]
+        }
+        nurseryPropagationProjects[index].stage = stage
+        nurseryPropagationProjects[index].events.append(
+            NurseryPropagationEvent(
+                kind: .stageChanged,
+                notes: "Moved to \(stage.title(for: kind))."
+            )
+        )
+        nurseryPropagationProjects[index].updatedAt = .now
+        persistAll()
+        return stage
+    }
+
+    @discardableResult
+    func markNurseryPropagationFailed(id: UUID, notes: String = "") -> Bool {
+        guard let index = nurseryPropagationProjects.firstIndex(where: { $0.id == id }) else { return false }
+        let trimmed = notes.trimmingCharacters(in: .whitespacesAndNewlines)
+        nurseryPropagationProjects[index].stage = .failed
+        nurseryPropagationProjects[index].events.append(
+            NurseryPropagationEvent(
+                kind: .failed,
+                notes: trimmed.isEmpty ? "Marked failed by grower" : trimmed
+            )
+        )
+        nurseryPropagationProjects[index].updatedAt = .now
+        persistAll()
+        return true
+    }
+
+    func deleteNurseryPropagationProject(id: UUID) {
+        nurseryPropagationProjects.removeAll { $0.id == id }
+        careTasks = careTasks.compactMap { task in
+            var next = task
+            next.nurseryPropagationProjectIDs.removeAll { $0 == id }
+            let hasOtherTargets = !next.treeIDs.isEmpty
+                || !next.yamadoriIDs.isEmpty
+                || !next.seedBatchIDs.isEmpty
+                || !next.nurseryPropagationProjectIDs.isEmpty
+                || next.libraryInventoryKind != nil
+            return hasOtherTargets ? next : nil
+        }
+        persistAll()
+    }
+
+    private func nextNurseryPropagationCode(kind: NurseryPropagationKind) -> String {
+        let year = Calendar.current.component(.year, from: Date())
+        let prefix = "\(kind.codePrefix)-\(year)-"
+        let existing = nurseryPropagationProjects(kind: kind)
+            .map(\.projectCode)
+            .compactMap { code -> Int? in
+                guard code.hasPrefix(prefix) else { return nil }
+                return Int(code.dropFirst(prefix.count))
+            }
+        let next = (existing.max() ?? 0) + 1
+        return "\(prefix)\(String(format: "%02d", next))"
+    }
+
+    // MARK: - Reference Data (Settings)
+
+    func referenceRecords(in category: ReferenceDataCategory) -> [ReferenceDataRecord] {
+        referenceCatalog.records(in: category)
+    }
+
+    @discardableResult
+    func saveReferenceDraft(_ draft: ReferenceDataDraft, in category: ReferenceDataCategory) -> Bool {
+        guard referenceCatalog.save(draft, in: category) else { return false }
+        persistReferenceCatalog()
+        return true
+    }
+
+    func setReferenceActive(id: UUID, in category: ReferenceDataCategory, isActive: Bool) {
+        referenceCatalog.setActive(id, in: category, isActive: isActive)
+        persistReferenceCatalog()
+    }
+
+    func deleteReferenceItem(id: UUID, in category: ReferenceDataCategory) {
+        referenceCatalog.delete(id, in: category)
+        persistReferenceCatalog()
+    }
+
+    func nextReferenceSortOrder(in category: ReferenceDataCategory) -> Int {
+        (referenceCatalog.records(in: category).map(\.sortOrder).max() ?? -1) + 1
+    }
+
+    /// Active styles for pickers (Settings catalog, not PreviewData).
+    var orderedStyles: [Style] {
+        referenceCatalog.styles.filter(\.isActive).sorted { $0.sortOrder < $1.sortOrder }
+    }
+
+    var orderedSizeClasses: [SizeClass] {
+        referenceCatalog.sizeClasses.filter(\.isActive).sorted { $0.sortOrder < $1.sortOrder }
+    }
+
+    var orderedTreeStages: [TreeStage] {
+        referenceCatalog.treeStages.filter(\.isActive).sorted { $0.sortOrder < $1.sortOrder }
+    }
+
+    var orderedLightConditions: [LightCondition] {
+        referenceCatalog.lightConditions.filter(\.isActive).sorted { $0.sortOrder < $1.sortOrder }
+    }
+
+    var orderedPotTypes: [PotType] {
+        referenceCatalog.potTypes.filter(\.isActive).sorted { $0.sortOrder < $1.sortOrder }
+    }
+
+    var orderedAcquisitionMethods: [AcquisitionMethod] {
+        referenceCatalog.acquisitionMethods.filter(\.isActive).sorted { $0.sortOrder < $1.sortOrder }
+    }
+
+    var orderedWorkTypes: [WorkType] {
+        referenceCatalog.workTypes.filter(\.isActive).sorted { $0.sortOrder < $1.sortOrder }
+    }
+
+    var orderedFertilizerTypes: [FertilizerType] {
+        referenceCatalog.fertilizerTypes.filter(\.isActive).sorted { $0.sortOrder < $1.sortOrder }
+    }
+
+    private func persistReferenceCatalog() {
+        guard let store else { return }
+        do {
+            try store.saveReferenceCatalog(referenceCatalog)
+            lastSaveError = nil
+            noteLocalWrite()
+        } catch {
+            lastSaveError = "Bonsai World could not save Reference Data: \(error.localizedDescription)"
+            print(lastSaveError ?? "")
+        }
+    }
+
+    // MARK: - Pot Brands & Makers
+
+    var orderedPotBrands: [PotBrand] {
+        potBrands.sorted {
+            if $0.sortOrder != $1.sortOrder { return $0.sortOrder < $1.sortOrder }
+            return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+
+    var activePotBrands: [PotBrand] {
+        orderedPotBrands.filter(\.isActive)
+    }
+
+    func potBrand(id: UUID) -> PotBrand? {
+        potBrands.first { $0.id == id }
+    }
+
+    func potMaker(id: UUID) -> PotMaker? {
+        potMakers.first { $0.id == id }
+    }
+
+    /// Makers offered when assigning to a Pot: makers of the selected Brand, plus independents (Mac).
+    func potMakersSelectable(forBrandID brandID: UUID?) -> [PotMaker] {
+        let active = potMakers.filter(\.isActive)
+        let independents = active.filter { $0.brandID == nil }
+        let branded: [PotMaker]
+        if let brandID {
+            branded = active.filter { $0.brandID == brandID }
+        } else {
+            branded = []
+        }
+        return (branded + independents).sorted {
+            if $0.sortOrder != $1.sortOrder { return $0.sortOrder < $1.sortOrder }
+            return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+        }
+    }
+
+    func potMakers(forBrandID brandID: UUID) -> [PotMaker] {
+        potMakers
+            .filter { $0.isActive && $0.brandID == brandID }
+            .sorted {
+                if $0.sortOrder != $1.sortOrder { return $0.sortOrder < $1.sortOrder }
+                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
+    }
+
+    func independentPotMakers() -> [PotMaker] {
+        potMakers
+            .filter { $0.brandID == nil }
+            .sorted {
+                if $0.sortOrder != $1.sortOrder { return $0.sortOrder < $1.sortOrder }
+                return $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            }
+    }
+
+    @discardableResult
+    func addPotBrand(name: String, kind: PotBrandKind = .brand, country: String = "", originText: String = "", notes: String = "") -> PotBrand? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let now = Date.now
+        let brand = PotBrand(
+            name: trimmed,
+            kind: kind,
+            country: country.trimmingCharacters(in: .whitespacesAndNewlines),
+            originText: originText.trimmingCharacters(in: .whitespacesAndNewlines),
+            notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
+            sortOrder: (potBrands.map(\.sortOrder).max() ?? 0) + 1,
+            createdDate: now,
+            modifiedDate: now
+        )
+        potBrands.append(brand)
+        persistPotBrands()
+        return brand
+    }
+
+    func updatePotBrand(_ brand: PotBrand) {
+        guard let index = potBrands.firstIndex(where: { $0.id == brand.id }) else { return }
+        var next = brand
+        next.modifiedDate = .now
+        potBrands[index] = next
+        persistPotBrands()
+    }
+
+    func deletePotBrand(id: UUID) {
+        guard !pots.contains(where: { $0.brandID == id }) else { return }
+        guard !potMakers.contains(where: { $0.brandID == id }) else { return }
+        potBrands.removeAll { $0.id == id }
+        persistPotBrands()
+    }
+
+    @discardableResult
+    func addPotMaker(
+        name: String,
+        brandID: UUID? = nil,
+        makerType: PotMakerType = .unknown,
+        generation: String = "",
+        notes: String = ""
+    ) -> PotMaker? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let now = Date.now
+        let maker = PotMaker(
+            name: trimmed,
+            brandID: brandID,
+            makerType: makerType,
+            generation: generation.trimmingCharacters(in: .whitespacesAndNewlines),
+            notes: notes.trimmingCharacters(in: .whitespacesAndNewlines),
+            sortOrder: (potMakers.map(\.sortOrder).max() ?? 0) + 1,
+            createdDate: now,
+            modifiedDate: now
+        )
+        potMakers.append(maker)
+        persistPotBrands()
+        return maker
+    }
+
+    func updatePotMaker(_ maker: PotMaker) {
+        guard let index = potMakers.firstIndex(where: { $0.id == maker.id }) else { return }
+        var next = maker
+        next.modifiedDate = .now
+        potMakers[index] = next
+        persistPotBrands()
+    }
+
+    func deletePotMaker(id: UUID) {
+        guard !pots.contains(where: { $0.makerID == id }) else { return }
+        potMakers.removeAll { $0.id == id }
+        persistPotBrands()
+    }
+
+    private func persistPotBrands() {
+        guard let store else { return }
+        do {
+            try store.savePotBrandsAndMakers(
+                brands: potBrands,
+                makers: potMakers,
+                seedVersion: potBrandsSeedVersion ?? PotBrandPreviewData.seedVersion
+            )
+            lastSaveError = nil
+            noteLocalWrite()
+        } catch {
+            reportSaveFailure(error)
+        }
     }
 
     func updatePot(
@@ -1896,10 +2950,111 @@ final class DemoLibrary: @unchecked Sendable {
 
     private func promoteDownloadedImages() {
         guard let store, !pendingImagePaths.isEmpty else { return }
-        let ready = pendingImagePaths.filter { store.isImageResident(relativePath: $0) }
-        guard !ready.isEmpty else { return }
-        pendingImagePaths.subtract(ready)
-        imageRevision += 1
+        let batch = Array(pendingImagePaths.prefix(24))
+        let root = store.rootURL
+        Task.detached(priority: .utility) { [weak self] in
+            var ready: [String] = []
+            for path in batch {
+                let url = root.appendingPathComponent(path, isDirectory: false)
+                if Self.fileLooksMaterialized(url) {
+                    ready.append(path)
+                }
+            }
+            guard !ready.isEmpty else { return }
+            await MainActor.run {
+                guard let self else { return }
+                self.pendingImagePaths.subtract(ready)
+                MobileImageThumbnail.clearCache()
+                self.imageRevision += 1
+            }
+        }
+    }
+
+    /// Builds missing Thumbnails/Previews off the main actor (Mac package layout).
+    private func startDerivativeBackfillIfNeeded() {
+        guard !isDerivativeBackfillRunning, let store else { return }
+        let assets = Array(imageAssets.values)
+        guard !assets.isEmpty else { return }
+        isDerivativeBackfillRunning = true
+        let root = store.rootURL
+        derivativeBackfillTask = Task.detached(priority: .utility) { [weak self] in
+            defer {
+                Task { @MainActor in self?.isDerivativeBackfillRunning = false }
+            }
+            var built = 0
+            for asset in assets {
+                if Task.isCancelled { return }
+                let thumbRel = MobileImageDerivativeKind.thumbnail.relativePath(id: asset.id)
+                let previewRel = MobileImageDerivativeKind.preview.relativePath(id: asset.id)
+                let thumbURL = root.appendingPathComponent(thumbRel, isDirectory: false)
+                let previewURL = root.appendingPathComponent(previewRel, isDirectory: false)
+                let needsThumb = !Self.fileLooksMaterialized(thumbURL)
+                let needsPreview = !Self.fileLooksMaterialized(previewURL)
+                guard needsThumb || needsPreview else { continue }
+                let originalURL = root.appendingPathComponent(asset.relativePath, isDirectory: false)
+                guard Self.fileLooksMaterialized(originalURL),
+                      let original = Self.readFileWithTimeout(originalURL, seconds: 1.5),
+                      !original.isEmpty
+                else { continue }
+                try? FileManager.default.createDirectory(
+                    at: thumbURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try? FileManager.default.createDirectory(
+                    at: previewURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                if needsThumb,
+                   let jpeg = MobileImageDerivativeEncoder.jpegData(from: original, kind: .thumbnail) {
+                    try? jpeg.write(to: thumbURL, options: .atomic)
+                }
+                if needsPreview,
+                   let jpeg = MobileImageDerivativeEncoder.jpegData(from: original, kind: .preview) {
+                    try? jpeg.write(to: previewURL, options: .atomic)
+                }
+                built += 1
+                if built == 1 || built.isMultiple(of: 20) {
+                    await MainActor.run {
+                        MobileImageThumbnail.clearCache()
+                        self?.imageRevision += 1
+                    }
+                }
+            }
+            guard built > 0 else { return }
+            await MainActor.run {
+                MobileImageThumbnail.clearCache()
+                self?.imageRevision += 1
+            }
+        }
+    }
+
+    /// Fast existence + non-dataless check without DispatchGroup on the caller.
+    private static func fileLooksMaterialized(_ url: URL) -> Bool {
+        var attributeList = attrlist()
+        attributeList.bitmapcount = u_short(ATTR_BIT_MAP_COUNT)
+        attributeList.commonattr = attrgroup_t(ATTR_CMN_FLAGS)
+        var buffer = (length: UInt32(0), flags: UInt32(0))
+        let read = url.withUnsafeFileSystemRepresentation { pathPtr -> Int32 in
+            guard let pathPtr else { return -1 }
+            return getattrlist(pathPtr, &attributeList, &buffer, MemoryLayout.size(ofValue: buffer), 0)
+        }
+        guard read == 0 else { return false }
+        return buffer.flags & UInt32(SF_DATALESS) == 0
+    }
+
+    private static func readFileWithTimeout(_ url: URL, seconds: TimeInterval) -> Data? {
+        final class Box: @unchecked Sendable { var data: Data? }
+        let box = Box()
+        let group = DispatchGroup()
+        group.enter()
+        DispatchQueue.global(qos: .utility).async {
+            defer { group.leave() }
+            guard let handle = try? FileHandle(forReadingFrom: url) else { return }
+            defer { try? handle.close() }
+            box.data = try? handle.readToEnd()
+        }
+        guard group.wait(timeout: .now() + seconds) == .success else { return nil }
+        return box.data
     }
 
     private func discardImageAsset(id: UUID) {
@@ -2160,6 +3315,10 @@ final class DemoLibrary: @unchecked Sendable {
         soilMixID: UUID? = nil,
         potTypeID: UUID? = nil,
         lightConditionID: UUID? = nil,
+        homeLocationID: UUID? = nil,
+        winterLocationID: UUID? = nil,
+        placementStrategy: TreePlacementStrategy = .seasonal,
+        seasonPlacement: TreeSeasonPlacement = .summer,
         propagation: TreePropagation? = nil,
         acquisitionDate: Date? = nil,
         acquisitionMethodID: UUID? = nil,
@@ -2178,8 +3337,9 @@ final class DemoLibrary: @unchecked Sendable {
         guard !botanical.isEmpty, !name.isEmpty else { return nil }
         guard genusID != nil, speciesID != nil else { return nil }
         guard !isBonsaiNameInUse(name) else { return nil }
-        guard location(id: locationID) != nil else { return nil }
-        let tree = Tree(
+        let homeID = homeLocationID ?? locationID
+        guard location(id: homeID) != nil else { return nil }
+        var tree = Tree(
             botanicalName: botanical,
             nickname: nickname.trimmingCharacters(in: .whitespacesAndNewlines),
             bonsaiName: name,
@@ -2190,7 +3350,9 @@ final class DemoLibrary: @unchecked Sendable {
             sizeClassID: sizeClassID,
             treeStageID: treeStageID,
             healthStatus: .stable,
-            locationID: locationID,
+            locationID: homeID,
+            homeLocationID: homeID,
+            winterLocationID: winterLocationID,
             soilMixID: soilMixID,
             potTypeID: potTypeID,
             lightConditionID: lightConditionID,
@@ -2205,8 +3367,11 @@ final class DemoLibrary: @unchecked Sendable {
             purchasePrice: purchasePrice,
             acquisitionNotes: acquisitionNotes.trimmingCharacters(in: .whitespacesAndNewlines),
             lastRepottedDate: lastRepottedDate,
-            repottingIntervalYears: repottingIntervalYears
+            repottingIntervalYears: repottingIntervalYears,
+            placementStrategy: placementStrategy,
+            seasonPlacement: seasonPlacement
         )
+        tree.syncStandingLocationFromPlacement()
         trees.append(tree)
         syncAutoRepottingSchedule(for: tree.id)
         persistAll()
@@ -2337,6 +3502,10 @@ final class DemoLibrary: @unchecked Sendable {
         id: UUID,
         nickname: String,
         locationID: UUID,
+        homeLocationID: UUID? = nil,
+        winterLocationID: UUID? = nil,
+        placementStrategy: TreePlacementStrategy? = nil,
+        seasonPlacement: TreeSeasonPlacement? = nil,
         soilMixID: UUID?,
         potTypeID: UUID?,
         lightConditionID: UUID?,
@@ -2358,7 +3527,15 @@ final class DemoLibrary: @unchecked Sendable {
     ) {
         guard let index = trees.firstIndex(where: { $0.id == id }) else { return }
         trees[index].nickname = nickname
-        trees[index].locationID = locationID
+        trees[index].homeLocationID = homeLocationID ?? locationID
+        trees[index].winterLocationID = winterLocationID
+        if let placementStrategy {
+            trees[index].placementStrategy = placementStrategy
+        }
+        if let seasonPlacement {
+            trees[index].seasonPlacement = seasonPlacement
+        }
+        trees[index].syncStandingLocationFromPlacement()
         trees[index].soilMixID = soilMixID
         trees[index].potTypeID = potTypeID
         trees[index].lightConditionID = lightConditionID
@@ -2543,6 +3720,100 @@ final class DemoLibrary: @unchecked Sendable {
         orderedSeedBatches.filter { $0.soilMixID == mixID }
     }
 
+    /// Copies this iPhone library into the shared iCloud package, then switches location preference.
+    /// Caller must confirm replace when ``iCloudPackageHasTrees`` is true.
+    @MainActor
+    func moveLocalLibraryToICloud() async throws {
+        guard let store, !store.isICloudDrive else { return }
+        persistAll()
+        guard let iCloud = await MobileLibraryStore.iCloudDrive() else {
+            throw MobileLibraryMoveError.iCloudUnavailable
+        }
+        try FileManager.default.createDirectory(at: iCloud.rootURL, withIntermediateDirectories: true)
+        try copyPackageContents(from: store.rootURL, to: iCloud.rootURL)
+        let lease = iCloud.rootURL.appendingPathComponent(
+            BonsaiWorldICloudLibrary.writerLeaseRelativePath,
+            isDirectory: false
+        )
+        try? FileManager.default.removeItem(at: lease)
+        MobileLibraryStore.locationPreference = .iCloud
+        NotificationCenter.default.post(name: .bonsaiMobileLibraryLocationDidChange, object: nil)
+    }
+
+    /// Opens the shared Mac/iPhone iCloud library without uploading this phone’s local trees.
+    /// Preference flips first so the session never stays on This iPhone demo after the tap.
+    @MainActor
+    func openSharedICloudLibrary(forceRedownloadTrees: Bool = true) async throws {
+        // Flip preference before the ubiquity lookup so UI cannot keep showing local demo (3 trees).
+        MobileLibraryStore.locationPreference = .iCloud
+        UserDefaults.standard.removeObject(forKey: Self.lastAppliedWriterLeaseKey)
+        lastAppliedWriterLeaseAt = nil
+        lastCatalogDownloadAttemptAt = nil
+        lastCatalogZipHealAttemptAt = nil
+        catalogSyncBehindMessage = nil
+
+        guard let iCloud = await MobileLibraryStore.iCloudDrive() else {
+            // Preference is already iCloud — recreate session into waiting state, then surface the error.
+            NotificationCenter.default.post(name: .bonsaiMobileLibraryLocationDidChange, object: nil)
+            throw MobileLibraryMoveError.iCloudUnavailable
+        }
+        if forceRedownloadTrees {
+            iCloud.requestFreshTreesDownload()
+        }
+        NotificationCenter.default.post(name: .bonsaiMobileLibraryLocationDidChange, object: nil)
+    }
+
+    /// Human-readable session state. No file contents or home-directory paths.
+    var libraryStoreDiagnosticLine: String {
+        guard let store else { return "No library store" }
+        let preference: String
+        switch MobileLibraryStore.locationPreference {
+        case .iCloud: preference = "iCloud"
+        case .local: preference = "This iPhone"
+        case .undecided: preference = "not chosen"
+        }
+        let session = store.isICloudDrive ? "iCloud" : "This iPhone"
+        let container = store.matchesExpectedICloudContainer ? "yes" : "no"
+        let fileState: String
+        switch store.treesFileState() {
+        case .ready: fileState = "ready"
+        case .missing: fileState = "missing"
+        case .notReady: fileState = "not downloaded"
+        }
+        let source: String
+        if Self.isDemoSampleCatalog(trees) {
+            source = "demo"
+        } else if trees.isEmpty {
+            source = "none"
+        } else if store.isICloudDrive {
+            source = "iCloud"
+        } else {
+            source = "This iPhone"
+        }
+        var line =
+            "Preference \(preference) · session \(session) · container \(container) · Trees.json \(fileState) · \(trees.count) loaded from \(source)"
+        if let lease = store.loadWriterLeaseIfPresent(), let remote = lease.treeCount {
+            line += " · Mac lease \(remote)/\(lease.myTreesCount ?? 0)"
+        } else if let stamp = store.loadCatalogSyncStamp() {
+            line += " · Mac stamp \(stamp.treeCount)/\(stamp.myTreesCount)"
+        }
+        if let catalogSyncBehindMessage {
+            line += " — \(catalogSyncBehindMessage)"
+        }
+        return line
+    }
+
+    /// Whether the shared iCloud package already has trees (for replace confirmation).
+    static func iCloudPackageHasTrees() async -> Bool {
+        guard let iCloud = await MobileLibraryStore.iCloudDrive() else { return false }
+        let url = iCloud.rootURL.appendingPathComponent(MobileLibraryPackageLayout.treesFileName)
+        guard
+            let rootObj = try? JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any],
+            let trees = rootObj["trees"] as? [Any]
+        else { return false }
+        return !trees.isEmpty
+    }
+
     /// Creates a dated store-method ZIP of the on-disk library package for sharing.
     func prepareLibraryExportPackage() throws -> URL {
         guard let store else {
@@ -2635,27 +3906,18 @@ final class DemoLibrary: @unchecked Sendable {
     private func reloadFromDisk() {
         lastLoadError = nil
         lastSaveError = nil
-        trees = []
-        workRecords = []
-        collections = []
-        locations = []
-        gardens = []
-        careTasks = []
-        careSchedules = []
-        yamadoriTrips = []
-        yamadoriFinds = []
-        seedBatches = []
-        soilMixes = []
-        inventoryStock = []
-        imageAssets = [:]
-        imageJPEGData = [:]
         loadOrSeed()
         refreshTodayTasksNotification()
     }
 
-    /// Single-writer warning when this library is on iCloud (A1).
+    /// Single-writer warning when this library is on iCloud (A1 / S3).
     var foreignWriterWarningText: String? {
         store?.foreignWriterWarning()
+    }
+
+    /// Settings → Write anyway for one minute despite a foreign lease (S3).
+    func allowLibraryWriteDespiteForeignLease() {
+        store?.allowLibraryWriteDespiteForeignLease()
     }
 
     /// Updates Settings → User Profile name (Mac-compatible UserProfile.json).
@@ -2664,35 +3926,36 @@ final class DemoLibrary: @unchecked Sendable {
         persistProfile()
     }
 
+    /// Updates Settings → User Profile email.
+    func setGrowerEmail(_ email: String) {
+        growerEmail = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        persistProfile()
+    }
+
     /// Schedules or clears the daily 07:00 Today Tasks local notification.
     func refreshTodayTasksNotification() {
         MobileTodayTasksNotifier.sync(todayCount: pendingTasks(due: .today).count)
     }
 
-    /// Wipes the on-disk iOS library and reseeds demo data (B1).
-    func resetLibraryToDemo() {
-        guard let store else { return }
+    /// Wipes the **On This iPhone** library to an empty catalog. Never touches the shared iCloud library.
+    func resetLibraryToEmpty() {
+        MobileLibraryStore.locationPreference = .local
+        let local: MobileLibraryStore
+        if let store, !store.isICloudDrive {
+            local = store
+        } else {
+            local = MobileLibraryStore.applicationSupport()
+        }
         do {
-            try store.wipePackage()
+            try local.wipePackage()
+            try local.saveTrees([])
+            try local.saveWork([])
+            try local.saveCollections([])
+            try local.saveTasks([])
+            try local.saveSchedules([])
             lastLoadError = nil
             lastSaveError = nil
-            trees = Self.sampleTrees
-            workRecords = Self.sampleWork(for: trees)
-            collections = []
-            locations = CanonicalLocationID.seedLocations
-            gardens = Garden.seedCatalog
-            careTasks = Self.sampleTasks(for: trees)
-            careSchedules = []
-            yamadoriTrips = []
-            yamadoriFinds = []
-            seedBatches = []
-            soilMixes = []
-            inventoryStock = []
-            imageAssets = [:]
-            imageJPEGData = [:]
-            // Keep growerName across demo reset.
-            persistAll()
-            refreshTodayTasksNotification()
+            NotificationCenter.default.post(name: .bonsaiMobileLibraryLocationDidChange, object: nil)
         } catch {
             lastLoadError = "Bonsai World could not reset the library: \(error.localizedDescription)"
             print(lastLoadError ?? "")
@@ -2706,33 +3969,95 @@ final class DemoLibrary: @unchecked Sendable {
         persistAll()
     }
 
+    /// Care page mutations (bags / checklists) — keeps `careTasks` file-private setter.
+    func mutateCareTasks(_ body: (inout [CareTask]) -> Void) {
+        body(&careTasks)
+        persistAll()
+        refreshTodayTasksNotification()
+    }
+
     // MARK: - Persistence
 
     private func loadOrSeed() {
         guard let store else { return }
         do {
-            try store.ensureFolderStructure()
+            let preferICloud = MobileLibraryStore.locationPreference == .iCloud || store.isICloudDrive
+            if !store.isICloudDrive {
+                try store.ensureFolderStructure()
+            }
             switch store.treesFileState() {
             case .notReady:
-                waitingForICloudLibrary = true
+                waitingForICloudLibrary = trees.isEmpty
+                iCloudCatalogReadyToWrite = false
+                store.requestFreshTreesDownload()
+                startTreesCatalogLocatorIfNeeded()
                 return
-            case .missing where store.isICloudDrive:
-                waitingForICloudLibrary = false
+            case .missing where preferICloud:
+                // Never seed demo into an iCloud session — wait for Mac’s Trees.json.
+                waitingForICloudLibrary = trees.isEmpty
+                iCloudCatalogReadyToWrite = false
+                store.requestFreshTreesDownload()
+                startTreesCatalogLocatorIfNeeded()
                 return
             case .missing, .ready:
                 waitingForICloudLibrary = false
             }
             if let loadedTrees = try store.loadTrees() {
-                trees = loadedTrees
-                workRecords = try store.loadWork() ?? []
-                let catalog = try store.loadImageCatalog() ?? []
-                imageAssets = Dictionary(uniqueKeysWithValues: catalog.map { ($0.id, $0) })
+                trees = Self.treesByRemovingUnspecifiedCultivarBonsaiNames(loadedTrees)
+                if rejectDemoCatalogPresentedAsICloud(store: store) {
+                    return
+                }
+                if store.isICloudDrive {
+                    try store.ensureFolderStructure()
+                }
+                // Keep a valid local catalog on screen. Heal from ZIP when it is newer; never blank the UI.
+                if store.isICloudDrive, isLocalCatalogBehindSyncStamp(store: store) {
+                    let before = trees.count
+                    if applyTreesCatalogZipHeal(store: store) {
+                        print("Bonsai World: ZIP heal after load — \(before) → \(trees.count) trees")
+                    } else {
+                        catalogSyncBehindMessage =
+                            "Catalog not updated — phone \(trees.count) trees, Mac expects \(store.expectedRemoteTreeCount() ?? 0). Waiting for TreesCatalog.zip."
+                        print(catalogSyncBehindMessage ?? "")
+                        store.requestFreshTreesDownload()
+                    }
+                }
+                // Never write a rename pass into iCloud during open. persistAll runs after eligibility.
+                if !store.isICloudDrive, trees != loadedTrees {
+                    do {
+                        try store.saveTrees(trees)
+                    } catch {
+                        lastLoadError = "Bonsai World could not save renamed trees: \(error.localizedDescription)"
+                        print(lastLoadError ?? "")
+                    }
+                }
+                do {
+                    workRecords = try store.loadWork() ?? []
+                } catch MobileLibraryStoreError.notLocal {
+                    requestICloudDownload()
+                } catch {
+                    workRecords = []
+                    lastLoadError = "Bonsai World could not load Work: \(error.localizedDescription)"
+                    print(lastLoadError ?? "")
+                }
+                do {
+                    let catalog = try store.loadImageCatalog() ?? []
+                    imageAssets = Dictionary(uniqueKeysWithValues: catalog.map { ($0.id, $0) })
+                } catch MobileLibraryStoreError.notLocal {
+                    requestICloudDownload()
+                } catch {
+                    imageAssets = [:]
+                    lastLoadError = "Bonsai World could not load Photos: \(error.localizedDescription)"
+                    print(lastLoadError ?? "")
+                }
                 imageJPEGData = [:]
                 jpegOrder = []
                 do {
                     collections = try store.loadCollections() ?? []
                     ensureSystemSmartCollections()
                     lastLoadError = nil
+                } catch MobileLibraryStoreError.notLocal {
+                    requestICloudDownload()
                 } catch {
                     collections = []
                     lastLoadError = "Bonsai World could not load Collections: \(error.localizedDescription)"
@@ -2741,15 +4066,17 @@ final class DemoLibrary: @unchecked Sendable {
                 do {
                     if let loadedLocations = try store.loadLocations() {
                         locations = loadedLocations
+                    } else if store.isICloudDrive {
+                        locations = []
                     } else {
                         locations = CanonicalLocationID.seedLocations
-                        do {
+                        saveSeedFileIfLocal(store: store, name: "Locations") {
                             try store.saveLocations(locations)
-                        } catch {
-                            lastLoadError = "Bonsai World could not save Locations: \(error.localizedDescription)"
-                            print(lastLoadError ?? "")
                         }
                     }
+                } catch MobileLibraryStoreError.notLocal {
+                    locations = []
+                    requestICloudDownload()
                 } catch {
                     locations = []
                     lastLoadError = "Bonsai World could not load Locations: \(error.localizedDescription)"
@@ -2759,15 +4086,17 @@ final class DemoLibrary: @unchecked Sendable {
                     if let loadedGardens = try store.loadGardens() {
                         gardens = loadedGardens
                         ensureOneDefaultGarden()
+                    } else if store.isICloudDrive {
+                        gardens = []
                     } else {
                         gardens = Garden.seedCatalog
-                        do {
+                        saveSeedFileIfLocal(store: store, name: "Gardens") {
                             try store.saveGardens(gardens)
-                        } catch {
-                            lastLoadError = "Bonsai World could not save Gardens: \(error.localizedDescription)"
-                            print(lastLoadError ?? "")
                         }
                     }
+                } catch MobileLibraryStoreError.notLocal {
+                    gardens = []
+                    requestICloudDownload()
                 } catch {
                     gardens = []
                     lastLoadError = "Bonsai World could not load Gardens: \(error.localizedDescription)"
@@ -2776,15 +4105,17 @@ final class DemoLibrary: @unchecked Sendable {
                 do {
                     if let loadedTasks = try store.loadTasks() {
                         careTasks = loadedTasks
+                    } else if store.isICloudDrive {
+                        careTasks = []
                     } else {
                         careTasks = Self.sampleTasks(for: trees)
-                        do {
+                        saveSeedFileIfLocal(store: store, name: "Tasks") {
                             try store.saveTasks(careTasks)
-                        } catch {
-                            lastLoadError = "Bonsai World could not save Tasks: \(error.localizedDescription)"
-                            print(lastLoadError ?? "")
                         }
                     }
+                } catch MobileLibraryStoreError.notLocal {
+                    careTasks = []
+                    requestICloudDownload()
                 } catch {
                     careTasks = []
                     lastLoadError = "Bonsai World could not load Tasks: \(error.localizedDescription)"
@@ -2792,6 +4123,8 @@ final class DemoLibrary: @unchecked Sendable {
                 }
                 do {
                     careSchedules = try store.loadSchedules() ?? []
+                } catch MobileLibraryStoreError.notLocal {
+                    requestICloudDownload()
                 } catch {
                     careSchedules = []
                     lastLoadError = "Bonsai World could not load Schedules: \(error.localizedDescription)"
@@ -2801,14 +4134,14 @@ final class DemoLibrary: @unchecked Sendable {
                     if let loaded = try store.loadYamadori() {
                         yamadoriTrips = loaded.trips
                         yamadoriFinds = loaded.finds
+                    } else if store.isICloudDrive {
+                        yamadoriTrips = []
+                        yamadoriFinds = []
                     } else {
                         yamadoriTrips = []
                         yamadoriFinds = []
-                        do {
+                        saveSeedFileIfLocal(store: store, name: "Yamadori") {
                             try store.saveYamadori(trips: yamadoriTrips, finds: yamadoriFinds)
-                        } catch {
-                            lastLoadError = "Bonsai World could not save Yamadori: \(error.localizedDescription)"
-                            print(lastLoadError ?? "")
                         }
                     }
                 } catch {
@@ -2820,49 +4153,75 @@ final class DemoLibrary: @unchecked Sendable {
                 do {
                     if let loaded = try store.loadSeedBatches() {
                         seedBatches = loaded
+                    } else if store.isICloudDrive {
+                        seedBatches = []
+                        requestICloudDownload()
                     } else {
                         seedBatches = []
-                        do {
+                        saveSeedFileIfLocal(store: store, name: "Seed Batches") {
                             try store.saveSeedBatches(seedBatches)
-                        } catch {
-                            lastLoadError = "Bonsai World could not save Seed Batches: \(error.localizedDescription)"
-                            print(lastLoadError ?? "")
                         }
                     }
+                } catch MobileLibraryStoreError.notLocal {
+                    seedBatches = []
+                    requestICloudDownload()
                 } catch {
                     seedBatches = []
                     lastLoadError = "Bonsai World could not load Seed Batches: \(error.localizedDescription)"
                     print(lastLoadError ?? "")
                 }
                 do {
-                    if let loaded = try store.loadSoilMixes() {
+                    if let loaded = try store.loadSoilMixes(), !loaded.isEmpty {
                         soilMixes = loaded
-                    } else {
+                    } else if store.isICloudDrive {
                         soilMixes = []
-                        do {
+                    } else {
+                        soilMixes = SoilMixCatalogSeed.all
+                        saveSeedFileIfLocal(store: store, name: "Soil Mixes") {
                             try store.saveSoilMixes(soilMixes)
-                        } catch {
-                            lastLoadError = "Bonsai World could not save Soil Mixes: \(error.localizedDescription)"
-                            print(lastLoadError ?? "")
                         }
                     }
-                } catch {
+                } catch MobileLibraryStoreError.notLocal {
                     soilMixes = []
+                    requestICloudDownload()
+                } catch {
+                    soilMixes = store.isICloudDrive ? [] : SoilMixCatalogSeed.all
                     lastLoadError = "Bonsai World could not load Soil Mixes: \(error.localizedDescription)"
+                    print(lastLoadError ?? "")
+                }
+                do {
+                    if let loaded = try store.loadReferenceCatalog() {
+                        referenceCatalog = loaded
+                    } else if store.isICloudDrive {
+                        referenceCatalog = .seededFromPreview()
+                    } else {
+                        referenceCatalog = .seededFromPreview()
+                        saveSeedFileIfLocal(store: store, name: "Reference Data") {
+                            try store.saveReferenceCatalog(referenceCatalog)
+                        }
+                    }
+                } catch MobileLibraryStoreError.notLocal {
+                    referenceCatalog = .seededFromPreview()
+                    requestICloudDownload()
+                } catch {
+                    referenceCatalog = .seededFromPreview()
+                    lastLoadError = "Bonsai World could not load Reference Data: \(error.localizedDescription)"
                     print(lastLoadError ?? "")
                 }
                 do {
                     if let loaded = try store.loadInventoryStock() {
                         inventoryStock = loaded
+                    } else if store.isICloudDrive {
+                        inventoryStock = []
                     } else {
                         inventoryStock = []
-                        do {
+                        saveSeedFileIfLocal(store: store, name: "Inventory") {
                             try store.saveInventoryStock(inventoryStock)
-                        } catch {
-                            lastLoadError = "Bonsai World could not save Inventory: \(error.localizedDescription)"
-                            print(lastLoadError ?? "")
                         }
                     }
+                } catch MobileLibraryStoreError.notLocal {
+                    inventoryStock = []
+                    requestICloudDownload()
                 } catch {
                     inventoryStock = []
                     lastLoadError = "Bonsai World could not load Inventory: \(error.localizedDescription)"
@@ -2871,51 +4230,88 @@ final class DemoLibrary: @unchecked Sendable {
                 do {
                     if let loaded = try store.loadPots() {
                         pots = loaded
+                    } else if store.isICloudDrive {
+                        pots = []
                     } else {
                         pots = []
-                        do {
+                        saveSeedFileIfLocal(store: store, name: "Pots") {
                             try store.savePots(pots)
-                        } catch {
-                            lastLoadError = "Bonsai World could not save Pots: \(error.localizedDescription)"
-                            print(lastLoadError ?? "")
                         }
                     }
+                } catch MobileLibraryStoreError.notLocal {
+                    pots = []
+                    requestICloudDownload()
                 } catch {
                     pots = []
                     lastLoadError = "Bonsai World could not load Pots: \(error.localizedDescription)"
                     print(lastLoadError ?? "")
                 }
                 do {
+                    if let loaded = try store.loadNurseryPropagationProjects() {
+                        nurseryPropagationProjects = loaded
+                    } else if store.isICloudDrive {
+                        nurseryPropagationProjects = []
+                    } else {
+                        nurseryPropagationProjects = []
+                        saveSeedFileIfLocal(store: store, name: "Nursery Propagation") {
+                            try store.saveNurseryPropagationProjects(nurseryPropagationProjects)
+                        }
+                    }
+                } catch MobileLibraryStoreError.notLocal {
+                    nurseryPropagationProjects = []
+                    requestICloudDownload()
+                } catch {
+                    nurseryPropagationProjects = []
+                    lastLoadError = "Bonsai World could not load Nursery Propagation: \(error.localizedDescription)"
+                    print(lastLoadError ?? "")
+                }
+                loadOrSeedPotBrands(store: store)
+                do {
                     if let profile = try store.loadUserProfile() {
                         growerName = profile.name
-                    } else {
-                        growerName = growerName
+                        growerEmail = profile.email
                     }
                 } catch {
-                    // Keep in-memory name if profile file is corrupt.
+                    // Keep in-memory profile if file is corrupt.
                 }
+                syncSpeciesCare()
                 refreshTodayTasksNotification()
+            } else if preferICloud {
+                // Missing Trees.json on iCloud — wait. Never seed trees into the shared library.
+                waitingForICloudLibrary = trees.isEmpty
+                iCloudCatalogReadyToWrite = false
+                store.requestFreshTreesDownload()
+                print("Bonsai World: iCloud Trees.json missing — waiting (will not seed)")
+                return
             } else {
-                trees = Self.sampleTrees
-                workRecords = Self.sampleWork(for: trees)
+                trees = []
+                workRecords = []
                 collections = []
                 locations = CanonicalLocationID.seedLocations
                 gardens = Garden.seedCatalog
-                careTasks = Self.sampleTasks(for: trees)
+                careTasks = []
                 careSchedules = []
                 yamadoriTrips = []
                 yamadoriFinds = []
                 seedBatches = []
                 soilMixes = []
                 inventoryStock = []
+                pots = []
+                nurseryPropagationProjects = []
+                potBrands = PotBrandPreviewData.all
+                potMakers = PotBrandPreviewData.makers
+                potBrandsSeedVersion = PotBrandPreviewData.seedVersion
                 imageAssets = [:]
                 imageJPEGData = [:]
                 ensureSystemSmartCollections()
                 persistAll()
+                syncSpeciesCare()
                 refreshTodayTasksNotification()
             }
         } catch MobileLibraryStoreError.notLocal {
-            waitingForICloudLibrary = true
+            waitingForICloudLibrary = trees.isEmpty
+            iCloudCatalogReadyToWrite = false
+            store.requestFreshTreesDownload()
             return
         } catch {
             let message = "Bonsai World could not load the local library: \(error.localizedDescription)"
@@ -2933,56 +4329,381 @@ final class DemoLibrary: @unchecked Sendable {
             seedBatches = []
             soilMixes = []
             inventoryStock = []
+            pots = []
+            nurseryPropagationProjects = []
+            potBrands = []
+            potMakers = []
             imageAssets = [:]
             imageJPEGData = [:]
         }
         loadedContentStamp = libraryContentStamp()
+        updateICloudWriteEligibility(store: store)
+        // Only mark Mac lease applied when local count is not behind stamp/lease.
+        if !waitingForICloudLibrary, !isLocalCatalogBehindSyncStamp(store: store) {
+            if let lease = store.loadWriterLeaseIfPresent() {
+                rememberAppliedWriterLease(lease.updatedAt)
+            }
+            print("Bonsai World: loaded \(trees.count) trees (myTrees \(myTrees.count), iCloud=\(store.isICloudDrive))")
+        } else if store.isICloudDrive, isLocalCatalogBehindSyncStamp(store: store) {
+            print(
+                "Bonsai World: load incomplete — phone \(trees.count) trees, Mac expects \(store.expectedRemoteTreeCount() ?? 0)"
+            )
+        }
+        if !waitingForICloudLibrary, !imageAssets.isEmpty {
+            startDerivativeBackfillIfNeeded()
+        }
+    }
+
+    /// Loads Pot Brands & Makers; seeds curated catalog when missing or outdated (Mac migration rules).
+    /// iCloud: never write during open — missing files stay empty until they download.
+    private func loadOrSeedPotBrands(store: MobileLibraryStore) {
+        do {
+            if let loaded = try store.loadPotBrandsAndMakers() {
+                let existingVersion = loaded.seedVersion ?? 0
+                let target = PotBrandPreviewData.seedVersion
+                if existingVersion >= target || store.isICloudDrive {
+                    potBrands = loaded.brands
+                    potMakers = loaded.makers
+                    potBrandsSeedVersion = loaded.seedVersion
+                    return
+                }
+                let userBrands = loaded.brands.filter { !$0.isSystemSeed }
+                let userMakers = loaded.makers.filter { !$0.isSystemSeed }
+                var mergedBrands = PotBrandPreviewData.all
+                var mergedMakers = PotBrandPreviewData.makers
+                let seedBrandIDs = Set(mergedBrands.map(\.id))
+                let seedMakerIDs = Set(mergedMakers.map(\.id))
+                for brand in userBrands where !seedBrandIDs.contains(brand.id) {
+                    mergedBrands.append(brand)
+                }
+                for maker in userMakers where !seedMakerIDs.contains(maker.id) {
+                    if let brandID = maker.brandID {
+                        if mergedBrands.contains(where: { $0.id == brandID }) {
+                            mergedMakers.append(maker)
+                        }
+                    } else {
+                        mergedMakers.append(maker)
+                    }
+                }
+                potBrands = mergedBrands
+                potMakers = mergedMakers
+                potBrandsSeedVersion = target
+                try store.savePotBrandsAndMakers(
+                    brands: potBrands,
+                    makers: potMakers,
+                    seedVersion: target
+                )
+            } else if store.isICloudDrive {
+                potBrands = []
+                potMakers = []
+                potBrandsSeedVersion = nil
+            } else {
+                potBrands = PotBrandPreviewData.all
+                potMakers = PotBrandPreviewData.makers
+                potBrandsSeedVersion = PotBrandPreviewData.seedVersion
+                try store.savePotBrandsAndMakers(
+                    brands: potBrands,
+                    makers: potMakers,
+                    seedVersion: potBrandsSeedVersion
+                )
+            }
+        } catch MobileLibraryStoreError.notLocal {
+            potBrands = []
+            potMakers = []
+            potBrandsSeedVersion = nil
+            requestICloudDownload()
+        } catch {
+            potBrands = store.isICloudDrive ? [] : PotBrandPreviewData.all
+            potMakers = store.isICloudDrive ? [] : PotBrandPreviewData.makers
+            potBrandsSeedVersion = store.isICloudDrive ? nil : PotBrandPreviewData.seedVersion
+            lastLoadError = "Bonsai World could not load Pot Brands & Makers: \(error.localizedDescription)"
+            print(lastLoadError ?? "")
+        }
     }
 
     /// Re-reads the library when Mac (or iCloud) has written newer files.
     func refreshFromDiskIfChanged() {
+        pullSharedLibraryFromCloud(forceReload: false)
+    }
+
+    /// Foreground / stalled-iCloud entry — ask bird for Trees.json and reload when the catalog stamp moves.
+    func pullSharedLibraryFromCloud(forceReload: Bool = true) {
+        guard let store else { return }
+
+        // Preference says iCloud but this session still has the local package — cannot see Mac.
+        if MobileLibraryStore.locationPreference == .iCloud, !store.isICloudDrive {
+            if Self.isDemoSampleCatalog(trees) {
+                trees = []
+            }
+            waitingForICloudLibrary = trees.isEmpty
+            catalogSyncBehindMessage = "Preference is iCloud but this session is still On This iPhone"
+            print("Bonsai World: preference is iCloud but store is local — skipping local poll (\(trees.count) trees)")
+            return
+        }
+
         if waitingForICloudLibrary {
             loadOrSeed()
-            if waitingForICloudLibrary { return }
+            if waitingForICloudLibrary {
+                startTreesCatalogLocatorIfNeeded()
+                requestICloudDownload()
+                store.requestFreshTreesDownload()
+                return
+            }
+            treesCatalogLocator?.stop()
+            rescheduleLibraryRefresh()
+            updateCatalogSyncBehindState(store: store)
         }
         promoteDownloadedImages()
         if let until = suppressRefreshUntil, Date() < until {
             loadedContentStamp = libraryContentStamp()
             return
         }
+
         requestICloudDownload()
+        CloudDownload.forceRequest(store.url(for: MobileLibraryPackageLayout.catalogSyncStampFileName))
+        CloudDownload.forceRequest(store.url(for: MobileLibraryPackageLayout.treesCatalogZipFileName))
+
+        let behindStamp = isLocalCatalogBehindSyncStamp(store: store)
+
+        if store.isICloudDrive, behindStamp {
+            if applyTreesCatalogZipHeal(store: store) {
+                updateCatalogSyncBehindState(store: store)
+                updateICloudWriteEligibility(store: store)
+            } else {
+                requestCatalogDownloadThrottled(store: store)
+                updateCatalogSyncBehindState(store: store)
+            }
+        }
+
+        if store.isICloudDrive {
+            reconcileForeignWriterLease(store: store)
+        }
         let stamp = libraryContentStamp()
         guard let stamp else { return }
-        guard stamp != loadedContentStamp else { return }
-        reloadFromDisk()
+        if forceReload || stamp != loadedContentStamp {
+            reloadFromDisk()
+            print("Bonsai World: library reload — \(trees.count) trees (myTrees \(myTrees.count))")
+        }
+        updateCatalogSyncBehindState(store: store)
+    }
+
+    private func isLocalCatalogBehindSyncStamp(store: MobileLibraryStore) -> Bool {
+        if let remote = store.loadCatalogSyncStamp(),
+           remote.isLocalCatalogBehind(localTreeCount: trees.count) {
+            return true
+        }
+        if let lease = store.loadWriterLeaseIfPresent(),
+           lease.isLocalCatalogBehind(localTreeCount: trees.count) {
+            return true
+        }
+        return false
+    }
+
+    /// Applies `Database/TreesCatalog.zip` when it carries a catalog that matches Mac stamp/lease.
+    @discardableResult
+    private func applyTreesCatalogZipHeal(store: MobileLibraryStore) -> Bool {
+        let now = Date()
+        if let last = lastCatalogZipHealAttemptAt, now.timeIntervalSince(last) < 4 {
+            CloudDownload.forceRequest(store.url(for: MobileLibraryPackageLayout.treesCatalogZipFileName))
+            return false
+        }
+        lastCatalogZipHealAttemptAt = now
+        let expected = store.expectedRemoteTreeCount() ?? (trees.count + 3)
+        do {
+            guard let zipTreesJSON = try store.loadTreesJSONFromCatalogZip() else {
+                CloudDownload.forceRequest(store.url(for: MobileLibraryPackageLayout.treesCatalogZipFileName))
+                return false
+            }
+            let healed = try store.replaceTreesJSONFromCatalogHeal(
+                zipTreesJSON,
+                minimumTreeCount: expected,
+                currentLocalCount: trees.count
+            )
+            trees = Self.treesByRemovingUnspecifiedCultivarBonsaiNames(healed)
+            waitingForICloudLibrary = false
+            loadedContentStamp = libraryContentStamp()
+            if let lease = store.loadWriterLeaseIfPresent() {
+                rememberAppliedWriterLease(lease.updatedAt)
+            }
+            catalogSyncBehindMessage = nil
+            updateICloudWriteEligibility(store: store)
+            print("Bonsai World: applied TreesCatalog.zip — \(trees.count) trees (expect ≥ \(expected))")
+            return !isLocalCatalogBehindSyncStamp(store: store)
+        } catch MobileLibraryStoreError.notLocal {
+            CloudDownload.forceRequest(store.url(for: MobileLibraryPackageLayout.treesCatalogZipFileName))
+            return false
+        } catch {
+            print("Bonsai World: TreesCatalog.zip heal failed — \(error.localizedDescription)")
+            CloudDownload.forceRequest(store.url(for: MobileLibraryPackageLayout.treesCatalogZipFileName))
+            return false
+        }
+    }
+
+    private func updateCatalogSyncBehindState(store: MobileLibraryStore) {
+        guard store.isICloudDrive else { return }
+        if let remote = store.loadCatalogSyncStamp(),
+           remote.isLocalCatalogBehind(localTreeCount: trees.count) {
+            catalogSyncBehindMessage =
+                "Catalog not updated — phone \(trees.count) trees, Mac stamp \(remote.treeCount) (\(remote.deviceName)). Healing via TreesCatalog.zip…"
+            return
+        }
+        if let lease = store.loadWriterLeaseIfPresent(),
+           lease.isLocalCatalogBehind(localTreeCount: trees.count) {
+            catalogSyncBehindMessage =
+                "Catalog not updated — phone \(trees.count) trees, Mac lease \(lease.treeCount ?? 0) (\(lease.deviceName)). Healing via TreesCatalog.zip…"
+            return
+        }
+        catalogSyncBehindMessage = nil
+    }
+
+    /// When Mac touched the lease, request a download of Trees.json without evicting the local catalog.
+    @discardableResult
+    private func reconcileForeignWriterLease(store: MobileLibraryStore) -> Bool {
+        guard let lease = store.loadWriterLeaseIfPresent() else { return false }
+        let localName = UIDevice.current.name
+        guard lease.deviceName != localName else { return false }
+        let previous = lastAppliedWriterLeaseAt ?? .distantPast
+        guard lease.updatedAt > previous else { return false }
+        print("Bonsai World: Mac lease newer (\(lease.deviceName) @ \(lease.updatedAt)) — requesting Trees.json from iCloud (keeping \(trees.count) trees on screen).")
+        requestCatalogDownloadThrottled(store: store)
+        return true
+    }
+
+    private func requestCatalogDownloadThrottled(store: MobileLibraryStore) {
+        let now = Date()
+        if let last = lastCatalogDownloadAttemptAt, now.timeIntervalSince(last) < 12 {
+            CloudDownload.forceRequest(store.url(for: MobileLibraryPackageLayout.treesCatalogZipFileName))
+            return
+        }
+        lastCatalogDownloadAttemptAt = now
+        store.requestFreshTreesDownload()
+    }
+
+    private func updateICloudWriteEligibility(store: MobileLibraryStore) {
+        guard store.isICloudDrive else {
+            iCloudCatalogReadyToWrite = true
+            return
+        }
+        iCloudCatalogReadyToWrite =
+            store.treesFileState() == .ready
+            && !trees.isEmpty
+            && !isLocalCatalogBehindSyncStamp(store: store)
+    }
+
+    private func saveSeedFileIfLocal(
+        store: MobileLibraryStore,
+        name: String,
+        _ body: () throws -> Void
+    ) {
+        guard !store.isICloudDrive else { return }
+        do {
+            try body()
+        } catch {
+            lastLoadError = "Bonsai World could not save \(name): \(error.localizedDescription)"
+            print(lastLoadError ?? "")
+        }
+    }
+
+    private static func storedLastAppliedWriterLeaseAt() -> Date? {
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: lastAppliedWriterLeaseKey) != nil else { return nil }
+        return Date(timeIntervalSinceReferenceDate: defaults.double(forKey: lastAppliedWriterLeaseKey))
+    }
+
+    private func rememberAppliedWriterLease(_ date: Date) {
+        let previous = lastAppliedWriterLeaseAt ?? .distantPast
+        guard date > previous else { return }
+        lastAppliedWriterLeaseAt = date
+        UserDefaults.standard.set(date.timeIntervalSinceReferenceDate, forKey: Self.lastAppliedWriterLeaseKey)
     }
 
     private func startLibraryRefresh() {
         guard store != nil else { return }
-        let timer = Timer(timeInterval: 3, repeats: true) { [weak self] _ in
+        // 3s while waiting for iCloud Trees.json; otherwise 12s to cut getattrlist / bird spam.
+        let interval: TimeInterval = waitingForICloudLibrary ? 3 : 12
+        let timer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             self?.refreshFromDiskIfChanged()
         }
         RunLoop.main.add(timer, forMode: .common)
         refreshTimer = timer
     }
 
+    private func rescheduleLibraryRefresh() {
+        refreshTimer?.invalidate()
+        refreshTimer = nil
+        startLibraryRefresh()
+    }
+
     var isUsingICloudDrive: Bool {
         store?.isICloudDrive == true
+    }
+
+    /// Standardized iCloud package path for this session. Nil when the store is local.
+    var iCloudLibraryRootPath: String? {
+        guard let store, store.isICloudDrive else { return nil }
+        return store.rootURL.standardizedFileURL.path
+    }
+
+    private func startTreesCatalogLocatorIfNeeded() {
+        guard store?.isICloudDrive == true, waitingForICloudLibrary else { return }
+        if treesCatalogLocator == nil {
+            let locator = ICloudTreesCatalogLocator()
+            locator.onFoundTreesFile = { [weak self] url in
+                DispatchQueue.main.async {
+                    self?.handleDiscoveredTreesFile(url)
+                }
+            }
+            treesCatalogLocator = locator
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.treesCatalogLocator?.start()
+        }
+        Task.detached(priority: .utility) {
+            _ = await BonsaiWorldICloudLibrary.resolveLibraryRootURL(timeout: 60)
+        }
+    }
+
+    private func handleDiscoveredTreesFile(_ treesURL: URL) {
+        guard let root = BonsaiWorldICloudLibrary.libraryRoot(containingTreesFile: treesURL) else { return }
+        BonsaiWorldICloudLibrary.rememberLibraryRootURL(root)
+        CloudDownload.requestLibraryMaterialize(libraryRoot: root)
+        guard let store else { return }
+        if store.rootURL.standardizedFileURL.path != root.standardizedFileURL.path {
+            print("Bonsai World: metadata query root differs from session — reopening iCloud store")
+            NotificationCenter.default.post(name: .bonsaiMobileLibraryLocationDidChange, object: nil)
+            return
+        }
+        store.requestFreshTreesDownload()
+        loadOrSeed()
+        if !waitingForICloudLibrary {
+            treesCatalogLocator?.stop()
+        }
     }
 
     private func requestICloudDownload() {
         guard let store, store.isICloudDrive else { return }
         // Must not call startDownloadingUbiquitousItem on the main timer — Simulator XPC hangs the UI.
+        CloudDownload.requestLibraryMaterialize(libraryRoot: store.rootURL)
         CloudDownload.requestFolders(
             under: store.rootURL,
-            relativeFolders: ["Database", "Images", "Images/Originals"]
+            relativeFolders: [
+                "Database",
+                "Images",
+                MobileLibraryPackageLayout.imagesOriginals,
+                MobileLibraryPackageLayout.imagesThumbnails,
+                MobileLibraryPackageLayout.imagesPreviews
+            ]
         )
     }
 
-    private func libraryContentStamp() -> Date? {
+    /// mtime + fileSize (+ lease) so a replaced Trees.json is detected even when bird is slow to bump dates alone.
+    private func libraryContentStamp() -> String? {
         guard let store else { return nil }
         let names = [
             MobileLibraryPackageLayout.treesFileName,
+            MobileLibraryPackageLayout.catalogSyncStampFileName,
+            MobileLibraryPackageLayout.treesCatalogZipFileName,
+            BonsaiWorldICloudLibrary.writerLeaseRelativePath,
             MobileLibraryPackageLayout.workFileName,
             MobileLibraryPackageLayout.collectionsFileName,
             MobileLibraryPackageLayout.locationsFileName,
@@ -2994,16 +4715,21 @@ final class DemoLibrary: @unchecked Sendable {
             MobileLibraryPackageLayout.soilMixesFileName,
             MobileLibraryPackageLayout.inventoryStockFileName,
             MobileLibraryPackageLayout.potsFileName,
+            MobileLibraryPackageLayout.nurseryPropagationProjectsFileName,
+            MobileLibraryPackageLayout.potBrandsFileName,
             MobileLibraryPackageLayout.imagesCatalogFileName,
             MobileLibraryPackageLayout.userProfileFileName,
             MobileLibraryPackageLayout.treeMeasurementHistoryFileName
         ]
-        let dates: [Date] = names.compactMap { name in
+        var parts: [String] = []
+        for name in names {
             let url = store.url(for: name)
-            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey])
-            return values?.contentModificationDate
+            let values = try? url.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+            let mtime = values?.contentModificationDate.map { String($0.timeIntervalSinceReferenceDate) } ?? "-"
+            let size = values?.fileSize.map(String.init) ?? "-"
+            parts.append("\(name):\(mtime):\(size)")
         }
-        return dates.max()
+        return parts.joined(separator: "|")
     }
 
     private func noteLocalWrite() {
@@ -3056,6 +4782,18 @@ final class DemoLibrary: @unchecked Sendable {
         guard let store else { return }
         do {
             try store.saveImageData(jpegData, relativePath: asset.relativePath)
+            if let thumb = MobileImageDerivativeEncoder.jpegData(from: jpegData, kind: .thumbnail) {
+                try? store.saveImageData(
+                    thumb,
+                    relativePath: MobileImageDerivativeKind.thumbnail.relativePath(id: asset.id)
+                )
+            }
+            if let preview = MobileImageDerivativeEncoder.jpegData(from: jpegData, kind: .preview) {
+                try? store.saveImageData(
+                    preview,
+                    relativePath: MobileImageDerivativeKind.preview.relativePath(id: asset.id)
+                )
+            }
             lastSaveError = nil
         } catch {
             reportSaveFailure(error)
@@ -3070,21 +4808,70 @@ final class DemoLibrary: @unchecked Sendable {
 
     private func persistAll() {
         guard let store else { return }
+        if store.isICloudDrive, Self.isDemoSampleCatalog(trees) {
+            lastSaveError = "Demo catalog was not saved to iCloud."
+            print(lastSaveError ?? "")
+            return
+        }
+        if store.isICloudDrive, !iCloudCatalogReadyToWrite {
+            lastSaveError = "Bonsai World is still opening the shared iCloud library. Changes were not saved."
+            print(lastSaveError ?? "")
+            return
+        }
         do {
             try store.saveTrees(trees)
-            try store.saveWork(workRecords)
-            try store.saveCollections(collections)
-            try store.saveLocations(locations)
-            try store.saveGardens(gardens)
-            try store.saveTasks(careTasks)
-            try store.saveSchedules(careSchedules)
-            try store.saveYamadori(trips: yamadoriTrips, finds: yamadoriFinds)
-            try store.saveSeedBatches(seedBatches)
-            try store.saveSoilMixes(soilMixes)
-            try store.saveInventoryStock(inventoryStock)
-            try store.savePots(pots)
-            try store.saveImageCatalog(Array(imageAssets.values))
-            try store.saveUserProfile(MobileUserProfileFile(name: growerName, email: ""))
+            try persistIfResident(store, MobileLibraryPackageLayout.workFileName) {
+                try store.saveWork(workRecords)
+            }
+            try persistIfResident(store, MobileLibraryPackageLayout.collectionsFileName) {
+                try store.saveCollections(collections)
+            }
+            try persistIfResident(store, MobileLibraryPackageLayout.locationsFileName) {
+                try store.saveLocations(locations)
+            }
+            try persistIfResident(store, MobileLibraryPackageLayout.gardensFileName) {
+                try store.saveGardens(gardens)
+            }
+            try persistIfResident(store, MobileLibraryPackageLayout.tasksFileName) {
+                try store.saveTasks(careTasks)
+            }
+            try persistIfResident(store, MobileLibraryPackageLayout.schedulesFileName) {
+                try store.saveSchedules(careSchedules)
+            }
+            try persistIfResident(store, MobileLibraryPackageLayout.yamadoriFileName) {
+                try store.saveYamadori(trips: yamadoriTrips, finds: yamadoriFinds)
+            }
+            try persistIfResident(store, MobileLibraryPackageLayout.seedBatchesFileName) {
+                try store.saveSeedBatches(seedBatches)
+            }
+            try persistIfResident(store, MobileLibraryPackageLayout.soilMixesFileName) {
+                try store.saveSoilMixes(soilMixes)
+            }
+            try persistIfResident(store, MobileLibraryPackageLayout.referenceCatalogFileName) {
+                try store.saveReferenceCatalog(referenceCatalog)
+            }
+            try persistIfResident(store, MobileLibraryPackageLayout.inventoryStockFileName) {
+                try store.saveInventoryStock(inventoryStock)
+            }
+            try persistIfResident(store, MobileLibraryPackageLayout.potsFileName) {
+                try store.savePots(pots)
+            }
+            try persistIfResident(store, MobileLibraryPackageLayout.nurseryPropagationProjectsFileName) {
+                try store.saveNurseryPropagationProjects(nurseryPropagationProjects)
+            }
+            try persistIfResident(store, MobileLibraryPackageLayout.potBrandsFileName) {
+                try store.savePotBrandsAndMakers(
+                    brands: potBrands,
+                    makers: potMakers,
+                    seedVersion: potBrandsSeedVersion ?? PotBrandPreviewData.seedVersion
+                )
+            }
+            try persistIfResident(store, MobileLibraryPackageLayout.imagesCatalogFileName) {
+                try store.saveImageCatalog(Array(imageAssets.values))
+            }
+            try persistIfResident(store, MobileLibraryPackageLayout.userProfileFileName) {
+                try store.saveUserProfile(MobileUserProfileFile(name: growerName, email: growerEmail))
+            }
             lastSaveError = nil
             noteLocalWrite()
         } catch {
@@ -3092,10 +4879,33 @@ final class DemoLibrary: @unchecked Sendable {
         }
     }
 
+    private func persistIfResident(
+        _ store: MobileLibraryStore,
+        _ relativePath: String,
+        _ body: () throws -> Void
+    ) throws {
+        if store.isICloudDrive {
+            switch store.packageFileState(relativePath: relativePath) {
+            case .ready:
+                break
+            case .missing, .notReady:
+                return
+            }
+        }
+        try body()
+    }
+
     private func persistProfile() {
         guard let store else { return }
+        if store.isICloudDrive, !iCloudCatalogReadyToWrite {
+            lastSaveError = "Bonsai World is still opening the shared iCloud library. Changes were not saved."
+            print(lastSaveError ?? "")
+            return
+        }
         do {
-            try store.saveUserProfile(MobileUserProfileFile(name: growerName, email: ""))
+            try persistIfResident(store, MobileLibraryPackageLayout.userProfileFileName) {
+                try store.saveUserProfile(MobileUserProfileFile(name: growerName, email: growerEmail))
+            }
             lastSaveError = nil
         } catch {
             reportSaveFailure(error)
@@ -3113,6 +4923,33 @@ final class DemoLibrary: @unchecked Sendable {
     private static let mapleID = UUID(uuidString: "B2000000-0000-4000-8000-000000000001")!
     private static let juniperID = UUID(uuidString: "B2000000-0000-4000-8000-000000000002")!
     private static let pineID = UUID(uuidString: "B2000000-0000-4000-8000-000000000003")!
+
+    static let sampleTreeIDs: Set<UUID> = [mapleID, juniperID, pineID]
+
+    /// True only for the built-in 3-tree demo set (fixed IDs). A grower’s 3-tree library is not this.
+    static func isDemoSampleCatalog(_ trees: [Tree]) -> Bool {
+        Set(trees.map(\.id)) == sampleTreeIDs
+    }
+
+    /// iCloud selection must not present demo trees as the shared Mac catalog.
+    @discardableResult
+    private func rejectDemoCatalogPresentedAsICloud(store: MobileLibraryStore) -> Bool {
+        let preferICloud = MobileLibraryStore.locationPreference == .iCloud || store.isICloudDrive
+        guard preferICloud, Self.isDemoSampleCatalog(trees) else { return false }
+        print("Bonsai World: iCloud session loaded demo sample catalog — not presenting as shared library")
+        trees = []
+        waitingForICloudLibrary = true
+        iCloudCatalogReadyToWrite = false
+        catalogSyncBehindMessage =
+            "iCloud session still has demo data — waiting for Mac library"
+        lastLoadError = catalogSyncBehindMessage
+        if store.isICloudDrive {
+            store.evictLocalDemoTreesFileIfPresent()
+            store.requestFreshTreesDownload()
+            startTreesCatalogLocatorIfNeeded()
+        }
+        return true
+    }
 
     static let sampleTrees: [Tree] = [
         Tree(
@@ -3204,6 +5041,16 @@ final class DemoLibrary: @unchecked Sendable {
                 notes: "Assess root health before spring."
             )
         ]
+    }
+    /// Legacy `GEN-SPE-XXX-YYYY-NNN` → `GEN-SPE-YYYY-NNN`.
+    private static func treesByRemovingUnspecifiedCultivarBonsaiNames(_ trees: [Tree]) -> [Tree] {
+        trees.map { tree in
+            guard let rewritten = TreeNamingService.bonsaiNameByRemovingUnspecifiedCultivar(tree.bonsaiName)
+            else { return tree }
+            var copy = tree
+            copy.bonsaiName = rewritten
+            return copy
+        }
     }
 }
 
